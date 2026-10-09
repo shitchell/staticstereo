@@ -1,0 +1,28 @@
+# A ball crossing the frame while bouncing.
+#
+# Two animators on ONE layer: `slide` and `bounce` compose, so their
+# translations sum -- which is why there is no `slide-with-bounce` preset.
+#
+# Note the ball is a `shape`, not a PNG. Every example here is authorable in
+# text so a reviewer can read the scene in a diff.
+#
+#   stst render examples/bouncing-ball.yaml -o ball.gif
+#
+# Known wart (design 4.1): easing is per-segment, so the three-key bounce eases
+# the RISE as well as the fall. Fixing it needs per-key easing, a schema change.
+
+size: [800, 300]
+fps: 12
+duration: 4
+layers:
+  - type: shape
+    shape: circle
+    r: 46
+    # `at` for a circle is its CENTRE. Kept well clear of the left edge: the
+    # leftmost sepFar columns cannot encode depth, so an object there is
+    # clipped (design 10.3). Until the plate/stage split lands, mind the margin.
+    at: [140, 190]
+    depth: 1.0
+    anim:
+      - {kind: slide, from: [0, 0], to: [520, 0]}
+      - {kind: bounce, height: 150, duration: 1.0}
