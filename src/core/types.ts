@@ -16,7 +16,17 @@ export type Depth = number
  * are *pipeline stages* applied either side of the encoder, not encoder
  * parameters. Passing them to `sirdsFromDepth` did nothing while looking like
  * it worked, and a forgotten or doubled upscale silently halves or doubles
- * every measured period — so the type now makes it impossible to pass.
+ * every measured period.
+ *
+ * The `?: never` members are what actually enforce that, and they are not
+ * decoration. An earlier version simply omitted the two fields and claimed the
+ * compiler would reject them — it did not. Excess-property checking fires only
+ * on fresh object literals, so with `StereoOpts extends SirdsOpts` a
+ * `StereoOpts` *variable* was assignable to this parameter and
+ * `sirdsFromDepth(d, w, h, stereo)` compiled clean while silently dropping both
+ * fields. That is the exact mistake the split existed to prevent, via the most
+ * natural call shape. Declaring them as `never` makes the wider type genuinely
+ * unassignable.
  */
 export interface SirdsOpts {
   /** Repeat period of the background, in px. */
@@ -26,9 +36,13 @@ export interface SirdsOpts {
   /** Invert depth for cross-eyed viewers. */
   cross: boolean
   seed: number
+  /** Not an encoder parameter — applied by the pipeline via `upscale`. */
+  noiseScale?: never
+  /** Not an encoder parameter — applied by the pipeline via `blurDepth`. */
+  depthBlur?: never
 }
 
-export interface StereoOpts extends SirdsOpts {
+export interface StereoOpts extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur'> {
   /** Nearest-neighbour upscale of noise pixels. 2 fuses more easily than 1. */
   noiseScale: number
   /**

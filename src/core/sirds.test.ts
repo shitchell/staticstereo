@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { sirdsFromDepth, upscale } from './sirds.js'
 import { dominantPeriod, rowOf } from './analysis.js'
 import { DEFAULT_STEREO } from './types.js'
+import type { SirdsOpts } from './types.js'
 
 const W = 800,
   H = 200
@@ -14,7 +15,12 @@ function slab(): Float32Array {
 }
 
 describe('sirdsFromDepth', () => {
-  const o = { ...DEFAULT_STEREO, noiseScale: 1, seed: 7 }
+  const o: SirdsOpts = {
+    sepFar: DEFAULT_STEREO.sepFar,
+    sepNear: DEFAULT_STEREO.sepNear,
+    cross: false,
+    seed: 7,
+  }
 
   it('encodes background depth as the sepFar repeat period', () => {
     const img = sirdsFromDepth(slab(), W, H, o)
@@ -75,10 +81,16 @@ describe('upscale', () => {
   })
 
   it('multiplies the encoded period by the scale factor', () => {
-    const o = { ...DEFAULT_STEREO, noiseScale: 2, seed: 7 }
+    const o: SirdsOpts = {
+      sepFar: DEFAULT_STEREO.sepFar,
+      sepNear: DEFAULT_STEREO.sepNear,
+      cross: false,
+      seed: 7,
+    }
+    const scale = 2
     const img = sirdsFromDepth(slab(), W, H, o)
-    const big = upscale(img, W, H, 2)
-    const row = rowOf(big, W * 2, H).slice(0, 500)
-    expect(dominantPeriod(row, 180, 260).period).toBe(o.sepFar * 2)
+    const big = upscale(img, W, H, scale)
+    const row = rowOf(big, W * scale, H).slice(0, 500)
+    expect(dominantPeriod(row, 180, 260).period).toBe(o.sepFar * scale)
   })
 })

@@ -149,8 +149,12 @@ describe.skipIf(!built)('dist/core purity', () => {
   })
 
   it('emits no test-only helpers into dist', () => {
+    // Matches ANY `testing/` directory, not just core's. src/shared/testing/
+    // now exists too, and hardcoding `core/testing` would not have caught a
+    // regression there — the build excludes both, and this is what keeps it
+    // true.
     const helpers = filesUnder(DIST)
-      .filter(f => f.includes(`${join('core', 'testing')}`))
+      .filter(f => f.split(sep).includes('testing'))
       .map(f => relative(ROOT, f))
     expect(helpers).toEqual([])
   })
