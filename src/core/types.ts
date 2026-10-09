@@ -120,7 +120,13 @@ export type Layer = LayerBase &
   (
     | { type: 'text'; text: string; size?: number; font?: string; weight?: string }
     | { type: 'image'; src: string; mode?: 'silhouette' | 'heightmap'; mask?: MaskSource }
-    | { type: 'gif'; src: string; loop?: 'loop' | 'once' | 'pingpong'; mask?: MaskSource }
+    | {
+        type: 'gif'
+        src: string
+        loop?: 'loop' | 'once' | 'pingpong'
+        mode?: 'silhouette' | 'heightmap'
+        mask?: MaskSource
+      }
     | { type: 'shape'; shape: 'circle' | 'rect'; r?: number; w?: number; h?: number }
     | { type: 'draw'; fn: string }
   )

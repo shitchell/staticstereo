@@ -423,3 +423,78 @@ describe('rasterDepth diagnostics', () => {
     expect(at(d, 4, 3, 1)).toBe(0)
   })
 })
+
+describe('rasterDepth gif mode resolution', () => {
+  /** One opaque 3x1 frame with luminance 0 / 128 / 255 across the row. */
+  function opaqueRamp() {
+    const lum = [0, 128, 255]
+    return {
+      width: 3,
+      height: 1,
+      frames: [{
+        rgba: rgbaImage(3, 1, x => {
+          const v = lum[x]!
+          return [v, v, v, 255]
+        }).rgba,
+        delayMs: 100,
+      }],
+    }
+  }
+
+  /** One frame, half transparent — hasAlpha is true. */
+  function cutout() {
+    return {
+      width: 4,
+      height: 1,
+      frames: [{
+        rgba: rgbaImage(4, 1, x => [255, 255, 255, x < 2 ? 255 : 0]).rgba,
+        delayMs: 100,
+      }],
+    }
+  }
+
+  async function depths(
+    gif: ReturnType<typeof opaqueRamp> | ReturnType<typeof cutout>,
+    layer: Record<string, unknown>,
+  ): Promise<number[]> {
+    const canvas = fakeCanvas({ gifs: { 'g.gif': gif } })
+    const scene: Scene = {
+      size: [gif.width, 1],
+      duration: 1,
+      layers: [{ type: 'gif', src: 'g.gif', at: [0, 0], depth: 1, ...layer } as never],
+    }
+    return Array.from(await rasterDepth(scene, 0, canvas))
+  }
+
+  // An opaque GIF previously hardcoded silhouette, so it flattened to its
+  // bounding rectangle and heightmap was not expressible at all. GIF layers now
+  // resolve mode exactly like still images (design §3.1).
+  it('reads an opaque gif as a heightmap by default', async () => {
+    const d = await depths(opaqueRamp(), {})
+    expect(d[0]!).toBeCloseTo(0, 2)
+    expect(d[1]!).toBeGreaterThan(0.4)
+    expect(d[1]!).toBeLessThan(0.6)
+    expect(d[2]!).toBeCloseTo(1, 2)
+  })
+
+  it('honours an explicit silhouette mode on an opaque gif', async () => {
+    const d = await depths(opaqueRamp(), { mode: 'silhouette' })
+    for (const v of d) expect(v).toBeCloseTo(1, 5)
+  })
+
+  it('honours a luma mask on an opaque gif', async () => {
+    const d = await depths(opaqueRamp(), { mask: { luma: 0.4 } })
+    expect(d[0]!).toBeCloseTo(0, 5)
+    expect(d[2]!).toBeCloseTo(1, 5)
+  })
+
+  // Regression guard: the change must not alter transparent GIFs, which are
+  // the common case and were already correct.
+  it('still treats a gif with alpha as a flat silhouette', async () => {
+    const d = await depths(cutout(), {})
+    expect(d[0]!).toBeCloseTo(1, 5)
+    expect(d[1]!).toBeCloseTo(1, 5)
+    expect(d[2]!).toBeCloseTo(0, 5)
+    expect(d[3]!).toBeCloseTo(0, 5)
+  })
+})

@@ -18,6 +18,17 @@ export interface PresetCtx {
   sceneH: number
   contentW: number
   contentH: number
+  /**
+   * The layer's own base depth, before any animator offset.
+   *
+   * `emerge` needs this and cannot work without it. Transforms are *additive*
+   * offsets, but the design specifies emerge as rising "from 0 to target" —
+   * an absolute range. Without knowing the base depth, emerge keyed 0→1 as an
+   * offset, so a layer at the default depth of 1 animated 1→2, clamped, and sat
+   * perfectly static: the designated depth-space stand-in for a fade did
+   * nothing at all.
+   */
+  layerDepth: number
 }
 
 export type PresetFn = (p: Preset, ctx: PresetCtx) => Track
@@ -175,10 +186,20 @@ export const PRESETS: Record<string, PresetFn> = {
   },
 
   /** Rise out of the background. The depth-space stand-in for a fade-in. */
-  emerge: p => overrides({
+  /**
+   * Rise out of the background. `from`/`to` are **absolute** depths — `to`
+   * defaults to the layer's own depth, so `{kind: 'emerge'}` means "come up
+   * from the noise to wherever this layer lives".
+   *
+   * Keys are emitted as offsets relative to the layer's base depth, because
+   * that is what the transform model composes. Keying absolute values here is
+   * exactly the bug this replaced: a layer at depth 1 animated 1→2 and clamped
+   * to a static surface.
+   */
+  emerge: (p, ctx) => overrides({
     keys: [
-      { t: 0, depth: num(p, 'from', 0) },
-      { t: 1, depth: num(p, 'to', 1) },
+      { t: 0, depth: num(p, 'from', 0) - ctx.layerDepth },
+      { t: 1, depth: num(p, 'to', ctx.layerDepth) - ctx.layerDepth },
     ],
     ease: 'easeOut',
     repeat: 'once',

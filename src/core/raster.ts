@@ -120,11 +120,16 @@ export async function rasterDepth(
 
   for (const layer of scene.layers) {
     const prep = await prepare(layer, scene, seconds, sceneDuration, canvas, scratch, cache)
+    // Hoisted because presets need it too, not only the compositor: `emerge`
+    // expresses an absolute depth range as an offset and cannot do that without
+    // knowing the base it is offsetting from.
+    const layerDepth = layer.depth ?? 1
     const ctx: PresetCtx = {
       sceneW: w,
       sceneH: h,
       contentW: prep.contentW,
       contentH: prep.contentH,
+      layerDepth,
     }
     const t: Transform = composeAnim(layer.anim, seconds, sceneDuration, ctx, compilePreset)
 
@@ -138,7 +143,7 @@ export async function rasterDepth(
     prep.draw(scratch)
     scratch.restore()
 
-    composite(out, scratch.getImageData(0, 0, w, h), layer.depth ?? 1, t.depth, prep.readback)
+    composite(out, scratch.getImageData(0, 0, w, h), layerDepth, t.depth, prep.readback)
   }
 
   return out
@@ -258,15 +263,22 @@ async function prepare(
       data.data.set(frame.rgba)
       host.putImageData(data, 0, 0)
       const handle = host.canvas
+      // Per-frame, because a GIF's frames need not agree: a sprite sheet can
+      // have transparent frames and opaque ones, and guessing from frame 0
+      // would silently change how later frames render.
+      let frameHasAlpha = false
+      for (let i = 3; i < frame.rgba.length; i += 4) {
+        if (frame.rgba[i]! < 255) { frameHasAlpha = true; break }
+      }
       return {
         contentW: gif.width,
         contentH: gif.height,
         defaultAt: [0, 0],
         draw: ctx => ctx.drawImage(handle, 0, 0, gif.width, gif.height),
-        // A GIF has no `mode`: it is always a silhouette at one flat depth.
-        // A fully opaque GIF therefore silhouettes to its bounding rectangle —
-        // `mask: {luma}` is the way out, same as for an opaque PNG (§3.1).
-        readback: layer.mask ?? 'alpha',
+        // Resolved exactly like a still image. GIF layers originally hardcoded
+        // silhouette, which left an opaque GIF silhouetting to its bounding
+        // rectangle with heightmap not expressible at all.
+        readback: imageReadback(layer.mode, layer.mask, frameHasAlpha),
       }
     }
 
