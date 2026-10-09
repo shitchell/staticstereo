@@ -9,27 +9,57 @@
 /** 0 = background, 1 = nearest to viewer. */
 export type Depth = number
 
-export interface StereoOpts {
+/**
+ * What the SIRDS encoder itself consumes.
+ *
+ * Deliberately narrower than {@link StereoOpts}: `noiseScale` and `depthBlur`
+ * are *pipeline stages* applied either side of the encoder, not encoder
+ * parameters. Passing them to `sirdsFromDepth` did nothing while looking like
+ * it worked, and a forgotten or doubled upscale silently halves or doubles
+ * every measured period — so the type now makes it impossible to pass.
+ */
+export interface SirdsOpts {
   /** Repeat period of the background, in px. */
   sepFar: number
   /** Repeat period of the nearest surface, in px. Must be < sepFar. */
   sepNear: number
-  /** Nearest-neighbour upscale of noise pixels. 2 fuses more easily than 1. */
-  noiseScale: number
   /** Invert depth for cross-eyed viewers. */
   cross: boolean
   seed: number
+}
+
+export interface StereoOpts extends SirdsOpts {
+  /** Nearest-neighbour upscale of noise pixels. 2 fuses more easily than 1. */
+  noiseScale: number
+  /**
+   * Gaussian blur radius in px applied to the depth map *after* compositing
+   * and *before* encoding. 0 disables it.
+   *
+   * This is not cosmetic. A hard depth step makes the encoder copy from source
+   * content of a different period, producing a visible ghost of the shape
+   * echoed up to `sepFar` px to its right. Canvas antialiasing only softens
+   * mask edges against the background — it does nothing for heightmap interiors
+   * or layer-over-layer boundaries, which are hard steps by construction.
+   *
+   * Applied in the render pipeline rather than in the rasteriser, so the
+   * rasteriser's max-compositing invariant stays exactly testable.
+   */
+  depthBlur: number
 }
 
 /**
  * The gap between sepFar and sepNear is the entire depth budget — 18px here.
  * Widening it reads as "deeper" but artifacts grow and fusion gets harder, so
  * treat a change to these as a perceptual decision, not a tuning knob.
+ *
+ * depthBlur defaults to 1.0 because that is the value the Python POC was
+ * visually validated at (`docs/poc/sirds.py`).
  */
 export const DEFAULT_STEREO: StereoOpts = {
   sepFar: 110,
   sepNear: 92,
   noiseScale: 2,
+  depthBlur: 1,
   cross: false,
   seed: 0,
 }
@@ -98,7 +128,15 @@ export type Layer = LayerBase &
 export interface Scene {
   size: [number, number]
   fps?: number
-  /** Seconds. Omit for a still. */
+  /**
+   * Seconds. Omit for a still, in which case it is treated as 1 — NOT 0.
+   *
+   * Zero would collapse every track's window and pin all animators at their
+   * t=0 pose, which for `marquee` is fully off-screen: a still of a scrolling
+   * scene would render completely empty. Stills therefore also take an explicit
+   * sample time, defaulting to the midpoint rather than 0, so an animated scene
+   * stills to something visible.
+   */
   duration?: number
   stereo?: Partial<StereoOpts>
   /**

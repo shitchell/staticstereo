@@ -94,12 +94,41 @@ Alpha-blending two layers at different depths averages their depths into a value
 means neither: a logo at depth 1.0 over a dot at 0.6 would render at 0.8 — floating in
 empty space between two real surfaces. Max-compositing avoids this.
 
-A beneficial side effect: canvas edge antialiasing becomes a ~1px depth *ramp* against
-the background, which is precisely the artifact mitigation the POC needed as an explicit
-`--blur` pass. It is now free and automatic. At an edge where `mask = 0.5` over another
-layer at 0.6, `max(0.6, 0.5) = 0.6` — no nonsense blend.
+At an edge where `mask = 0.5` over another layer at 0.6, `max(0.6, 0.5) = 0.6` — no
+nonsense blend. This has a dedicated regression test (§6).
 
-This has a dedicated regression test (§6).
+### 2.2 Antialiasing does NOT replace the POC's depth blur
+
+An earlier revision of this document claimed canvas edge antialiasing made the POC's
+`--blur` pass unnecessary — "free and automatic". **That was wrong, and it was mildly
+self-contradictory.** Recorded here rather than quietly deleted, because the reasoning
+matters.
+
+Antialiasing gives a sub-pixel ramp on boundary pixels of an antialiased *mask edge*. It
+does nothing in two cases that certainly occur:
+
+- **Heightmap interiors.** `mode: 'heightmap'` maps luminance to depth per pixel, so a
+  quantised image — which §1 explicitly *wants* — has hard interior steps with no mask
+  edge to antialias.
+- **Layer-over-layer boundaries.** Where a layer at 1.0 overlaps one at 0.6, `max` yields
+  a hard step *by construction*, and §6's regression test positively **mandates** that no
+  intermediate value appear there. The document cannot both forbid intermediate depths at
+  layer boundaries and claim those boundaries benefit from a blur.
+
+The artifact this leaves is the one the POC's own docstring names: a hard depth step makes
+the encoder copy from source content of a different period, producing a visible **ghost of
+the shape echoed up to `sepFar` px to its right**. Note that no period-measurement test
+catches this — the background still measures `sepFar` at score 1.0 by construction,
+because the echo is a perceptual artifact, not an encoding failure.
+
+So `StereoOpts` carries an explicit `depthBlur` (default 1.0, the value the POC was
+visually validated at). It is applied **in the render pipeline, after compositing and
+before encoding** — not inside the rasteriser — specifically so the max-compositing
+invariant above stays exactly testable on unblurred output.
+
+The free-antialiasing argument survives only in its narrow true form: layer-over-
+*background* mask edges do get a soft ramp, which is why `depthBlur` can be 1px rather
+than the POC's heavier full-map Gaussian.
 
 ---
 
@@ -170,7 +199,7 @@ Keyframes plus easing are the engine; named presets are sugar that compile down 
 ```js
 // authored (sugar)
 { src: 'HELLO',    anim: {kind: 'marquee', speed: 60} }
-{ src: 'ball.png', anim: {kind: 'bounce', h: 200} }
+{ src: 'ball.png', anim: {kind: 'bounce', height: 200} }
 
 // compiled (engine)
 { keys: [{t: 0, x: 800}, {t: 1, x: -400}], ease: 'linear', repeat: 'loop' }
@@ -194,7 +223,27 @@ Everything is JSON-serialisable, so the web view gets a timeline and shareable s
 free.
 
 v1 presets: `slide`, `slide-in`, `marquee`, `emerge`, `bounce`, `bob`. Registry-based —
-adding one later is a new file, not a refactor.
+adding one later is a new file, not a refactor. `bounce` takes `height` (`h` accepted as
+an alias).
+
+### 4.1 Two timing consequences worth knowing up front
+
+**A still of an animated scene must not sample at t=0.** With no `duration`, a naive
+implementation gives every track a zero-width window and pins it at its t=0 pose — which
+for `marquee` is fully off-screen right, so the still renders *completely empty*. Policy:
+an absent `duration` is treated as 1 second, never 0, and still rendering takes an
+explicit sample time defaulting to the **midpoint** of the scene. `stst still` exposes
+`--at <seconds>`.
+
+**`bob` and `bounce` deliberately have no default duration**, so they inherit the scene's.
+That means `{kind: 'bob'}` on a 10-second scene bobs exactly *once* over ten seconds —
+authors wanting an idle wobble must pass `duration`. The alternative was a fixed default
+period, which leaves the track mid-cycle at the scene's end and breaks loop closure.
+`marquee` is the only preset deriving its own duration, because `speed` demands it.
+
+Easing is applied **per segment**, so a three-key `bounce` (`0 → -h → 0`) runs the bounce
+curve on the rise as well as the fall, which is physically backwards. Accepted for v1;
+fixing it properly needs an optional per-`Key` easing, which is a schema change.
 
 ---
 
@@ -436,3 +485,62 @@ encoding bug.
   server and only relative asset paths, since Pages serves a project site from a
   subpath (`/staticstereo/`). Already consistent with §5, which specifies a static site
   with scene state in the URL hash.
+
+### Corrections from implementation review (2026-10-09)
+
+- **Status**: Accepted
+- **Context**: Tasks 2 and 3 were implemented by subagents instructed to report real
+  problems rather than reassurance. Four findings were reproduced and verified before
+  acting on them; one was reported inaccurately and is recorded as such.
+- **Rationale**: Rationale TBD from Shaun — these are technical corrections made under
+  delegated authority ("take the wheel and drive as you see fit"), not choices he weighed
+  in on. Flagged for review; see "Open questions for Shaun" below.
+
+  Confirmed and fixed:
+
+  1. **§2.1's "antialiasing replaces the POC blur" claim was wrong** and mildly
+     self-contradictory. See §2.2 for the full reasoning and the `depthBlur` replacement.
+  2. **`dominantPeriod` could return a period it never measured** (`bestPeriod = lo` with
+     `score = -1`), indistinguishable from a real measurement to a caller that did not
+     check for a negative score. Reproduced: an 80-sample window over candidates 80..140
+     returned `period=80, score=-1, overlap=0`. Fixed with an overlap floor, a `NaN`
+     period when nothing is measurable, and a `samples` count in the return.
+  3. **`upscale(src, w, h, 1)` returned its input by reference.** Reproduced: mutating the
+     result mutated the caller's buffer. Downstream encoders quantise in place, so a
+     reused frame buffer would have been silently corrupted.
+  4. **`localTime` wrapped negative time**, so `{start: 1, repeat: 'loop'}` showed the
+     middle of its animation *before* its start. The planned test only covered
+     `repeat: 'once'`, where the clamp hid it.
+  5. **A still of a `marquee` scene rendered completely empty** — zero duration pinned
+     every track at its t=0 pose, which is off-screen. See §4.1.
+  6. **`sirdsFromDepth` silently ignored `noiseScale`.** Now unpassable: `SirdsOpts` is a
+     narrower type than `StereoOpts`, so the compiler rejects it. A forgotten or doubled
+     upscale would otherwise halve or double every measured period.
+  7. `bounce` took `h` here and `height` in the plan. Canonical is `height`.
+
+  Reported but **not** reproduced as described: the `dominantPeriod` defect was reported
+  as "returns period 236 at score 1.0 from four comparisons". On the flat-slab fixture it
+  instead returns a sentinel `score = -1`. The agent's figure came from the POC's *sphere*
+  — gradient depth, different data. The underlying defect is real; the specific numbers
+  were not independently reproducible and should not be quoted.
+
+  Also noted, accepted as-is for v1: easing is per-segment, so a three-key `bounce` eases
+  the rise as well as the fall (§4.1).
+
+---
+
+## 9. Open questions for Shaun
+
+Decisions made under delegated authority that he has not weighed in on. None block
+implementation; all are cheap to change.
+
+1. **`depthBlur` default of 1.0.** Inherited from the POC, which was visually validated at
+   that value — but "visually validated" means one person glanced at a sphere. Worth
+   checking against a real animation before treating it as correct.
+2. **Stills sample at the scene midpoint.** Defensible (an animated scene stills to
+   something visible) but arbitrary; t=0 is the more literal reading of "the first frame".
+3. **Per-segment easing on `bounce`** is physically backwards and deferred rather than
+   fixed. Fixing it means adding optional per-`Key` easing — a schema change, hence the
+   deferral.
+4. **Licence is TBD** in `package.json` (currently `MIT`) and the README. Public repo, so
+   this wants an actual decision.

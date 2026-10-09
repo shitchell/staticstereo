@@ -1,5 +1,5 @@
 import { makeRng } from './rng.js'
-import type { StereoOpts } from './types.js'
+import type { SirdsOpts } from './types.js'
 
 /**
  * Turn a depth map into a random-dot stereogram.
@@ -19,7 +19,7 @@ export function sirdsFromDepth(
   depth: Float32Array,
   w: number,
   h: number,
-  o: StereoOpts,
+  o: SirdsOpts,
 ): Uint8Array {
   const rnd = makeRng(o.seed)
   const out = new Uint8Array(w * h)
