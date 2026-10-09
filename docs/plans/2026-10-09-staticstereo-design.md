@@ -61,16 +61,17 @@ a feature, not a workaround.
 ## 2. Architecture
 
 One repo, one package, three entry points separated by `package.json` exports. The CLI's
-native dependencies (`skia-canvas`, ffmpeg) must never reach a browser bundle.
+native dependencies (`@napi-rs/canvas`, ffmpeg) must never reach a browser bundle.
 
 ```
 src/
   core/          ← zero dependencies, isomorphic
     sirds.ts       depth → pixels (the algorithm)
-    scene.ts       Scene/Layer types + validation
+    types.ts       Scene/Layer types
+    canvaslike.ts  the injected drawing-surface interface
     anim/          keyframe engine, easings, preset registry
     raster.ts      Scene × t → Float32Array depth
-  node/          ← skia-canvas, ffmpeg, fs
+  node/          ← @napi-rs/canvas, ffmpeg, fs
   web/           ← OffscreenCanvas, WebCodecs, gif encoder
   cli/
 site/            ← the static site; no server
@@ -78,7 +79,7 @@ docs/plans/
 ```
 
 `core/raster.ts` accepts an injected **`CanvasLike`** (anything exposing a 2D context).
-Node supplies `skia-canvas`; the browser supplies `OffscreenCanvas`; core imports
+Node supplies `@napi-rs/canvas`; the browser supplies `OffscreenCanvas`; core imports
 neither. Depth rasterisation is then "draw with grayscale fills, read back one channel",
 which inherits `fillText`, paths, transforms, and `drawImage` instead of reimplementing a
 renderer.
@@ -141,7 +142,8 @@ discriminated union so the format is unambiguous in JSON/YAML.
 size: [800, 450]
 fps: 12
 duration: 4
-stereo: {sepFar: 110, sepNear: 92, noiseScale: 2, freezeNoise: false, cross: false, seed: 7}
+freezeNoise: false   # a Scene field, not a stereo field
+stereo: {sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7}
 layers:
   - {type: text,  text: HELLO,   size: 90,     depth: 0.6, anim: {kind: marquee, speed: 60}}
   - {type: image, src: ball.png,               depth: 1.0, anim: {kind: bounce, height: 200}}
