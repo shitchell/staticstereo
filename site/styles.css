@@ -1,0 +1,255 @@
+:root {
+  --bg: #0d0f12;
+  --panel: #16191f;
+  --line: #262b34;
+  --ink: #e6e8ec;
+  --dim: #99a1ad;
+  --accent: #7fd1b9;
+  --warn: #ff8f6b;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 1.25rem clamp(0.75rem, 3vw, 2.5rem) 3rem;
+  background: var(--bg);
+  color: var(--ink);
+  font: 15px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+h1 {
+  margin: 0;
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
+}
+
+h2 {
+  margin: 0 0 0.6rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--accent);
+}
+
+.masthead {
+  max-width: 68ch;
+}
+
+.tagline {
+  margin: 0.2rem 0 0.6rem;
+  color: var(--dim);
+}
+
+.howto {
+  margin: 0 0 1rem;
+  color: var(--dim);
+  font-size: 0.9rem;
+}
+
+.banner {
+  margin: 0 0 1rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: #2a1a16;
+  color: var(--warn);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+}
+
+.views {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 1rem;
+  margin: 0;
+}
+
+.view {
+  margin: 0;
+  min-width: 0;
+}
+
+.view figcaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-bottom: 0.35rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #000;
+  /*
+    The dot field is the signal. Any smoothing on the way to the screen blends
+    neighbouring dots and destroys exactly the pixel-level correlation the eye
+    is being asked to fuse, so scaling must be nearest-neighbour.
+  */
+  image-rendering: pixelated;
+}
+
+.timeline {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+
+.timeline input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+output {
+  min-width: 11ch;
+  color: var(--dim);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.82rem;
+}
+
+.panels {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+
+.panel {
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+
+.panel.wide {
+  grid-column: 1 / -1;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+  gap: 0.6rem;
+}
+
+label {
+  display: block;
+  font-size: 0.78rem;
+  color: var(--dim);
+}
+
+label.check {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  align-self: end;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  color: var(--ink);
+}
+
+input[type="number"],
+input[type="text"],
+select,
+textarea {
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #0b0d10;
+}
+
+input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  resize: vertical;
+}
+
+button {
+  padding: 0.4rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: #1f242c;
+  cursor: pointer;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: progress;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+}
+
+.note {
+  margin: 0.5rem 0 0;
+  color: var(--dim);
+  font-size: 0.78rem;
+}
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.95em;
+}
+
+.readout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.25rem 0.75rem;
+  margin: 0.6rem 0;
+  font-size: 0.8rem;
+}
+
+.readout dt {
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.readout dd {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow-wrap: anywhere;
+}
+
+footer {
+  max-width: 68ch;
+  margin-top: 2rem;
+  color: var(--dim);
+  font-size: 0.78rem;
+}
+
+a {
+  color: var(--accent);
+}

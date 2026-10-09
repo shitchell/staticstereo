@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>staticstereo — Static on the Stereo</title>
+    <meta
+      name="description"
+      content="Animated single-image random-dot stereogram (SIRDS) generator. Runs entirely in the browser; scenes live in the URL."
+    />
+    <!--
+      Every path in this file is relative. A GitHub project Page is served from
+      the /staticstereo/ subpath, so a leading-slash assets path resolves to the
+      user site root and 404s in production while working perfectly on
+      localhost — the worst failure mode available here. Vite is configured with
+      base: './' for the same reason, and site/dist.test.ts asserts it against
+      the built output.
+
+      Phrased without a literal leading-slash example on purpose: vite keeps
+      HTML comments in the production build, so an example here would land in
+      dist-site/index.html and give a false hit to anyone grepping the built
+      page for absolute asset paths. dist.test.ts reads src=/href= attributes
+      rather than raw text and was never fooled; a human would be.
+    -->
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="masthead">
+      <h1>staticstereo</h1>
+      <p class="tagline">Static on the Stereo — animated random-dot stereograms, no server.</p>
+      <p class="howto">
+        Relax your eyes past the screen until the two halves fuse, the way you would with a
+        Magic Eye print. The depth panel on the right is what the picture is
+        <em>supposed</em> to contain — a stereogram cannot be debugged by eye, so when the
+        canvas looks wrong, check whether the depth map looks wrong too.
+      </p>
+    </header>
+
+    <p class="banner" id="error" role="alert" hidden></p>
+
+    <main>
+      <section class="views">
+        <figure class="view">
+          <figcaption>Stereogram</figcaption>
+          <canvas id="stereo-canvas" width="16" height="9"></canvas>
+        </figure>
+        <figure class="view">
+          <figcaption>
+            Depth map
+            <!--
+              Not labelled "blurred": depthBlur defaults to 0, so these two
+              views are byte-identical until it is raised, and a label promising
+              a blur that is not there would read as a broken panel.
+            -->
+            <select id="depth-view" aria-label="Depth map stage">
+              <option value="composited">as composited</option>
+              <option value="encoded">as encoded (after depthBlur)</option>
+            </select>
+          </figcaption>
+          <canvas id="depth-canvas" width="16" height="9"></canvas>
+        </figure>
+      </section>
+
+      <section class="timeline">
+        <button id="play" type="button">Play</button>
+        <input id="scrub" type="range" min="0" max="0" step="1" value="0" aria-label="Timeline" />
+        <output id="frame-label" for="scrub">frame 0 / 0</output>
+      </section>
+
+      <div class="panels">
+        <section class="panel">
+          <h2>Scene</h2>
+          <label>
+            Example
+            <select id="example"></select>
+          </label>
+          <p class="note" id="example-note"></p>
+
+          <div class="grid">
+            <label>Width <input id="width" type="number" min="1" step="1" /></label>
+            <label>Height <input id="height" type="number" min="1" step="1" /></label>
+            <label>fps <input id="fps" type="number" min="0" step="1" placeholder="still" /></label>
+            <label>
+              Duration (s)
+              <input id="duration" type="number" min="0" step="0.5" placeholder="still" />
+            </label>
+          </div>
+          <p class="note">
+            Leave <strong>fps</strong> and <strong>duration</strong> both empty for a still.
+            Either one alone still animates: a bare duration runs at 12fps, a bare fps runs
+            over one second.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>Stereo</h2>
+          <div class="grid">
+            <label>
+              sepFar (px)
+              <input id="sepFar" type="number" min="3" step="1" />
+            </label>
+            <label>
+              sepNear (px)
+              <input id="sepNear" type="number" min="2" step="1" />
+            </label>
+            <label>
+              noiseScale
+              <input id="noiseScale" type="number" min="1" step="1" />
+            </label>
+            <label>
+              depthBlur (px)
+              <input id="depthBlur" type="number" min="0" step="0.5" />
+            </label>
+            <label>seed <input id="seed" type="number" step="1" /></label>
+            <label class="check">
+              <input id="cross" type="checkbox" />
+              cross-eyed
+            </label>
+            <label class="check">
+              <input id="freezeNoise" type="checkbox" />
+              freeze noise
+            </label>
+          </div>
+          <p class="note">
+            The gap between <strong>sepFar</strong> and <strong>sepNear</strong> is the whole
+            depth budget — about 18px. Widening it reads as "deeper" but artifacts grow and
+            fusion gets harder. <strong>depthBlur</strong> is 0 by default: at an 18px budget
+            it was compared by eye and the blur's own depth gradient reads as a slope, so an
+            object meant to float flat looks like a mesa instead — raise it only if widening
+            the budget makes the edge echo visible. <strong>freeze noise</strong> reuses one
+            dot field for every frame: much easier to fuse, but the shape becomes visible as
+            motion to a single eye.
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>Layer animation</h2>
+          <div class="grid">
+            <label>
+              Layer
+              <select id="layer"></select>
+            </label>
+            <label>
+              Preset
+              <select id="preset"></select>
+            </label>
+          </div>
+          <p class="note" id="preset-note"></p>
+        </section>
+
+        <section class="panel">
+          <h2>Diagnostics</h2>
+          <p class="note">
+            The horizontal repeat period <em>is</em> the encoded depth. <code>n</code> is how
+            many pixel comparisons the measurement rests on — a period scored over 20 of them
+            is not the same claim as one scored over 400.
+          </p>
+          <p class="note">
+            <strong>Measure a band, not a whole row.</strong> A full-width row crosses both
+            the object and the background, and only one period can best explain it — which
+            will be the background's, since the background is the larger share. So the
+            full-row reading reports sepFar × noiseScale almost everywhere, and the object
+            shows up only as the match percentage dropping. To see sepNear × noiseScale you
+            have to measure <em>inside</em> the shape: <strong>click the stereogram</strong>
+            to put the band there, or type the range below.
+          </p>
+          <dl class="readout">
+            <dt>Expected</dt>
+            <dd id="diag-expected">—</dd>
+            <dt>Band</dt>
+            <dd id="diag-selected">—</dd>
+            <dt>Same row, full width</dt>
+            <dd id="diag-fullrow">—</dd>
+            <dt>Top row, full width</dt>
+            <dd id="diag-top">—</dd>
+          </dl>
+          <label>
+            Row <span id="diag-row-label">y=0</span>
+            <input id="diag-row" type="range" min="0" max="0" step="1" value="0" />
+          </label>
+          <div class="grid">
+            <label>Band from x <input id="diag-x0" type="number" min="0" step="1" /></label>
+            <label>Band to x <input id="diag-x1" type="number" min="1" step="1" /></label>
+          </div>
+          <div class="row">
+            <button id="diag-full" type="button">Full width</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h2>Export &amp; share</h2>
+          <div class="row">
+            <button id="export-gif" type="button">Download GIF</button>
+            <button id="export-png" type="button">Download PNG (this frame)</button>
+            <button id="copy-link" type="button">Copy link</button>
+          </div>
+          <p class="note" id="export-status"></p>
+          <p class="note">
+            GIF is lossless for this payload — a stereogram frame is binary black and white,
+            so a two-colour palette is exact. Export runs on this thread, so a long scene
+            will freeze the page while it encodes.
+          </p>
+        </section>
+
+        <section class="panel wide">
+          <h2>Scene JSON</h2>
+          <p class="note">
+            The whole scene, editable. This is also what the link in your address bar
+            carries, so anything you can type here is shareable.
+            <code>type: "image"</code> and <code>type: "gif"</code> layers work with an
+            absolute URL or a <code>data:</code> URI (subject to CORS);
+            <code>type: "draw"</code> is deliberately unsupported.
+          </p>
+          <textarea id="scene-json" spellcheck="false" rows="14"></textarea>
+          <div class="row">
+            <button id="apply-json" type="button">Apply</button>
+            <button id="revert-json" type="button">Revert</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer>
+      <p>
+        <a href="https://github.com/shitchell/staticstereo">shitchell/staticstereo</a> ·
+        the same core renders <code>stst</code> on the command line, so a GIF exported here
+        is byte-identical to one rendered from the same scene there.
+      </p>
+      <p>
+        <a href="https://github.com/shitchell/staticstereo/blob/main/LICENSE">WTFPL</a> — do
+        what the fuck you want to. Nothing you type here leaves your browser: there is no
+        backend, and the whole scene lives in the URL.
+      </p>
+    </footer>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 ---
 title: staticstereo — design
 description: Animated autostereogram (SIRDS) generator with an isomorphic core, a CLI, and a static web view
-status: implemented through core + Node adapter; CLI and site pending
+status: implemented — core, Node and web adapters, CLI, and static site
 date: 2026-10-09
 tags: [autostereogram, sirds, stereoscopy, typescript, cli, canvas, design]
 ---
@@ -662,8 +662,9 @@ implementation; all are cheap to change.
 3. **Per-segment easing on `bounce`** is physically backwards and deferred rather than
    fixed. Fixing it means adding optional per-`Key` easing — a schema change, hence the
    deferral.
-4. **Licence is TBD** in `package.json` (currently `MIT`) and the README. Public repo, so
-   this wants an actual decision.
+4. ~~**Licence is TBD** in `package.json` (currently `MIT`) and the README.~~ **Decided:
+   WTFPL.** `LICENSE`, `package.json` (`"license": "WTFPL"`), the README and the site
+   footer all say so.
 5. **`type: 'draw'` is unimplemented and throws.** Resolving a module path is
    platform-specific: `import()` of a filesystem path is meaningless in the static Pages
    bundle, and doing it in `core` would smuggle a Node dependency past the `CanvasLike`

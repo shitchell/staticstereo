@@ -1,10 +1,16 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "noEmit": true
+    "noEmit": true,
+    // `tsconfig.json` sets rootDir: "src" so the package build has a clean
+    // dist layout. This config also covers `site/`, which is outside it, and
+    // tsc reports TS6059 for any input file above rootDir even with noEmit —
+    // so widen it here. Nothing is emitted, so the layout is irrelevant.
+    "rootDir": "."
   },
   "include": [
-    "src"
+    "src",
+    "site"
   ],
   "exclude": []
 }
