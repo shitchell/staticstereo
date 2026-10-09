@@ -675,11 +675,9 @@ implementation; all are cheap to change.
    the presets, but it means a bare text layer renders in the corner.
 7. **Opaque GIFs now default to heightmap** rather than a flat silhouette. More consistent
    with still images, but it is a behaviour change for anyone who wanted the rectangle.
-8. **`SirdsOpts` does not actually prevent passing `noiseScale`** (see §8 round 2, item 6).
-   The fix is `noiseScale?: never; depthBlur?: never` on `SirdsOpts` plus
-   `StereoOpts extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur'>`, which also requires
-   updating `sirds.test.ts`'s call sites. Deferred only to avoid a type change landing
-   under a concurrently running task.
+8. ~~`SirdsOpts` does not actually prevent passing `noiseScale`.~~ **Fixed** — the
+   `?: never` members landed, the leak probe now fails with TS2345, and §8 round 2 item 6
+   keeps the record of the overstated claim.
 9. **`DEFAULT_FPS = 12` is invented.** It matches the design's example scene and the POC
    default, but nothing chose it deliberately.
 10. **`depthBlur` is the one stage no automated test in this repo can validate for its
@@ -689,3 +687,15 @@ implementation; all are cheap to change.
     open question 1 (the 1.0 default was "visually validated" on a single sphere), this
     whole stage rests on one person's glance at one image. It wants a real look at a real
     animation.
+11. **`CanvasLike` has no teardown hook, and the browser will eventually need one.**
+    `createImageBitmap` returns a resource with `close()` and `DecodedImage` has nowhere to
+    put it. Harmless today — one decode per render, held by `RasterCache` — but a page that
+    swaps scenes repeatedly will leak decoded pixels. Deliberately *not* fixed by widening
+    the interface, since §2 says keep it narrow; the decision is which way to pay.
+12. **The web adapter's `asCtx2D` cast has no test behind it and cannot have one here.**
+    The Node adapter's equivalent cast is backed by a sweep exercising every `Ctx2D` member
+    against the real context. `OffscreenCanvas` does not exist in Node and jsdom/happy-dom
+    do not rasterise, so the browser cast rests only on the DOM spec being the API
+    `@napi-rs/canvas` imitates. `webCanvas().make()`, `loadImage()` (hence the browser's
+    `hasAlpha`/mode decision), and `pngBlob()` are unverified. The highest-value browser
+    test to add later is that same member-by-member sweep.

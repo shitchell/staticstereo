@@ -1028,9 +1028,19 @@ Tasks 6 and 8 are independent; dispatch in parallel. Task 7 depends on 6.
 **Files:** `src/node/canvas.ts`, `src/node/encode.ts`, `src/node/index.ts`, + tests
 
 - `nodeCanvas(): CanvasLike` over `@napi-rs/canvas`. `loadGif` uses `omggif`
-  (`GifReader`, `decodeAndBlitFrameRGBA` per frame — note it *blits*, so reuse and clear
-  the buffer per frame or earlier frames bleed through).
-- `writePng`, `writeGif` (via `gifenc` — **CJS default import**, 2-colour `quantize`),
+  (`GifReader`, `decodeAndBlitFrameRGBA` per frame).
+
+  > ~~note it *blits*, so reuse and clear the buffer per frame or earlier frames bleed
+  > through~~ — **retracted.** Clearing per frame is itself a bug: optimised GIFs are
+  > partial-frame and rely on the previous frame showing through. Implement the GIF
+  > disposal model instead; see "Verified environment facts" above. The shared
+  > implementation now lives in `src/shared/gif.ts` — use it, do not reimplement it.
+- `writePng`, `writeGif` (via `src/shared/gif.ts`; a 2-colour `quantize` with the
+  degenerate-palette guard — `quantize(allBlack, 2)` returns a *single* colour),
+
+  > ~~via `gifenc` — **CJS default import**~~ — **retracted.** `gifenc` is a dual-package
+  > hazard and a default import is wrong under any bundler. Reuse the shim in
+  > `src/shared/gifenc.ts`; see "Verified environment facts" above.
   `writeMp4` (spawn ffmpeg, `-qp 0 -pix_fmt yuv444p`, PNG frames piped or via temp dir),
   `writePngSequence`.
 - `writeMp4` must **warn on stderr** if the caller overrides to a lossy setting, naming
@@ -1062,8 +1072,9 @@ Commit: `feat(cli): stst render/still/preview`
 
 **Files:** `src/web/canvas.ts`, `src/web/encode.ts`, `site/index.html`, `site/main.ts`
 
-- `webCanvas(): CanvasLike` over `OffscreenCanvas`; `loadGif` reuses `omggif` (it is
-  dependency-free and works in a browser).
+- `webCanvas(): CanvasLike` over `OffscreenCanvas`; `loadGif` reuses `src/shared/gif.ts`.
+  `createImageBitmap` is **not** a substitute — it decodes one frame and discards the
+  per-frame timing.
 - Site: live stereogram canvas, **side-by-side depth-map panel** (load-bearing for
   debugging — see design §5), timeline scrubber, preset/stereo controls, GIF export via
   `gifenc`, and scene state serialised into `location.hash`.
