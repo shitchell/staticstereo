@@ -99,7 +99,7 @@ class FakeCtx implements Ctx2D {
   private readonly bmp: Bitmap
   private m: Matrix = [1, 0, 0, 1, 0, 0]
   private readonly stack: Matrix[] = []
-  private arcs: { x: number; y: number; r: number }[] = []
+  private arcs: { x: number; y: number; r: number; start: number; end: number }[] = []
 
   constructor(width: number, height: number) {
     const { surface, bmp } = allocate(width, height)
@@ -146,18 +146,34 @@ class FakeCtx implements Ctx2D {
     /* no-op: the fake has no subpath state beyond pending arcs */
   }
 
-  arc(x: number, y: number, r: number, _start: number, _end: number): void {
-    // Angles are ignored: the rasteriser only ever draws full circles, and a
+  /** A no-op: the predicate painter needs no path cursor. */
+  moveTo(_x: number, _y: number): void {}
+
+  arc(x: number, y: number, r: number, start: number, end: number): void {
+    // Angles are now honoured. They used to be ignored, with a note saying a
     // partial arc that silently filled whole would be worse than not claiming
-    // support at all — see the note in fill().
-    this.arcs.push({ x, y, r })
+    // support — correct then, because the rasteriser only drew full circles.
+    // It draws wedges now (pacman), so ignoring them would make every pie
+    // slice test a false pass.
+    this.arcs.push({ x, y, r, start, end })
   }
 
   fill(): void {
+    const TAU = Math.PI * 2
     for (const a of this.arcs) {
+      const full = a.end - a.start >= TAU - 1e-9
       this.paintLocal(
         [a.x - a.r, a.y - a.r, a.x + a.r, a.y + a.r],
-        (lx, ly) => (lx - a.x) ** 2 + (ly - a.y) ** 2 <= a.r ** 2,
+        (lx, ly) => {
+          if ((lx - a.x) ** 2 + (ly - a.y) ** 2 > a.r ** 2) return false
+          if (full) return true
+          // Canvas angles: 0 at 3 o'clock, increasing clockwise because y is
+          // down. Lift theta into [start, start + TAU) so a wedge spanning the
+          // -pi/pi seam is not split in two.
+          let th = Math.atan2(ly - a.y, lx - a.x)
+          while (th < a.start) th += TAU
+          return th <= a.end
+        },
         parseColor(this.fillStyle),
       )
     }

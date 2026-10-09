@@ -99,7 +99,7 @@ const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {
   text: ['text', 'size', 'font', 'weight'],
   image: ['src', 'mode', 'mask'],
   gif: ['src', 'loop', 'mode', 'mask'],
-  shape: ['shape', 'r', 'w', 'h'],
+  shape: ['shape', 'r', 'w', 'h', 'start', 'end'],
   draw: ['fn'],
 }
 const TRACK_KEYS = ['keys', 'ease', 'repeat', 'start', 'duration'] as const

@@ -60,6 +60,8 @@ export interface Ctx2D {
   clearRect(x: number, y: number, w: number, h: number): void
   fillRect(x: number, y: number, w: number, h: number): void
   beginPath(): void
+  /** Needed for a pie slice: the wedge's point at the centre. */
+  moveTo(x: number, y: number): void
   arc(x: number, y: number, r: number, start: number, end: number): void
   closePath(): void
   fill(): void

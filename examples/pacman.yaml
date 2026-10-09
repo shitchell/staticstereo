@@ -1,0 +1,78 @@
+# Pacman eating dots -- the scene that started the project.
+#
+# Pure YAML, no binary art: pacman is a `circle` with start/end angles (a pie
+# slice), and each dot is eaten by `emerge` run BACKWARDS -- from its own depth
+# down to 0 -- timed to the instant pacman reaches it. Sinking into the
+# background is what 'eaten' means when depth is the only medium you have.
+#
+#   stst render examples/pacman.yaml -o pacman.gif
+
+size: [800, 300]
+fps: 12
+duration: 4.0
+layers:
+  # dot at x=120, eaten at t=0.78s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [120, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 0.78, duration: 0.12}
+  # dot at x=210, eaten at t=1.17s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [210, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 1.17, duration: 0.12}
+  # dot at x=300, eaten at t=1.57s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [300, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 1.57, duration: 0.12}
+  # dot at x=390, eaten at t=1.96s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [390, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 1.96, duration: 0.12}
+  # dot at x=480, eaten at t=2.35s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [480, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 2.35, duration: 0.12}
+  # dot at x=570, eaten at t=2.74s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [570, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 2.74, duration: 0.12}
+  # dot at x=660, eaten at t=3.13s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [660, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 3.13, duration: 0.12}
+  # dot at x=750, eaten at t=3.52s
+  - type: shape
+    shape: circle
+    r: 9
+    at: [750, 150]
+    depth: 0.55
+    anim: {kind: emerge, from: 0.55, to: 0, start: 3.52, duration: 0.12}
+  # pacman: mouth is the 80-degree gap from -40 to +40, so the wedge runs 40..320
+  - type: shape
+    shape: circle
+    r: 40
+    start: 40
+    end: 320
+    at: [0, 150]
+    depth: 1.0
+    anim: {kind: slide, from: [-60, 0], to: [860, 0]}

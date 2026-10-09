@@ -295,8 +295,15 @@ async function prepare(
           // sensible default — (0,0) would put three quarters of it off-canvas.
           defaultAt: [sceneW / 2, sceneH / 2],
           draw: ctx => {
+            // `start`/`end` in DEGREES, clockwise from 3 o'clock, turn the
+            // circle into a pie slice — which is the only thing standing
+            // between this scene format and a pacman, the shape that started
+            // the project. A wedge otherwise needs a PNG, and the examples
+            // then need binary art that cannot be reviewed in a diff.
+            const span = arcSpan(layer.start, layer.end)
             ctx.beginPath()
-            ctx.arc(0, 0, r, 0, Math.PI * 2)
+            if (span !== null) ctx.moveTo(0, 0)   // the wedge's point
+            ctx.arc(0, 0, r, span?.[0] ?? 0, span?.[1] ?? Math.PI * 2)
             ctx.closePath()
             ctx.fill()
           },
@@ -334,6 +341,41 @@ async function prepare(
         `designed on the adapter rather than guessed at in core.`,
       )
   }
+}
+
+/**
+ * Wedge bounds in degrees → radians, or `null` for a full circle.
+ *
+ * Both or neither: one alone is almost certainly a typo for a pie slice, and
+ * silently drawing a full disc would look like the renderer ignoring the scene.
+ * Same loud-failure policy as the preset registry.
+ */
+function arcSpan(
+  start: number | undefined,
+  end: number | undefined,
+): [number, number] | null {
+  if (start === undefined && end === undefined) return null
+  if (start === undefined || end === undefined) {
+    throw new Error(
+      'shape layer "circle": "start" and "end" must be given together ' +
+      `(got start=${JSON.stringify(start)}, end=${JSON.stringify(end)}); ` +
+      'omit both for a full circle',
+    )
+  }
+  if (!Number.isFinite(start) || !Number.isFinite(end)) {
+    throw new Error(
+      `shape layer "circle": "start" and "end" must be finite degrees, got ` +
+      `${JSON.stringify(start)} and ${JSON.stringify(end)}`,
+    )
+  }
+  if (end <= start) {
+    throw new Error(
+      `shape layer "circle": "end" (${end}) must be greater than "start" ` +
+      `(${start}); the wedge is swept clockwise from 3 o'clock`,
+    )
+  }
+  const RAD = Math.PI / 180
+  return [start * RAD, end * RAD]
 }
 
 /**

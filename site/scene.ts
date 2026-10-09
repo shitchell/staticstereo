@@ -235,6 +235,15 @@ function validateLayer(v: unknown, path: string): Layer {
       base['shape'] = shape
       if (shape === 'circle') {
         base['r'] = requirePositive(v['r'], `${path}.r`)
+        // Wedge bounds in degrees, for a pie slice (pacman). Both or neither:
+        // core throws on one alone, and since this builder copies field by
+        // field, omitting them here would SILENTLY DROP a wedge rather than
+        // reject it — the scene would render a full disc and look like the
+        // renderer ignoring the file.
+        if (v['start'] !== undefined || v['end'] !== undefined) {
+          base['start'] = requireFinite(v['start'], `${path}.start`)
+          base['end'] = requireFinite(v['end'], `${path}.end`)
+        }
       } else {
         base['w'] = requirePositive(v['w'], `${path}.w`)
         base['h'] = requirePositive(v['h'], `${path}.h`)

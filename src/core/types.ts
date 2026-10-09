@@ -161,7 +161,20 @@ export type Layer = LayerBase &
         mode?: 'silhouette' | 'heightmap'
         mask?: MaskSource
       }
-    | { type: 'shape'; shape: 'circle' | 'rect'; r?: number; w?: number; h?: number }
+    | {
+        type: 'shape'
+        shape: 'circle' | 'rect'
+        r?: number
+        w?: number
+        h?: number
+        /**
+         * Wedge bounds in DEGREES, clockwise from 3 o'clock. `circle` only.
+         * Supplying both makes a pie slice instead of a full disc — which is
+         * what a pacman is. Omit both for a full circle.
+         */
+        start?: number
+        end?: number
+      }
     | { type: 'draw'; fn: string }
   )
 

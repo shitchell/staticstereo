@@ -498,3 +498,75 @@ describe('rasterDepth gif mode resolution', () => {
     expect(d[3]!).toBeCloseTo(0, 5)
   })
 })
+
+describe('rasterDepth circle wedges (pacman)', () => {
+  const R = 18, CX = 20, CY = 20
+
+  async function depthAt(
+    layer: Record<string, unknown>,
+    probes: [number, number][],
+  ): Promise<number[]> {
+    const canvas = fakeCanvas({})
+    const scene: Scene = {
+      size: [40, 40],
+      layers: [{ type: 'shape', shape: 'circle', r: R, at: [CX, CY], depth: 1, ...layer } as never],
+    }
+    const d = await rasterDepth(scene, 0, canvas)
+    return probes.map(([x, y]) => d[y * 40 + x]!)
+  }
+
+  // Angles in degrees clockwise from 3 o'clock. Probe points sit 12px from the
+  // centre, well inside r=18, one per cardinal direction.
+  const RIGHT: [number, number] = [CX + 12, CY]
+  const LEFT: [number, number] = [CX - 12, CY]
+  const UP: [number, number] = [CX, CY - 12]
+  const DOWN: [number, number] = [CX, CY + 12]
+
+  it('fills every direction when start/end are omitted', async () => {
+    const [r, l, u, dn] = await depthAt({}, [RIGHT, LEFT, UP, DOWN])
+    for (const v of [r, l, u, dn]) expect(v).toBeCloseTo(1, 5)
+  })
+
+  // THE POINT OF THE FEATURE. A pacman is a circle with a bite taken out, and
+  // a wedge is the only thing standing between this scene format and the shape
+  // that started the project. If the angles were ignored, the mouth would fill
+  // and this test would fail — which is exactly what it is for.
+  it('leaves the mouth empty for a rightward-facing pacman', async () => {
+    const [r, l, u, dn] = await depthAt({ start: 40, end: 320 }, [RIGHT, LEFT, UP, DOWN])
+    expect(r).toBeCloseTo(0, 5)      // inside the 80-degree mouth
+    expect(l).toBeCloseTo(1, 5)
+    expect(u).toBeCloseTo(1, 5)
+    expect(dn).toBeCloseTo(1, 5)
+  })
+
+  it('points the mouth wherever the angles say', async () => {
+    // Mouth facing down: 45..135 degrees is the open span, so the wedge is
+    // the complement, 135..405.
+    const [r, l, u, dn] = await depthAt({ start: 135, end: 405 }, [RIGHT, LEFT, UP, DOWN])
+    expect(dn).toBeCloseTo(0, 5)
+    expect(r).toBeCloseTo(1, 5)
+    expect(l).toBeCloseTo(1, 5)
+    expect(u).toBeCloseTo(1, 5)
+  })
+
+  it('handles a wedge spanning the angle seam', async () => {
+    // -30..30 crosses 0; a naive implementation splits this into two pieces.
+    const [r, l] = await depthAt({ start: -30, end: 30 }, [RIGHT, LEFT])
+    expect(r).toBeCloseTo(1, 5)
+    expect(l).toBeCloseTo(0, 5)
+  })
+
+  it('rejects start without end, naming both and the way out', async () => {
+    await expect(depthAt({ start: 40 }, [RIGHT])).rejects.toThrow(
+      /"start" and "end" must be given together.*omit both for a full circle/s,
+    )
+    await expect(depthAt({ end: 320 }, [RIGHT])).rejects.toThrow(/given together/)
+  })
+
+  it('rejects a non-increasing or non-finite span', async () => {
+    await expect(depthAt({ start: 320, end: 40 }, [RIGHT])).rejects.toThrow(
+      /"end" \(40\) must be greater than "start" \(320\)/,
+    )
+    await expect(depthAt({ start: 0, end: Number.NaN }, [RIGHT])).rejects.toThrow(/finite degrees/)
+  })
+})
