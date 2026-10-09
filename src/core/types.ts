@@ -146,9 +146,21 @@ export interface Scene {
   duration?: number
   stereo?: Partial<StereoOpts>
   /**
-   * Re-randomise the dot field every frame. Default true, which is what makes
-   * an animation read as pure static; set false for a stable field that is
-   * easier to fuse but reveals the shape as motion to a single eye.
+   * Reuse one noise seed for every frame.
+   *
+   * Default **false**: the dot field is re-randomised per frame, which is what
+   * makes an animation read as pure static. Set true for a stable field that is
+   * easier to fuse but reveals the shape as motion to a single eye — the POC's
+   * `--freeze-noise`, and the reason the flag is named for the opt-in.
+   *
+   * (This comment previously read "Re-randomise the dot field every frame.
+   * Default true" — a description of the inverse field, which would have made
+   * `freezeNoise: true` mean *un*frozen. Design §3's own example scene says
+   * `freezeNoise: false` for the static-looking default, and the POC's flag is
+   * documented as "reuse one noise seed every frame".)
+   *
+   * The per-frame seed is derived from the sample *time*, not from a frame
+   * counter, so `renderFrame(scene, t)` stays a pure function of its arguments.
    */
   freezeNoise?: boolean
   layers: Layer[]
