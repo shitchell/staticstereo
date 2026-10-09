@@ -38,12 +38,50 @@ substitute alternatives without re-testing.
 | ffmpeg | 8.0.1 — supports `libx264 -qp 0 -pix_fmt yuv444p` |
 | `@napi-rs/canvas` | installs clean, no system libs; `fillText`, `measureText`, `getImageData` all verified working |
 | `skia-canvas` | also works; **rejected** — bundles a full Skia, heavier, no benefit here |
-| `gifenc` | works; **ships CommonJS** — `import gifenc from 'gifenc'` then destructure. Named ESM imports throw. |
-| `omggif` | works; exposes `GifReader` as a proper named import |
+| `gifenc` | works, but is a **dual-package hazard** — see below. Do not use a default import. |
+| `omggif` | works; exposes `GifReader` as a proper named import. **Decoding needs the disposal model, not a buffer clear** — see below. |
 
 **GIF timing quantisation (measured):** `gifenc` delays round to 10ms units per the GIF
 spec. Requesting `delay: 83` (12fps) reads back as 80ms, i.e. 12.5fps. Prefer fps values
 that divide 100 — 10, 12.5, 20, 25 — or accept the rounding. Assert on 80, not 83.
+
+### `gifenc` is a dual-package hazard — read this before importing it
+
+An earlier revision of this plan said "ships CommonJS, use a default import". That is
+**correct under Node and backwards under every bundler.** `gifenc` ships a CJS `main` and
+an ESM `module` with no `exports` map, so the same source line resolves to two different
+things. Measured on this machine:
+
+| import form | Node (CJS `main`) | Vite / vitest / esbuild (ESM `module`) |
+|---|---|---|
+| `import g from 'gifenc'` | namespace object; `g.GIFEncoder` is a function | **`GIFEncoder` itself**; `g.GIFEncoder` is `undefined` |
+| `import { quantize } from 'gifenc'` | SyntaxError at link time | works |
+| `import * as ns from 'gifenc'` | `{ default }` only | full namespace |
+
+**The trap is the test suite, not the import.** vitest resolves through Vite, so it only
+ever exercises the bundler half. A Node-correct default import therefore stays *green in
+CI* while the shipped CLI is broken, and a bundler-correct named import stays green in CI
+while failing the moment the CLI runs. Neither failure is visible from the suite alone.
+
+Use a namespace import plus a one-line shape probe, and pin **both** directions with
+tests. `src/node/encode.ts` already has a working shim — **reuse it rather than
+rediscovering this.** Verify any change to it by deliberately breaking it each way and
+confirming each break turns something red.
+
+### `omggif` decoding needs the GIF disposal model
+
+An earlier revision said "clear the buffer per frame or earlier frames bleed through."
+**That is one-directional, and the fix it implies is a second bug.**
+
+`decodeAndBlitFrameRGBA` writes only the frame's subrect and skips transparent pixels, so
+the buffer *is* the compositing canvas. Optimised GIFs — which is what `gifsicle` and
+ffmpeg emit, i.e. most real-world GIFs — are partial-frame and rely on the previous frame
+showing through. Clearing per frame renders them full of holes.
+
+The GIF spec specifies the behaviour per frame via the **disposal method**, and `omggif`
+does not act on it: `0`/`1` keep the previous canvas, `2` clear the frame's rect to
+background, `3` restore the pre-frame snapshot. `src/node/canvas.ts` implements this with
+a fresh output buffer per frame and fixtures pinning both failure directions.
 
 ---
 
@@ -115,6 +153,12 @@ build imports `staticstereo` (core only), never `staticstereo/node`.
 `"lib": ["DOM"]` is needed for `CanvasRenderingContext2D` types in `core` even though
 core never *imports* a canvas. `noUncheckedIndexedAccess` is deliberate — this codebase
 is dense with typed-array indexing and it catches real off-by-ones.
+
+> **Superseded as built.** This config has since been split in two: `tsconfig.json` adds
+> `"exclude": ["**/*.test.ts", "src/core/testing/**"]` for the build, and typecheck moved
+> to `tsconfig.typecheck.json`, which re-includes them. Build and typecheck want opposite
+> things — shipping tests in `dist` is wrong, and *not* type-checking them loses real
+> errors. The block above is kept as the historical record of Task 0.
 
 **Step 3: `vitest.config.ts`**
 
@@ -940,8 +984,34 @@ Tests: a still scene yields one frame; `fps: 12, duration: 2` yields 24 frames; 
 moving layer still moves; without it they differ.
 
 `src/core/index.ts` re-exports the public surface. **Nothing in `src/core/` may import
-from `src/node/` or `src/web/`** — add a test that greps the built `dist/core` for
-`@napi-rs` and fails if present. That is the only thing keeping the browser bundle clean.
+from `src/node/` or `src/web/`** — that is the only thing keeping the browser bundle
+clean, so it needs a test.
+
+**The purity test must parse import specifiers, not grep raw text.** An earlier revision
+of this plan said to grep `dist/core` for `@napi-rs`. That was wrong twice over, both
+verified by building: `dist/core` contains four `@napi-rs` hits that are all *comments* in
+docblocks, so the grep would fail on correct code; and the one genuine non-relative import
+leaking in was `vitest`, which the grep would never have found. Assert instead that every
+import specifier under `dist/core` begins with `.`.
+
+(`tsconfig.json` now excludes `**/*.test.ts` from the build, with typecheck moved to
+`tsconfig.typecheck.json`, which includes them. Before that split all nine test files
+compiled into `dist`, and `files: ["dist"]` would have published them.)
+
+Three things this task must wire up that did not exist when it was written:
+
+- **`depthBlur`** — `src/core/blur.ts` provides `blurDepth`. Apply it between
+  `rasterDepth` and `sirdsFromDepth`, never inside the rasteriser, so the compositing
+  invariant stays exactly testable on unblurred output (design §2.2).
+- **`noiseScale` exactly once** — `sirdsFromDepth` takes `SirdsOpts`, which deliberately
+  cannot carry it. The pipeline is the single place `upscale` is called; a forgotten or
+  doubled call silently halves or doubles every measured period.
+- **`RasterCache`** — `rasterDepth` takes an optional one. Pass a single cache across all
+  frames, or a 48-frame render re-decodes every asset 48 times.
+
+Stills must honour the §4.1 policy: an absent `duration` is 1 second, never 0, and a still
+samples the scene **midpoint** by default — sampling t=0 renders a `marquee` scene
+completely empty.
 
 Commit: `feat(core): frame render pipeline and public API`
 
@@ -1015,7 +1085,8 @@ Commit: `ci: test workflow and Pages deploy`
 ## Done criteria
 
 1. `npm test` green; `npm run typecheck` clean.
-2. `dist/core` contains no reference to `@napi-rs` (enforced by test, Task 5).
+2. Every import specifier under `dist/core` is relative (enforced by test, Task 5), and
+   no `*.test.js` is emitted into `dist`.
 3. `stst render examples/pacman.yaml -o /tmp/p.gif` produces a GIF whose middle row
    measures `sepNear × noiseScale` inside pacman and `sepFar × noiseScale` outside —
    the same check that validated the POC.

@@ -1,7 +1,7 @@
 ---
 title: staticstereo — design
 description: Animated autostereogram (SIRDS) generator with an isomorphic core, a CLI, and a static web view
-status: design approved, not yet implemented
+status: implemented through core + Node adapter; CLI and site pending
 date: 2026-10-09
 tags: [autostereogram, sirds, stereoscopy, typescript, cli, canvas, design]
 ---
@@ -87,6 +87,15 @@ renderer.
 TypeScript throughout: with two consumers and a serialisable scene format, the types are
 load-bearing.
 
+**`CanvasLike` costs exactly one cast per adapter, and that is accepted.** `Ctx2D` narrows
+`fillStyle` to `string` (the DOM allows `string | CanvasGradient | CanvasPattern`) and
+`textBaseline` to four of six values. TypeScript's mutable properties are invariant, so a
+real context is neither a subtype nor a supertype of `Ctx2D` and the assignment is rejected
+in *both* directions — every adapter needs either a cast or a ~40-line forwarding wrapper.
+The narrowing is the whole point of the seam, so the cast stays, and the compensating
+control is that each adapter's tests exercise **every** `Ctx2D` member against the real
+context, so the cast cannot silently become untrue.
+
 ### 2.1 Layer compositing must use depth-max, not alpha
 
 Layers composite as `depth = max(depth, layerDepth × mask)`.
@@ -95,8 +104,28 @@ Alpha-blending two layers at different depths averages their depths into a value
 means neither: a logo at depth 1.0 over a dot at 0.6 would render at 0.8 — floating in
 empty space between two real surfaces. Max-compositing avoids this.
 
-At an edge where `mask = 0.5` over another layer at 0.6, `max(0.6, 0.5) = 0.6` — no
-nonsense blend. This has a dedicated regression test (§6).
+**State the invariant precisely, because the obvious phrasing is wrong.** It is tempting
+to say "no intermediate depth ever appears at a layer boundary". That is false, and
+measuring it against a real canvas proves it: a circle at depth 1.0 over a slab at 0.6
+yields pixels at 0.769, 0.780, 0.937, 0.941 — because `max(0.6, 1.0 × m)` for a fractional
+antialias coverage `m ∈ (0.6, 1)` is just `m`. Those values are **correct**. They are the
+1px ramp §2.2 wants.
+
+The invariant that actually holds, and the one worth testing:
+
+> In an overlap **interior** — where both masks are fully opaque — the result is exactly
+> the nearer layer's depth, never a blend of the two.
+
+Alpha blending fails this across the *entire* overlap region, conjuring a whole phantom
+surface at 0.8. Max-compositing produces intermediate values only on the one-pixel
+antialiased boundary, as a ramp between two real surfaces. A second invariant is worth
+pinning alongside it: a far layer drawn *after* a near one must not bury it, which is what
+distinguishes max-compositing from naive painter's order.
+
+Both have dedicated regression tests (§6), which must use **exact** masks — against a real
+antialiasing canvas the interior assertion is the only one that is meaningful, and this is
+an independent reason the core tests run on an injected fake canvas rather than a native
+one.
 
 ### 2.2 Antialiasing does NOT replace the POC's depth blur
 
@@ -111,10 +140,8 @@ does nothing in two cases that certainly occur:
 - **Heightmap interiors.** `mode: 'heightmap'` maps luminance to depth per pixel, so a
   quantised image — which §1 explicitly *wants* — has hard interior steps with no mask
   edge to antialias.
-- **Layer-over-layer boundaries.** Where a layer at 1.0 overlaps one at 0.6, `max` yields
-  a hard step *by construction*, and §6's regression test positively **mandates** that no
-  intermediate value appear there. The document cannot both forbid intermediate depths at
-  layer boundaries and claim those boundaries benefit from a blur.
+- **Fully opaque overlaps.** Where two layers with *exact* (non-antialiased) masks
+  overlap, `max` yields a hard step by construction and there is no edge to antialias.
 
 The artifact this leaves is the one the POC's own docstring names: a hard depth step makes
 the encoder copy from source content of a different period, producing a visible **ghost of
@@ -158,12 +185,36 @@ walk cycle can play while the sprite also translates.
 `marquee` measures rendered text width so that copy wider than the viewport correctly
 enters from beyond the edge — translating `+W → -textWidth`, not `+W → 0`.
 
+**`at` anchoring is specified, because the presets depend on it.** `slide-in` and
+`marquee` compute off-frame positions as `-contentW` / `+sceneW`, which are only genuinely
+off-frame if the layer's own position is the origin. So `at` defaults to `[0, 0]` for
+text, image, gif, and rect layers, with text drawn from `textBaseline: 'top'` so that
+corner is visible rather than one line above the canvas. `circle` is the sole exception:
+its `at` *is* its centre, so it defaults to the scene centre — `[0, 0]` would put three
+quarters of it off-canvas.
+
+The tempting friendlier default — centring a bare image or text layer — would silently
+break the one behaviour this section calls out by name, since an over-wide marquee would
+then start half a screen from where it should. Consequence to be aware of: a bare
+`{type: 'text'}` layer renders at the top-left corner, so `stst still --text HELLO` should
+supply its own `at`.
+
 ### 3.1 Image → depth
 
 Auto-detected, with a per-layer override that always wins:
 
-- Meaningful alpha channel present → **silhouette** mode.
-- Fully opaque → **heightmap** mode (brightness = depth).
+1. `mode` set → obey it.
+2. **A `mask` with no `mode` → silhouette.** This rule was missing from the first draft,
+   which made the example below silently wrong: `{src: 'logo.png', mask: {luma: 0.5}}` is
+   opaque artwork, so alpha auto-detection fell through to heightmap and *ignored the mask
+   that was the entire point of writing it*.
+3. Meaningful alpha channel present → **silhouette**.
+4. Fully opaque → **heightmap** (brightness = depth).
+
+GIF layers resolve mode by the same four rules. They originally hardcoded silhouette,
+which left an opaque GIF flattening to its bounding rectangle with heightmap not
+expressible at all. Alpha is detected per frame, not from frame 0, because a sprite
+sheet's frames need not agree.
 
 `alpha` masking and "anything not transparent sits on one flat plane" are the same
 operation — *build a binary mask, place the mask at one depth* — differing only in where
@@ -531,6 +582,49 @@ encoding bug.
 
 ---
 
+### Corrections from implementation review, round 2 (2026-10-09)
+
+- **Status**: Accepted
+- **Context**: Tasks 4 and 6 (rasteriser, Node adapter), same instruction to report real
+  problems. Every finding below was reproduced before being acted on.
+- **Rationale**: Rationale TBD from Shaun — technical corrections under delegated
+  authority, same as the first round.
+
+  1. **§2.1's invariant was stated too strongly.** "No intermediate depth at a layer
+     boundary" is false against a real antialiasing canvas, and the test as drafted would
+     have failed on a *correct* implementation. Measured: 0.769, 0.780, 0.937, 0.941. See
+     §2.1 for the invariant that actually holds.
+  2. **§2.2's "fully opaque overlaps" bullet replaced "layer-over-layer boundaries"**, for
+     the same reason.
+  3. **`emerge` did nothing for any layer except `depth: 0`** — i.e. it was broken by
+     default. Measured at depth 1: `1.000` at every sampled time. `PresetCtx` now carries
+     `layerDepth`; see §4.
+  4. **A `mask` with no `mode` was ignored**, which made §3.1's own example wrong. Fixed as
+     rule 2 in §3.1.
+  5. **GIF layers hardcoded silhouette**, so opaque GIFs flattened to a rectangle. Now
+     resolved by the same rules as still images.
+  6. **The plan's `gifenc` advice was Node-correct and bundler-backwards.** It is a
+     dual-package hazard, and the trap is that vitest exercises only the bundler half — so
+     one form stays green in CI while the shipped CLI is broken. Measured both ways.
+  7. **The plan's "clear the gif buffer per frame" advice was itself a bug.** Optimised
+     GIFs are partial-frame; clearing renders them full of holes. The GIF disposal model is
+     required instead.
+  8. **The planned core-purity test was wrong twice over** — it grepped raw text, matching
+     four `@napi-rs` mentions that are all comments, while missing the one real leak
+     (`vitest`, because the build compiled tests into `dist` and `files: ["dist"]` would
+     have published them).
+  9. **`quantize(rgba, 2)` can return fewer than 2 colours** for low-colour input; measured
+     `quantize(allBlack, 2) → [[0,0,0]]`. A solid first frame would have flattened a whole
+     animation to black.
+  10. **§5's lossless claim is now measured rather than asserted:** `-qp 0 -pix_fmt
+      yuv444p` round-trips a dot field with 0 mismatched pixels; `-crf 28 -pix_fmt yuv420p`
+      corrupts ~145 of 256 and turns 2 distinct values into 55.
+
+  `at` anchoring (§3) and the `CanvasLike` cast (§2) were both unspecified and are now
+  written down.
+
+---
+
 ## 9. Open questions for Shaun
 
 Decisions made under delegated authority that he has not weighed in on. None block
@@ -546,3 +640,14 @@ implementation; all are cheap to change.
    deferral.
 4. **Licence is TBD** in `package.json` (currently `MIT`) and the README. Public repo, so
    this wants an actual decision.
+5. **`type: 'draw'` is unimplemented and throws.** Resolving a module path is
+   platform-specific: `import()` of a filesystem path is meaningless in the static Pages
+   bundle, and doing it in `core` would smuggle a Node dependency past the `CanvasLike`
+   seam. Pre-resolving a function onto the layer instead would break the
+   JSON-serialisability that URL-hash scenes rely on. Needs a decision: a
+   `CanvasLike.loadModule(src)`, or drop the escape hatch, or accept non-serialisable
+   scenes for code-authored cases.
+6. **`at` defaults to the top-left** for text/image/gif (§3). Predictable and required by
+   the presets, but it means a bare text layer renders in the corner.
+7. **Opaque GIFs now default to heightmap** rather than a flat silhouette. More consistent
+   with still images, but it is a behaviour change for anyone who wanted the rectangle.
