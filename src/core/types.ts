@@ -47,13 +47,32 @@ export interface StereoOpts extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur'> 
   noiseScale: number
   /**
    * Gaussian blur radius in px applied to the depth map *after* compositing
-   * and *before* encoding. 0 disables it.
+   * and *before* encoding. **Defaults to 0 — off.**
    *
-   * This is not cosmetic. A hard depth step makes the encoder copy from source
-   * content of a different period, producing a visible ghost of the shape
-   * echoed up to `sepFar` px to its right. Canvas antialiasing only softens
-   * mask edges against the background — it does nothing for heightmap interiors
-   * or layer-over-layer boundaries, which are hard steps by construction.
+   * The theory was that a hard depth step makes the encoder copy from source
+   * content of a different repeat period, leaving a ghost of the shape echoed
+   * up to `sepFar` px to its right, and that blurring the step would suppress
+   * it. The echo is a real artifact of the shift method — the Thimbleby
+   * algorithm does hidden-surface removal precisely because of it.
+   *
+   * It does not survive contact with a viewer at this depth budget. Shaun
+   * compared blur 0/1/2 by eye at the default 18px disparity, switching between
+   * them in-place with `feh` while holding fusion:
+   *
+   * > "i think blur0 was clean … genuinely little to no difference. i will say:
+   * > blur1 and blur2 *seemed* to have almost a sort of extra border at the
+   * > bottom that gave a sense of more of a mountain sort of thing? like the
+   * > square was connected to and protruding from the background. whereas
+   * > blur0 seemed to just be more of a floating square."
+   *
+   * No ghost at 0, and a *cost* at 1 and above. That cost is not misperception:
+   * blur puts a literal depth gradient at the edge, and a gradient, fused, is a
+   * slope — so the object reads as a mesa instead of a floating plane, which is
+   * the opposite of the point. With an 18px budget the cure is above
+   * perceptual threshold and the disease is below it.
+   *
+   * Kept as a knob because the trade reverses as the budget widens: at
+   * sepFar/sepNear far apart the echo should become visible and worth blurring.
    *
    * Applied in the render pipeline rather than in the rasteriser, so the
    * rasteriser's max-compositing invariant stays exactly testable.
@@ -66,14 +85,15 @@ export interface StereoOpts extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur'> 
  * Widening it reads as "deeper" but artifacts grow and fusion gets harder, so
  * treat a change to these as a perceptual decision, not a tuning knob.
  *
- * depthBlur defaults to 1.0 because that is the value the Python POC was
- * visually validated at (`docs/poc/sirds.py`).
+ * depthBlur defaults to **0**, reversing an earlier default of 1.0 that was
+ * inherited from the Python POC and never actually tested. See the field's own
+ * documentation below for the observation that changed it.
  */
 export const DEFAULT_STEREO: StereoOpts = {
   sepFar: 110,
   sepNear: 92,
   noiseScale: 2,
-  depthBlur: 1,
+  depthBlur: 0,
   cross: false,
   seed: 0,
 }

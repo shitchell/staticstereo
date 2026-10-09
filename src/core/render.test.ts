@@ -148,7 +148,7 @@ describe('resolveStereo', () => {
     expect(o.sepFar).toBe(110)
     expect(o.sepNear).toBe(92)
     expect(o.noiseScale).toBe(2)
-    expect(o.depthBlur).toBe(1)
+    expect(o.depthBlur).toBe(0)   // off by default; see types.ts for why
     expect(o.cross).toBe(false)
     expect(o.seed).toBe(0)
   })
