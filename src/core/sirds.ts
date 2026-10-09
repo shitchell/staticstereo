@@ -46,9 +46,17 @@ export function sirdsFromDepth(
   return out
 }
 
-/** Nearest-neighbour upscale. Chunkier noise pixels fuse more easily. */
+/**
+ * Nearest-neighbour upscale. Chunkier noise pixels fuse more easily.
+ *
+ * Always returns a fresh buffer, including at `n === 1`. Returning `src` there
+ * would be zero-copy but makes the return value an alias of the caller's
+ * frame — and downstream encoders quantise in place, so a frame buffer reused
+ * across frames would be silently corrupted. One memcpy on the uncommon path
+ * is worth not having that bug.
+ */
 export function upscale(src: Uint8Array, w: number, h: number, n: number): Uint8Array {
-  if (n === 1) return src
+  if (n === 1) return src.slice()
   const W = w * n
   const out = new Uint8Array(W * h * n)
   for (let y = 0; y < h; y++) {
