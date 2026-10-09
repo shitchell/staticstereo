@@ -145,7 +145,14 @@ does nothing in two cases that certainly occur:
 
 The artifact this leaves is the one the POC's own docstring names: a hard depth step makes
 the encoder copy from source content of a different period, producing a visible **ghost of
-the shape echoed up to `sepFar` px to its right**. Note that no period-measurement test
+the shape, repeating every `sepFar` px all the way to the right-hand frame edge**.
+
+> An earlier revision said "echoed up to `sepFar` px to its right". **That bound is false**
+> and the recurrence refutes it by one-line induction: `out[x] = out[x - sep(x)]` copies the
+> ghost forward indefinitely, so the number of repeats is `(w - objectRight) / sepFar`, not
+> one. Measured on a control diff, a slab near the left edge perturbs *every* 200px band to
+> the frame edge (`0.46 … 0.42`); the same slab near the right edge leaves the left
+> two-thirds bit-identical. Note that no period-measurement test
 catches this — the background still measures `sepFar` at score 1.0 by construction,
 because the echo is a perceptual artifact, not an encoding failure.
 
@@ -180,11 +187,34 @@ mechanism**: at an 18px budget the cure sits above perceptual threshold and the 
 sits below it. The knob is kept because that trade should reverse as `sepFar` and `sepNear`
 move apart.
 
-An attempt to find a monocular statistic for the echo failed, and informatively. At blur 0
-the band immediately right of a near shape is *perfectly* periodic at `sepFar` — score
-1.000, indistinguishable from clean background. The period is exactly correct; the echo is
-about *which content* repeats. So the artifact only comes into existence once two eyes
-fuse, which is why no measurement in this repo can see it.
+**The echo IS measurable, and an earlier revision of this section wrongly said it was
+not.** That claim came from a botched measurement, and the mistake is worth keeping:
+comparing `sepNear` correlation in a 110px echo band against a 110px "clean" band returned
+a `+0.000` delta five times running, because each window was *exactly one period of the
+same wallpaper* and the two were therefore the same data. The window was the bug, not the
+idea.
+
+Measured correctly — `sepNear` agreement over the whole region downstream of a near slab,
+against a chance baseline of 0.500 for binary samples:
+
+| encoder | blur 0 | 1 | 2 | 3 | 5 |
+|---|---|---|---|---|---|
+| `shift` | **0.585** (z = 35.8) | 0.567 | 0.550 | 0.525 | 0.503 |
+| `linked` | **0.499** (z = −0.2) | 0.495 | 0.496 | 0.500 | 0.497 |
+
+Three conclusions follow, and together they settle `depthBlur`:
+
+1. **The ghost is real and structural.** `shift` leaves a `sepNear`-periodic excess 35
+   standard errors above chance. The period measurement cannot see it — that part was
+   right, the background still reads `sepFar` at score 1.000 — but a *correlation at the
+   `sepNear` offset* sees it easily.
+2. **`depthBlur` works as designed, just badly.** It monotonically removes the excess,
+   reaching chance only at radius ≈ 5. But the mesa artifact is already perceptible at
+   radius 1, where barely 20% of the excess is gone. A weak cure with a strong side
+   effect — which is exactly why the blinded trial ranked blur 0 cleanest.
+3. **`linked` reaches chance at blur 0**, so it removes the artifact `depthBlur` existed to
+   patch. If `linked` becomes the default, `depthBlur` should be deprecated rather than
+   re-tuned.
 
 The free-antialiasing argument from §2.2 survives only in its narrow true form: layer-over-
 *background* mask edges do get a soft sub-pixel ramp — and at this depth budget that turns
@@ -772,8 +802,15 @@ implementation; all are cheap to change.
 7. **Opaque GIFs now default to heightmap** rather than a flat silhouette. More consistent
    with still images, but it is a behaviour change for anyone who wanted the rectangle.
 8. ~~`SirdsOpts` does not actually prevent passing `noiseScale`.~~ **Fixed** — the
-   `?: never` members landed, the leak probe now fails with TS2345, and §8 round 2 item 6
-   keeps the record of the overstated claim.
+   `?: never` members landed, and §8 round 2 item 6 keeps the record of the overstated
+   claim.
+
+   A second correction: this item previously said "the leak probe now fails with TS2345".
+   **No probe had been committed.** It was verified with a throwaway file that was then
+   deleted, so the document asserted a test that did not exist — the same class of error as
+   the overstated guarantee it was recording. There is now a real one:
+   `src/core/types.seam.test.ts`, with `@ts-expect-error` probes per field, demonstrated to
+   fail in both directions (deleting either `?: never` member produces `TS2578`).
 9. **`DEFAULT_FPS = 12` is invented.** It matches the design's example scene and the POC
    default, but nothing chose it deliberately.
 10. **`depthBlur` still has no automated test that can validate it for its purpose**, and
