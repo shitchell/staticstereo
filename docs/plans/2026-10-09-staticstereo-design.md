@@ -843,6 +843,28 @@ implementation; all are cheap to change.
     scene model — is reachable on the site only by hand-typing a URL or a `data:` URI.
     Given the depth panel exists to debug exactly that, a tiny inline `data:` URI example
     would make it one click away.
+15. **Which encoder should be the default?** Currently `'shift'`, unchanged, because the
+    choice is perceptual. The evidence so far favours `'linked'` on two counts and is
+    neutral on a third:
+
+    - **Ghost.** `shift` leaves a `sepNear`-periodic excess of 0.585 downstream, ~36 SE
+      above a 0.500 chance baseline, in seven spurious runs each *exactly* 18px wide — the
+      disparity budget, i.e. precisely wide enough to fuse, which is why it was visible.
+      `linked` measures 0.499, indistinguishable from noise, with 1px runs.
+    - **Registration.** A pair `(P, P+sep)` fuses at `P + sep/2`. `linked` links
+      `(x - sep/2, x + sep/2)`, so the percept of stage column *x* lands on column *x*.
+      `shift` links `(x - sep, x)`, placing it **46–55px to the left** — the whole fused
+      picture sits left of where it was composed, and an object entering from the right
+      first appears as a sliver inside the stage. No margin fixes this; it is inherent to
+      the asymmetric pairing.
+    - **Dead zone: neutral.** With margins both encoders lose nothing, so §10.3's earlier
+      "linked symmetrises rather than reduces" no longer discriminates.
+
+    Against: `linked` costs 2.9× at the default budget and 7.7× at a wide one, and has its
+    own artifact — 3–4 isolated 1px columns per frame with spurious `sepNear` coherence,
+    spaced `sepFar` apart. Same *kind* of artifact as the shift ghost, but 1px instead of a
+    full replica of the shape. **Wants an eye check before switching**; a blinded set
+    (both encoders × two seeds, plus a motion pair) has been prepared.
 
 ---
 

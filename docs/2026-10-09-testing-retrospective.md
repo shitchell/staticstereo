@@ -70,13 +70,30 @@ golden-image test wearing a lab coat.
 
 ---
 
-## 3. Three instruments, in descending power
+## 3. The instruments, in descending power
 
-| instrument | floor | sees | verdict |
-|---|---|---|---|
-| `coherentColumns` (structural) | **none** — exact on 1px | the actual encoded signal | the general instrument |
-| control-diff | none, but coarse | *any* influence, including invisible recolouring | good for "did this matter at all" |
-| autocorrelation (`dominantPeriod`) | `lo + 16` ≈ **108–126px of uniform depth** | the dominant period | **fixtures only** |
+| instrument | width floor | other floor | sees | verdict |
+|---|---|---|---|---|
+| `coherentColumns` (structural) | **none** — exact on 1px | `2^-h` false positives (h = rows) | the actual encoded signal | the general instrument |
+| control-diff | none | **sparsity: silent at ~`2^-k`** for a k-pixel feature | *any* influence, incl. invisible recolouring | good for "did this matter at all" |
+| autocorrelation (`dominantPeriod`) | `lo + 16` ≈ **108–126px of uniform depth** | — | the dominant period | **fixtures only** |
+
+**Control-diff's second floor cost real time and is easy to miss.** It has no width floor,
+but it measures *colour*, and two random pixels agree half the time — so a row containing
+only *k* depth pixels registers no difference with probability ≈ `2^-k`, even when the
+encoding is perfect. Measured: a 3px feature over 200 rows reads as "lost" in 16–31 rows at
+any single seed. That produced false defect reports on committed example scenes.
+
+The fix is a **seed sweep**, and it is principled rather than a fudge: genuine dead-zone
+silence is seed-*independent* by construction, because unsourced columns are filled from
+positional `noiseAt` and are bit-identical to the control at every seed. So sweeping seeds
+cannot mask a real dead zone, only chance agreement. Across seven seeds the same 3px
+feature read as lost in **0** rows.
+
+**Generalisation:** when an instrument answers "did anything change", ask what makes it
+*silent*, not just what makes it *blind*. A blind spot is a region it cannot see; a silence
+is a region it reports as clean. The second is far more dangerous, and ours was a
+probabilistic function of feature sparsity rather than anything structural.
 
 Autocorrelation is what this project started with, and it is the weakest of the three
 despite being the most obvious. It needs more uniform depth than any real content has:
