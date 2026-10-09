@@ -887,11 +887,26 @@ Two *different* losses, which were conflated at first:
   centred at `P + sep/2`. The percept therefore occupies the middle `W - sep` columns,
   leaving **`sep/2` dead at each end**.
 
-The union is `sepFar` left and `sepFar/2` right. **Use `sepFar` on both sides anyway.**
-It is symmetric, it covers either encoder, and it is **`cross`-safe**: cross-eyed viewing
-flips which side the fringe falls on, so asymmetric margins would be wrong for half of
-viewers. The cost is ~34% extra plate width at `sepFar: 110`, which is cheap next to a
-correctness caveat.
+**The `cross`-safety argument for symmetric margins was wrong, and is retracted.** An
+earlier revision claimed cross-eyed viewing "flips which side the fringe falls on". It does
+not. Measured with a full-height slab at each edge, under both encoders and both viewing
+modes, the encoding loss stays on the **same** side: left-only for `shift`, symmetric for
+`linked`. What `cross` changes is the *magnitude*, not the side — inverting depth makes an
+object sit at depth 0, so it encodes at `sepFar` rather than `sepNear` and the loss grows
+from 92 to 110 columns.
+
+So margins are **per-encoder**, sized from measurement, and the worst case over depth is
+always `sepFar` because `sep(z)` ranges over `[sepNear, sepFar]`:
+
+| encoder | left | right | why |
+|---|---|---|---|
+| `shift` | `sepFar` (110) | `ceil(sepFar/2)` (55) | dead zone is left-only; right needs only the fusion fringe |
+| `linked` | `ceil(sepFar/2)` (55) | `ceil(sepFar/2)` (55) | pairs are centred, so the dead zone is symmetric |
+
+One further measured detail that matters for implementation: the fresh-noise seed strip
+sits in the **left** `sepFar` columns under `shift` and in the **right** `sepFar` columns
+under `linked`, because linked's equivalence classes are represented by their right-most
+member. Padding hides it in both cases — on opposite sides.
 
 ### 10.4 Margins stay visible
 
