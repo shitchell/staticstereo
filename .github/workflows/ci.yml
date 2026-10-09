@@ -16,4 +16,25 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+
+      # Both builds run BEFORE `npm test`, and that order is the whole point.
+      #
+      # `src/core/purity.test.ts` and `site/dist.test.ts` assert against build
+      # *output* — that `dist/core` imports nothing non-relative and ships no
+      # test files, and that `dist-site` uses only relative asset paths and
+      # contains no `src/node` code. Both guard with `describe.skipIf(!built)`
+      # so that `vitest run` on a clean checkout is green, and both `dist/` and
+      # `dist-site/` are gitignored. So without these two steps CI silently
+      # skipped 11 assertions — including every Pages-critical one — while
+      # reporting 28 files passed. Measured on a simulated fresh checkout:
+      # "464 passed | 11 skipped", versus 475 passed with both builds present.
+      #
+      # Building here also makes a `src/node` or `@napi-rs/canvas` import from
+      # `site/` a red build: rollup hits the native `.node` binary and fails
+      # with "Unexpected character '\u{7f}'". `dist.test.ts` cannot catch that
+      # on its own, because a failed build leaves the previous good
+      # `dist-site/` on disk and the greps then pass against stale output.
+      - run: npm run build
+      - run: npm run build:site
+
       - run: npm test

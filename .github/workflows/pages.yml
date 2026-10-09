@@ -1,0 +1,66 @@
+name: pages
+
+# Deploys the static site to GitHub Pages, per design §8 ("Static site hosted on
+# GitHub Pages, deployed via Actions"): `site/` → `dist-site/` on push to the
+# default branch, with no build output committed and no second branch. `docs/`
+# holds planning documents, so the legacy "serve from /docs on main" mode is not
+# available even if it were wanted.
+#
+# ONE-TIME MANUAL STEP: this workflow cannot enable itself. The repository's
+# Settings → Pages → "Build and deployment" → Source must be set to
+# "GitHub Actions". Until that is done every run fails at the deploy step with a
+# 404 from the Pages API, which reads like a permissions bug and is not one.
+#
+# No `--base` flag is needed. `vite.site.config.ts` sets `base: './'`, so the
+# emitted asset URLs are relative to the document and work unchanged at
+# https://shitchell.github.io/staticstereo/ and at a user/org site root alike.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Queue rather than cancel: a cancelled deploy can leave the Pages environment
+# pointing at a half-uploaded artifact.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run build:site
+
+      # Deliberately AFTER the builds and BEFORE the upload, so the suite runs
+      # against the exact artifact about to be published. `site/dist.test.ts` is
+      # what asserts that no asset is referenced by an absolute path — which
+      # would work on localhost and 404 under /staticstereo/ — and that no
+      # `src/node` or `@napi-rs/canvas` code reached the bundle. Those checks
+      # skip themselves when `dist-site/` is absent or stale, so running them
+      # here is the only thing that makes them gate a deploy.
+      - run: npm test
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist-site
+      - uses: actions/deploy-pages@v4
+        id: deploy
