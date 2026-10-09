@@ -1,3 +1,4 @@
+import { spawnSync } from 'node:child_process'
 import { describe, it, expect, vi } from 'vitest'
 import { createCanvas, loadImage } from '@napi-rs/canvas'
 import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
@@ -6,6 +7,14 @@ import { join } from 'node:path'
 import { run } from './index.js'
 import { dominantPeriod } from '../core/index.js'
 import { decodeGif } from '../shared/gif.js'
+
+/**
+ * ffmpeg is an external binary and GitHub's runners no longer ship it.
+ * Skip rather than fail where it is absent — src/node/encode.test.ts already
+ * does this, and the asymmetry is what broke CI: these tests asserted exit
+ * code 0 on a machine with no encoder.
+ */
+const HAVE_FFMPEG = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0
 
 /**
  * End-to-end tests for the CLI. These write real files into real temp
@@ -287,7 +296,7 @@ describe('stst render', () => {
   })
 })
 
-describe('stst render -o out.mp4', () => {
+describe.skipIf(!HAVE_FFMPEG)('stst render -o out.mp4', () => {
   it('writes a lossless MP4 by default, with no warning', async () => {
     const { dir: d, path } = await scene(SLAB_SCENE)
     const out = join(d, 'out.mp4')

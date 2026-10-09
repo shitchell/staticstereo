@@ -14,6 +14,15 @@ jobs:
         with:
           node-version: '22'
           cache: npm
+      # ffmpeg is an external binary and the runner images no longer ship it.
+      # Installing it rather than letting the mp4 tests skip is deliberate: the
+      # lossless round-trip assertion (-qp 0 -pix_fmt yuv444p produces 0
+      # mismatched pixels, while -crf 28 corrupts ~145 of 256) is the only thing
+      # standing between a user and a silently unfusable video. Skipping it in CI
+      # would repeat the mistake this workflow was just fixed for.
+      - run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: ffmpeg -version | head -1
+
       - run: npm ci
       - run: npm run typecheck
 
