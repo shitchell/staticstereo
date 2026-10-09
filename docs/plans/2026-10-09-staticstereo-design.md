@@ -149,14 +149,46 @@ the shape echoed up to `sepFar` px to its right**. Note that no period-measureme
 catches this — the background still measures `sepFar` at score 1.0 by construction,
 because the echo is a perceptual artifact, not an encoding failure.
 
-So `StereoOpts` carries an explicit `depthBlur` (default 1.0, the value the POC was
-visually validated at). It is applied **in the render pipeline, after compositing and
-before encoding** — not inside the rasteriser — specifically so the max-compositing
-invariant above stays exactly testable on unblurred output.
+So `StereoOpts` carries an explicit `depthBlur`, applied **in the render pipeline, after
+compositing and before encoding** — not inside the rasteriser — specifically so the
+max-compositing invariant above stays exactly testable on unblurred output.
 
-The free-antialiasing argument survives only in its narrow true form: layer-over-
-*background* mask edges do get a soft ramp, which is why `depthBlur` can be 1px rather
-than the POC's heavier full-map Gaussian.
+### 2.3 …and the blur turned out not to be worth paying for
+
+**Everything above is the theory. It did not survive being looked at, and the default is
+now 0.** Recorded rather than rewritten, because the reasoning chain was sound and only
+the magnitudes were wrong.
+
+Shaun compared blur 0/1/2 by eye at the shipped 18px disparity budget, switching between
+them in-place with `feh` while holding fusion:
+
+> "i think blur0 was clean … genuinely little to no difference. i will say: blur1 and
+> blur2 *seemed* to have almost a sort of extra border at the bottom that gave a sense of
+> more of a mountain sort of thing? like the square was connected to and protruding from
+> the background. whereas blur0 seemed to just be more of a floating square."
+
+Two things follow. First, **the ghost echo was not visible at all** at blur 0 — the
+artifact this entire stage exists to suppress. Second, blurring **introduced** a cost that
+had not been predicted: a depth gradient at the edge is, when fused, literally a *slope*,
+so the object reads as a mesa connected to the background instead of a plane floating free
+of it. That is not misperception; it is the correct interpretation of a blurred depth map,
+and it is the opposite of the intended effect.
+
+The echo remains a real artifact of the shift method — the Thimbleby algorithm performs
+hidden-surface removal precisely because of it. The error was one of **magnitude, not
+mechanism**: at an 18px budget the cure sits above perceptual threshold and the disease
+sits below it. The knob is kept because that trade should reverse as `sepFar` and `sepNear`
+move apart.
+
+An attempt to find a monocular statistic for the echo failed, and informatively. At blur 0
+the band immediately right of a near shape is *perfectly* periodic at `sepFar` — score
+1.000, indistinguishable from clean background. The period is exactly correct; the echo is
+about *which content* repeats. So the artifact only comes into existence once two eyes
+fuse, which is why no measurement in this repo can see it.
+
+The free-antialiasing argument from §2.2 survives only in its narrow true form: layer-over-
+*background* mask edges do get a soft sub-pixel ramp — and at this depth budget that turns
+out to be all the softening the encoder needs.
 
 ---
 
@@ -554,7 +586,13 @@ encoding bug.
 
   This constrains the web build: `site/` must compile to a fully static bundle with no
   server and only relative asset paths, since Pages serves a project site from a
-  subpath (`/staticstereo/`). Already consistent with §5, which specifies a static site
+  subpath (`/staticstereo/`).
+
+  **And the constraint is only enforced if CI builds before it tests.** That sentence was
+  missing, and its absence cost real coverage: the relative-path check can only run
+  against *built* output, `dist-site/` is gitignored, and the test skips when it is
+  absent — so CI reported green while never executing it. Eleven assertions were skipped
+  that way, including all seven Pages-critical ones. Already consistent with §5, which specifies a static site
   with scene state in the URL hash.
 
 ### Corrections from implementation review (2026-10-09)
@@ -654,9 +692,8 @@ encoding bug.
 Decisions made under delegated authority that he has not weighed in on. None block
 implementation; all are cheap to change.
 
-1. **`depthBlur` default of 1.0.** Inherited from the POC, which was visually validated at
-   that value — but "visually validated" means one person glanced at a sphere. Worth
-   checking against a real animation before treating it as correct.
+1. ~~`depthBlur` default of 1.0.~~ **Answered by measurement — default is now 0.** See
+   §2.3; the ghost it suppressed was invisible and the blur's own slope artifact was not.
 2. **Stills sample at the scene midpoint.** Defensible (an animated scene stills to
    something visible) but arbitrary; t=0 is the more literal reading of "the first frame".
 3. **Per-segment easing on `bounce`** is physically backwards and deferred rather than
@@ -681,13 +718,24 @@ implementation; all are cheap to change.
    keeps the record of the overstated claim.
 9. **`DEFAULT_FPS = 12` is invented.** It matches the design's example scene and the POC
    default, but nothing chose it deliberately.
-10. **`depthBlur` is the one stage no automated test in this repo can validate for its
-    actual purpose.** Its tests prove it is wired in and that it does not disturb the
-    measured period — but the artifact it exists to suppress is the perceptual ghost echo,
-    and §2.2 already explains why no period-measurement test can see that. Combined with
-    open question 1 (the 1.0 default was "visually validated" on a single sphere), this
-    whole stage rests on one person's glance at one image. It wants a real look at a real
-    animation.
+10. **`depthBlur` still has no automated test that can validate it for its purpose**, and
+    now provably cannot: the echo is invisible to every monocular statistic (§2.3). What
+    changed is that this no longer matters much — the stage is off by default. If anyone
+    turns it on at a wide depth budget, the only available verification is a person's
+    eyes. A blinded, randomised A/B with replicates is the right instrument, and one is
+    in flight.
+13. **`MIN_CREDIBLE_SCORE`, `WEAK_SAMPLES` and `FAIR_SAMPLES` in `site/diagnostics.ts` are
+    invented numbers**, same category as `DEFAULT_FPS` (item 9). The file says so
+    honestly, and they are chosen so a full-width row grades `strong` while a thin
+    user-dragged band cannot. But the confidence grade is exactly what the diagnostics
+    panel asks you to trust, so the thresholds deserve a deliberate choice.
+14. **The site cannot load any example with an `image` or `gif` layer.** `examples.ts` is
+    text and shapes only, on purpose: a bundled `/dot.png` would work on localhost and 404
+    under `/staticstereo/`. The consequence is that the image→depth path — four
+    auto-detect rules and per-frame alpha detection, the most error-prone corner of the
+    scene model — is reachable on the site only by hand-typing a URL or a `data:` URI.
+    Given the depth panel exists to debug exactly that, a tiny inline `data:` URI example
+    would make it one click away.
 11. **`CanvasLike` has no teardown hook, and the browser will eventually need one.**
     `createImageBitmap` returns a resource with `close()` and `DecodedImage` has nowhere to
     put it. Harmless today — one decode per render, held by `RasterCache` — but a page that
