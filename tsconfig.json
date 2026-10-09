@@ -19,6 +19,7 @@
   ],
   "exclude": [
     "**/*.test.ts",
-    "src/core/testing/**"
+    "src/core/testing/**",
+    "src/shared/testing/**"
   ]
 }

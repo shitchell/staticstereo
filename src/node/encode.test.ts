@@ -1,8 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { execFile, spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { promisify } from 'node:util'
 import { loadImage } from '@napi-rs/canvas'
 import { GifReader } from 'omggif'
@@ -22,10 +24,8 @@ const run = promisify(execFile)
 const HAVE_FFMPEG = spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0
 const HAVE_FFPROBE = spawnSync('ffprobe', ['-version'], { stdio: 'ignore' }).status === 0
 
-/** Can this node run a `.ts` file directly? Needed to test node's own resolution. */
-const HAVE_STRIP_TYPES = spawnSync(process.execPath, [
-  '--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', 'void 0',
-], { stdio: 'ignore' }).status === 0
+/** Is a compiler available? The node-resolution test runs the built output. */
+const HAVE_TSC = spawnSync('npx', ['tsc', '--version'], { stdio: 'ignore' }).status === 0
 
 const W = 16, H = 12
 
@@ -196,62 +196,52 @@ describe('writeGif', () => {
 
 describe('gifenc module interop', () => {
   /**
-   * `writeGif` resolves gifenc through a shape probe rather than a plain
-   * default import. This test exists because that shim looks redundant and is
-   * not: the module's shape inverts between node and any bundler, and the
-   * tests above only ever exercise the bundler half (vitest resolves through
-   * vite). Deleting the shim would leave the suite green and break the CLI.
+   * `writeGif` reaches gifenc through a shape probe (`src/shared/gifenc.ts`)
+   * rather than a plain default import, because the module's shape inverts
+   * between node and any bundler. Every test above only exercises the bundler
+   * half — vitest resolves through vite — so deleting the shim would leave the
+   * suite green and break the shipped CLI. The shape measurement itself now
+   * lives in `src/shared/gifenc.test.ts`, next to the shim.
+   *
+   * What this test adds is the end-to-end one: `writeGif`, loaded by node,
+   * through the whole relative-import chain into `src/shared/`, writing a file
+   * that decodes. It compiles the project first *because* of that chain — node
+   * 22's `--experimental-strip-types` does not rewrite a `./x.js` specifier to
+   * `./x.ts` (measured: ERR_MODULE_NOT_FOUND), so a `.ts` entry point stops
+   * working the moment it imports a sibling. Running `dist/` is the better
+   * check anyway: that is the artifact `files: ["dist"]` publishes and the
+   * `bin` entry point loads.
    */
-  it('exposes a different shape to node than to the bundler the tests run under', async () => {
+  it.skipIf(!HAVE_TSC)('writes a decodable GIF when loaded by node, not just by vite', async () => {
+    // Built *inside* the repo, not in /tmp: node resolves `@napi-rs/canvas`
+    // and `gifenc` by walking up from the importing file, so output parked
+    // outside the project cannot see node_modules at all. `node_modules/.cache`
+    // is the conventional spot and is already ignored by git.
+    const built = join(process.cwd(), 'node_modules', '.cache', 'stst-node-probe')
+    // A type error elsewhere in the tree is `npm run typecheck`'s business, not
+    // this test's, and tsc emits anyway — so judge it on whether the entry
+    // point exists, not on its exit status.
+    await run('npx', ['tsc', '-p', 'tsconfig.json', '--outDir', built], { cwd: process.cwd() })
+      .catch(() => undefined)
+    const entryPath = join(built, 'node', 'encode.js')
+    expect(existsSync(entryPath)).toBe(true)
+    const p = out('via-node.gif')
+    const entry = pathToFileURL(entryPath).href
     const probe = `
-      import * as ns from 'gifenc'
-      process.stdout.write(JSON.stringify({
-        nsKeys: Object.keys(ns),
-        nsQuantize: typeof ns.quantize,
-        defaultQuantize: typeof ns.default?.quantize,
-      }))
+      import { writeGif } from ${JSON.stringify(entry)}
+      const pixels = new Uint8Array(${W * H})
+      for (let i = 0; i < pixels.length; i++) pixels[i] = i % 3 ? 255 : 0
+      await writeGif(${JSON.stringify(p)}, [{ pixels, width: ${W}, height: ${H} }], { fps: 10 })
     `
-    const { stdout } = await run(process.execPath, ['--input-type=module', '--eval', probe],
+    // Deliberately NOT wrapped in a try/catch that pattern-matches the error:
+    // execFile puts the whole command line into the rejection message, so any
+    // such filter matches its own flags and silently skips the test.
+    await run(process.execPath, ['--input-type=module', '--eval', probe],
       { cwd: process.cwd() })
-    const node = JSON.parse(stdout) as {
-      nsKeys: string[]; nsQuantize: string; defaultQuantize: string
-    }
-
-    // Under node (CJS `main`) the whole API hides behind `default`...
-    expect(node.nsKeys).toEqual(['default'])
-    expect(node.nsQuantize).toBe('undefined')
-    expect(node.defaultQuantize).toBe('function')
-
-    // ...while under vite (ESM `module`) it is the other way round, and
-    // `default` is GIFEncoder itself rather than the namespace.
-    const vite = await import('gifenc')
-    expect(typeof (vite as unknown as { quantize?: unknown }).quantize).toBe('function')
-    expect(typeof vite.default).toBe('function')
+    const r = new GifReader(await readFile(p))
+    expect(r.numFrames()).toBe(1)
+    expect(r.frameInfo(0).palette_size).toBe(2)
   })
-
-  it.skipIf(!HAVE_STRIP_TYPES)(
-    'writes a decodable GIF when loaded by node, not just by vite',
-    async () => {
-      // The end-to-end check that the shim works under node's resolution,
-      // which vitest can never cover because it always resolves through vite.
-      const p = out('via-node.gif')
-      const probe = `
-        import { writeGif } from ${JSON.stringify(new URL('./encode.ts', import.meta.url).href)}
-        const pixels = new Uint8Array(${W * H})
-        for (let i = 0; i < pixels.length; i++) pixels[i] = i % 3 ? 255 : 0
-        await writeGif(${JSON.stringify(p)}, [{ pixels, width: ${W}, height: ${H} }], { fps: 10 })
-      `
-      // Deliberately NOT wrapped in a try/catch that pattern-matches the error:
-      // execFile puts the whole command line into the rejection message, so any
-      // such filter matches its own flags and silently skips the test.
-      await run(process.execPath,
-        ['--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', probe],
-        { cwd: process.cwd() })
-      const r = new GifReader(await readFile(p))
-      expect(r.numFrames()).toBe(1)
-      expect(r.frameInfo(0).palette_size).toBe(2)
-    },
-  )
 })
 
 describe('resolveMp4Encoding', () => {

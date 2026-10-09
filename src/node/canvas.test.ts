@@ -3,17 +3,20 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createCanvas, type SKRSContext2D } from '@napi-rs/canvas'
-import { GifWriter } from 'omggif'
 import { nodeCanvas } from './canvas.js'
+import { dispose2Gif, keepGif, solid3Gif } from '../shared/testing/gifFixtures.js'
 
 /**
  * Every fixture here is generated at run time. Committing a binary GIF/PNG
  * would make the trap this file exists to catch (frame bleed in `loadGif`)
  * invisible to review: you could not tell a wrong expectation from a wrong
  * fixture without a hex editor.
+ *
+ * The GIF fixtures and the disposal-model assertions they feed now live in
+ * `src/shared/` alongside the decoder itself, which both adapters share. What
+ * stays here is this adapter's own wiring: that a *path* on disk reaches that
+ * decoder, and that failures name the file.
  */
-
-const PALETTE = [0x000000, 0xff0000, 0x00ff00, 0x0000ff] // must be a power of 2
 
 function png(draw: (ctx: SKRSContext2D) => void, w: number, h: number): Buffer {
   const c = createCanvas(w, h)
@@ -39,58 +42,21 @@ function alphaPng(w: number, h: number): Buffer {
   }, w, h)
 }
 
-function gif(w: number, h: number,
-             frames: {
-               x?: number; y?: number; w?: number; h?: number
-               index: number; delay?: number; disposal?: number; transparent?: number | null
-             }[]): Buffer {
-  const buf = new Uint8Array(w * h * frames.length * 4 + 8192)
-  const gw = new GifWriter(buf, w, h, { loop: 0, palette: PALETTE })
-  for (const f of frames) {
-    const fw = f.w ?? w
-    const fh = f.h ?? h
-    const px = new Uint8Array(fw * fh).fill(f.index)
-    gw.addFrame(f.x ?? 0, f.y ?? 0, fw, fh, px, {
-      delay: f.delay ?? 8,
-      disposal: f.disposal ?? 0,
-      transparent: f.transparent ?? null,
-    })
-  }
-  return Buffer.from(buf.subarray(0, gw.end()))
-}
-
 let dir: string
 const paths: Record<string, string> = {}
 
 beforeAll(async () => {
   dir = await mkdtemp(join(tmpdir(), 'stst-canvas-'))
-  const write = async (name: string, bytes: Buffer) => {
+  const write = async (name: string, bytes: Uint8Array) => {
     const p = join(dir, name)
     await writeFile(p, bytes)
     paths[name] = p
   }
   await write('opaque.png', opaquePng(8, 8))
   await write('alpha.png', alphaPng(8, 8))
-  // Three solid full frames, distinct colours. 83ms requested -> 8 (=80ms).
-  await write('solid3.gif', gif(4, 4, [
-    { index: 1, delay: Math.round(83 / 10) },
-    { index: 2, delay: Math.round(83 / 10) },
-    { index: 3, delay: Math.round(83 / 10) },
-  ]))
-  // THE BLEED FIXTURE. Frame 0 fills the canvas red then declares disposal 2
-  // ("restore to background"). Frame 1 paints a 2x2 green subrect. A correct
-  // decoder shows frame 1 as a green square on transparent; a decoder that
-  // reuses one buffer and ignores disposal shows green on *red*.
-  await write('dispose2.gif', gif(4, 4, [
-    { index: 1, disposal: 2 },
-    { index: 2, x: 0, y: 0, w: 2, h: 2, disposal: 0 },
-  ]))
-  // The mirror case: disposal 1 ("do not dispose") means frame 1's subrect
-  // composites *over* frame 0, so clearing the buffer per frame is also wrong.
-  await write('keep.gif', gif(4, 4, [
-    { index: 1, disposal: 1 },
-    { index: 2, x: 0, y: 0, w: 2, h: 2, disposal: 0 },
-  ]))
+  await write('solid3.gif', solid3Gif())
+  await write('dispose2.gif', dispose2Gif())
+  await write('keep.gif', keepGif())
 })
 
 afterAll(async () => { await rm(dir, { recursive: true, force: true }) })

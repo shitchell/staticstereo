@@ -1,89 +1,27 @@
 import { createCanvas, type Canvas } from '@napi-rs/canvas'
-import * as gifencModule from 'gifenc'
 import { spawn } from 'node:child_process'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import type { Writable } from 'node:stream'
+import {
+  checkFrame, iterate, toRgba, type FrameSource, type GreyFrame,
+} from '../shared/frames.js'
+import { encodeGif, type GifOpts } from '../shared/gif.js'
 
 /**
- * gifenc interop. This looks like paranoia and is not — the module's shape
- * genuinely inverts depending on who resolved it, because its package.json
- * offers an esbuild CJS bundle as `main` and an ESM bundle as `module`:
+ * Frame plumbing and the whole GIF path live in `src/shared/`, because they are
+ * isomorphic and the web adapter needs them byte-for-byte identical: a GIF
+ * exported from the site must match one `stst` renders from the same scene. In
+ * particular the `gifenc` interop shim and the 2-colour palette guard are in
+ * `src/shared/gifenc.ts` — see the docblock there before touching either, the
+ * module's shape inverts between node and a bundler.
  *
- * |                              | node (CJS `main`)        | vite/esbuild (ESM `module`) |
- * |------------------------------|--------------------------|-----------------------------|
- * | `import g from 'gifenc'`     | the namespace object     | `GIFEncoder`, the function  |
- * | `import { quantize } from …` | SyntaxError at link time | works                       |
- * | `import * as ns from …`      | `{ default: namespace }` | full namespace              |
- *
- * (The named-import failure is because the CJS bundle installs its exports as
- * `Object.defineProperty` getters, which node's cjs-module-lexer cannot see.)
- *
- * So no single import form is correct everywhere, and this module is loaded
- * both ways: directly by node for the CLI, and through a bundler by the test
- * suite — and later by the web adapter, which hits the same wall. A namespace
- * import plus one probe for a function that only exists on the real API is the
- * only form that survives both.
- */
-const gifenc = ((m: unknown): typeof gifencModule.default =>
-  typeof (m as { quantize?: unknown }).quantize === 'function'
-    ? (m as typeof gifencModule.default)
-    : (m as { default: typeof gifencModule.default }).default
-)(gifencModule)
-
-const { GIFEncoder, quantize, applyPalette } = gifenc
-
-/**
- * A rendered stereogram frame: row-major 8-bit greyscale, `width * height` long.
- *
- * Declared structurally rather than imported from `core` so the encoders stay
- * usable with anything that produces a greyscale buffer — including the
+ * `GreyFrame` stays structural rather than imported from `core` so the encoders
+ * remain usable with anything that produces a greyscale buffer — including the
  * rasteriser's depth maps, which are useful to dump while debugging.
  */
-export interface GreyFrame {
-  readonly pixels: Uint8Array
-  readonly width: number
-  readonly height: number
-}
-
-/** Frames may arrive lazily; nothing here holds a whole animation in memory. */
-export type FrameSource = Iterable<GreyFrame> | AsyncIterable<GreyFrame>
-
-function checkFrame(frame: GreyFrame, label: string): void {
-  const { pixels, width, height } = frame
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1) {
-    throw new Error(`${label}: bad frame size ${width}x${height}`)
-  }
-  if (pixels.length !== width * height) {
-    throw new Error(
-      `${label}: frame is ${width}x${height} so pixels should be ` +
-      `${width * height} bytes, got ${pixels.length}`,
-    )
-  }
-}
-
-/** Greyscale → opaque RGBA, which is what every encoder here wants. */
-function toRgba(frame: GreyFrame): Uint8Array {
-  const { pixels } = frame
-  const rgba = new Uint8Array(pixels.length * 4)
-  for (let i = 0; i < pixels.length; i++) {
-    const v = pixels[i]!
-    const o = i * 4
-    rgba[o] = v
-    rgba[o + 1] = v
-    rgba[o + 2] = v
-    rgba[o + 3] = 255
-  }
-  return rgba
-}
-
-async function* iterate(frames: FrameSource): AsyncGenerator<GreyFrame> {
-  if (Symbol.asyncIterator in frames) {
-    for await (const f of frames as AsyncIterable<GreyFrame>) yield f
-  } else {
-    for (const f of frames as Iterable<GreyFrame>) yield f
-  }
-}
+export type { FrameSource, GreyFrame } from '../shared/frames.js'
+export type { GifOpts } from '../shared/gif.js'
 
 function encodePng(canvas: Canvas, frame: GreyFrame): Buffer {
   const ctx = canvas.getContext('2d')
@@ -152,21 +90,6 @@ export async function writePngSequence(
 // GIF
 // ---------------------------------------------------------------------------
 
-/** Black and white, in gifenc's `[r, g, b]` palette shape. */
-const BW_PALETTE: number[][] = [[0, 0, 0], [255, 255, 255]]
-
-export interface GifOpts {
-  /** Frames per second. Default 12. Ignored if `delayMs` is given. */
-  fps?: number
-  /**
-   * Per-frame delay in milliseconds. GIF stores delays in 10ms units, so this
-   * is rounded: 12fps (83ms) is written — and reads back — as 80ms.
-   */
-  delayMs?: number
-  /** -1 = play once, 0 = loop forever (default), >0 = that many repeats. */
-  loop?: number
-}
-
 /**
  * Write an animated GIF.
  *
@@ -174,56 +97,17 @@ export interface GifOpts {
  * frame is binary black and white, so a 2-colour palette is exact. The format
  * is therefore lossless for this payload *and* smaller than a lossless MP4 of
  * the same frames.
+ *
+ * The encode is `src/shared/gif.ts` — identical to the browser's — so all this
+ * adds is the filesystem. The label keeps this function's own name in frame
+ * error messages.
  */
 export async function writeGif(
   path: string, frames: FrameSource, opts: GifOpts = {},
 ): Promise<void> {
-  const delay = opts.delayMs ?? Math.round(1000 / (opts.fps ?? 12))
-  const loop = opts.loop ?? 0
-  const enc = GIFEncoder()
-
-  let palette: number[][] | undefined
-  let width = 0
-  let height = 0
-  let count = 0
-
-  for await (const frame of iterate(frames)) {
-    checkFrame(frame, `writeGif frame ${count}`)
-    if (count === 0) {
-      width = frame.width
-      height = frame.height
-    } else if (frame.width !== width || frame.height !== height) {
-      throw new Error(
-        `writeGif frame ${count}: every frame must be the same size; ` +
-        `expected ${width}x${height}, got ${frame.width}x${frame.height}`,
-      )
-    }
-
-    const rgba = toRgba(frame)
-    if (!palette) {
-      // `quantize` returns FEWER entries than asked when the input has fewer
-      // colours — an all-black first frame yields a single-colour palette, and
-      // a global palette of one colour flattens every later frame to black.
-      // Measured: quantize(allBlack, 2) -> [[0,0,0]].
-      const found = quantize(rgba, 2)
-      palette = found.length >= 2 ? found : BW_PALETTE
-    }
-
-    const index = applyPalette(rgba, palette)
-    enc.writeFrame(index, width, height, {
-      // The palette and the loop count live in the global header, which gifenc
-      // writes on the first frame only.
-      ...(count === 0 ? { palette, repeat: loop } : {}),
-      delay,
-    })
-    count++
-  }
-
-  if (count === 0) throw new Error('writeGif: no frames to encode')
-
-  enc.finish()
+  const bytes = await encodeGif(frames, opts, 'writeGif')
   await mkdir(dirname(path), { recursive: true })
-  await writeFile(path, enc.bytes())
+  await writeFile(path, bytes)
 }
 
 // ---------------------------------------------------------------------------

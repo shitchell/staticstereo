@@ -1,10 +1,11 @@
 import { createCanvas, loadImage as skLoadImage } from '@napi-rs/canvas'
-import { GifReader } from 'omggif'
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import type {
-  CanvasLike, Ctx2D, DecodedGif, DecodedImage, GifFrame,
+  CanvasLike, Ctx2D, DecodedGif, DecodedImage,
 } from '../core/canvaslike.js'
+import { decodeGif } from '../shared/gif.js'
+import { anyTransparent } from '../shared/pixels.js'
 
 /**
  * The Node implementation of `CanvasLike`, over `@napi-rs/canvas`.
@@ -44,30 +45,6 @@ async function readBytes(src: string): Promise<Uint8Array> {
 function describeCause(err: unknown): string {
   if (err instanceof Error) return err.message
   return String(err)
-}
-
-/** True if any pixel in an RGBA buffer is less than fully opaque. */
-function anyTransparent(data: ArrayLike<number>): boolean {
-  for (let i = 3; i < data.length; i += 4) if (data[i]! < 255) return true
-  return false
-}
-
-/**
- * Clear an axis-aligned rect of an RGBA buffer to transparent black.
- * This is GIF disposal method 2 ("restore to background"); every browser
- * implements "background" as transparent rather than the palette's background
- * index, and so do we.
- */
-function clearRect(
-  rgba: Uint8Array, screenW: number, screenH: number,
-  x: number, y: number, w: number, h: number,
-): void {
-  const x1 = Math.min(x + w, screenW)
-  const y1 = Math.min(y + h, screenH)
-  for (let row = Math.max(y, 0); row < y1; row++) {
-    const start = (row * screenW + Math.max(x, 0)) * 4
-    rgba.fill(0, start, start + (x1 - Math.max(x, 0)) * 4)
-  }
 }
 
 export function nodeCanvas(): CanvasLike {
@@ -115,60 +92,11 @@ export function nodeCanvas(): CanvasLike {
           { cause: err })
       }
 
-      let reader: GifReader
-      try {
-        reader = new GifReader(bytes)
-      } catch (err) {
-        throw new Error(`failed to decode GIF "${src}": ${describeCause(err)}`,
-          { cause: err })
-      }
-
-      const width = reader.width
-      const height = reader.height
-      const count = reader.numFrames()
-      if (count < 1) throw new Error(`failed to decode GIF "${src}": no frames`)
-
-      // `decodeAndBlitFrameRGBA` blits: it writes only the frame's own subrect
-      // and skips transparent pixels outright. So the buffer handed to it IS the
-      // compositing canvas, and getting it wrong fails in two opposite ways:
-      //
-      //   - reuse it untouched and a frame that asked to be cleared (disposal 2)
-      //     bleeds through everything after it;
-      //   - clear it every frame and partial-frame GIFs (what gifsicle and
-      //     ffmpeg emit) lose the background they are drawn on top of.
-      //
-      // Neither is a judgement call: the GIF spec says which to do, per frame,
-      // via the disposal method, and omggif does not act on it for us.
-      const canvasBuf = new Uint8Array(width * height * 4)
-      const frames: GifFrame[] = []
-
-      for (let i = 0; i < count; i++) {
-        const info = reader.frameInfo(i)
-        // Disposal 3 restores what was underneath, so snapshot before drawing.
-        const before = info.disposal === 3 ? canvasBuf.slice() : undefined
-
-        try {
-          reader.decodeAndBlitFrameRGBA(i, canvasBuf)
-        } catch (err) {
-          throw new Error(
-            `failed to decode GIF "${src}" frame ${i}: ${describeCause(err)}`,
-            { cause: err },
-          )
-        }
-
-        // Each returned frame gets its own buffer. Handing out views on the
-        // shared compositing canvas would make every frame equal to the last.
-        frames.push({ rgba: canvasBuf.slice(), delayMs: info.delay * 10 })
-
-        if (info.disposal === 2) {
-          clearRect(canvasBuf, width, height, info.x, info.y, info.width, info.height)
-        } else if (info.disposal === 3 && before) {
-          canvasBuf.set(before)
-        }
-        // 0 (unspecified) and 1 (do not dispose): leave the canvas as it is.
-      }
-
-      return { width, height, frames }
+      // The decode itself — including the disposal model, which is where all
+      // the subtlety is — is shared with the web adapter. See
+      // `src/shared/gif.ts`; `omggif` is dependency-free and isomorphic, so a
+      // second copy would only be a second thing to get wrong.
+      return decodeGif(bytes, src)
     },
   }
 }

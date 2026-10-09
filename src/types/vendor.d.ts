@@ -1,18 +1,30 @@
 /**
  * Hand-written types for the two dependencies that ship no declarations.
  *
- * Both are CommonJS. The difference in how they must be imported is not a
- * style choice, it is a runtime constraint measured on node 22:
+ * The difference in how they must be imported is not a style choice, it is a
+ * runtime constraint measured on node 22:
  *
- *   - `omggif` ends with a literal `exports.GifWriter = ...; exports.GifReader = ...`,
- *     which node's cjs-module-lexer detects, so named ESM imports work.
- *   - `gifenc` is an esbuild CJS bundle whose exports are *getters* installed via
- *     `Object.defineProperty`. The lexer cannot see them, so
- *     `import { GIFEncoder } from 'gifenc'` throws
- *     `SyntaxError: Named export 'GIFEncoder' not found`.
- *     It must be a default import, then destructured.
+ *   - `omggif` is CommonJS and ends with a literal
+ *     `exports.GifWriter = ...; exports.GifReader = ...`, which node's
+ *     cjs-module-lexer detects, so named ESM imports work everywhere.
+ *   - `gifenc` ships *both* an esbuild CJS bundle (`main`) and an ESM bundle
+ *     (`module`) with no `exports` map, so its shape depends on who resolved
+ *     it. Under node the CJS bundle installs its exports as
+ *     `Object.defineProperty` getters, which the lexer cannot see, so
+ *     `import { GIFEncoder } from 'gifenc'` throws `SyntaxError: Named export
+ *     'GIFEncoder' not found`; under any bundler the ESM half makes named
+ *     imports work and `default` is `GIFEncoder` itself rather than the
+ *     namespace.
  *
- * The declarations below encode that: `gifenc` exports only a default.
+ * **No single import form is correct in both, so do not import `gifenc`
+ * directly.** (An earlier revision of this comment said "it must be a default
+ * import, then destructured" — true under node, backwards under every bundler,
+ * and vitest only ever exercises the bundler half.) Use the namespace import
+ * plus shape probe in `src/shared/gifenc.ts`, which is pinned in both
+ * directions by `src/shared/gifenc.test.ts`.
+ *
+ * The declarations below describe the CJS half: `gifenc` exports only a
+ * default, which is what the shim normalises to.
  */
 
 declare module 'omggif' {
