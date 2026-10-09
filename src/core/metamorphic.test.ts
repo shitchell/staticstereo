@@ -19,7 +19,8 @@
  * ## Honest status, up front
  *
  * Four tests here are **red on purpose** and marked `it.fails`. They cover two
- * live, unfixed defects of the default `'shift'` encoder — unbounded rightward
+ * live, unfixed defects of the `'shift'` encoder (no longer the default, but
+ * still selectable) — unbounded rightward
  * propagation and left-edge depth loss — stated as four separate bounds because
  * the two defects have four distinct consequences (raw reach, fusible ghost
  * echoes, dead-zone width, dead-zone asymmetry) and a partial fix should move

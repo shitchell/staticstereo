@@ -73,10 +73,13 @@ describe('plateLayoutOf', () => {
     ({ size: [800, 300], stereo: stereo as Scene['stereo'], layers: [] })
 
   it('reports stage, margins and plate in scene pixels', () => {
+    // The shipped defaults: sepFar 110 under `linked`, the default encoder as
+    // of 2026-10-09, so the margins are symmetric. Under `shift` the same
+    // scene was 110/55 and a 965px plate.
     expect(plateLayoutOf(scene())).toEqual({
-      margins: { left: 110, right: 55 },
-      stage: { x: 110, y: 0, width: 800, height: 300 },
-      plate: { width: 965, height: 300 },
+      margins: { left: 55, right: 55 },
+      stage: { x: 55, y: 0, width: 800, height: 300 },
+      plate: { width: 910, height: 300 },
     })
   })
 
@@ -88,12 +91,17 @@ describe('plateLayoutOf', () => {
     }
   })
 
-  it('narrows the plate under linked, because its dead zone is symmetric', () => {
-    expect(plateLayoutOf(scene({ algorithm: 'linked' })).plate.width).toBe(910)
+  // Was 'narrows the plate under linked'. Flipped to name `shift` explicitly
+  // rather than renumbered: `linked` is now the default, so an assertion about
+  // `{ algorithm: 'linked' }` would merely restate the test above, and the
+  // per-encoder half of §10.3 would stop being covered here at all.
+  it('widens the plate under shift, because its dead zone is left-heavy', () => {
+    expect(plateLayoutOf(scene({ algorithm: 'shift' })).plate.width).toBe(965)
   })
 
   it('tracks a scene-level sepFar override', () => {
-    expect(plateLayoutOf(scene({ sepFar: 40, sepNear: 30 })).plate.width).toBe(800 + 40 + 20)
+    // Default encoder, so both margins are ceil(40/2).
+    expect(plateLayoutOf(scene({ sepFar: 40, sepNear: 30 })).plate.width).toBe(800 + 20 + 20)
   })
 
   it('sceneMargins and plateLayoutOf agree', () => {
@@ -103,8 +111,9 @@ describe('plateLayoutOf', () => {
   })
 
   it('scaleRect maps scene px to output px', () => {
+    // x = the default encoder's left margin (55) x 2; it was 220 under shift.
     expect(scaleRect(plateLayoutOf(scene()).stage, 2))
-      .toEqual({ x: 220, y: 0, width: 1600, height: 600 })
+      .toEqual({ x: 110, y: 0, width: 1600, height: 600 })
   })
 })
 

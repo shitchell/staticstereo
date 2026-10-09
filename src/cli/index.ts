@@ -192,7 +192,7 @@ interface Written {
   frames: number
   /** The emitted pixel dimensions — the plate, times noiseScale. */
   size: string
-  /** `stage 800x300 -> plate 965x300` in scene px. See {@link geometryOf}. */
+  /** `stage 800x300 -> plate 910x300` in scene px. See {@link geometryOf}. */
   geometry: string
 }
 

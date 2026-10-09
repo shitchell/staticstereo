@@ -217,9 +217,11 @@ export const PRESETS: Record<string, PresetFn> = {
    *
    * The margin terms express the travel against the **emitted** image rather
    * than against the stage, which is also what keeps `speed` meaning px/sec
-   * across the picture: at the shipped defaults under `shift` the plate is
-   * 165px wider than the stage, so a stage-only travel would scroll the same
-   * string over a 17% shorter distance at the same nominal rate. See
+   * across the picture: at the shipped defaults the plate is 110px wider than
+   * the stage (55px of dead margin each side under `linked`), so a stage-only
+   * travel would scroll the same string over a ~12% shorter distance at the
+   * same nominal rate. Under `shift` the margins are 110/55, so the gap is
+   * wider still — which is why this is computed rather than hardcoded. See
    * `PresetCtx.marginLeft` for the measurement of what this changes — which is
    * the timing, not the appearance.
    */

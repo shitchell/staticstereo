@@ -123,10 +123,11 @@ split a ball at `x: 80` lost its left 72px and became an unfindable crescent, an
 t=0.25 — it popped into existence instead of sliding in. Both are zero now. See §10 of the
 design doc.
 
-One caveat worth knowing: under the default `shift` encoder a percept appears half a
-separation to the *left* of the depth column that asked for it, so the whole fused picture
-sits 46–55px left of where you composed it. `--algorithm linked` registers percepts at the
-authored column exactly. Margins do not change this; it is a property of the encoder.
+One caveat if you switch encoders: the default `linked` encoder links symmetric pairs, so
+a percept lands on the depth column that asked for it. `--algorithm shift` links `(x-sep, x)`
+instead, which places percepts **half a separation to the left** — the whole fused picture
+sits 46–55px left of where you composed it. Margins do not change this; it is a property of
+the pairing.
 
 And if a render looks wrong, use `--depth-map`. A stereogram cannot be debugged by eye;
 the depth map is the only way to tell an authoring mistake from an encoding one.

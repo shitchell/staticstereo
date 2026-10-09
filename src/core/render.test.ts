@@ -15,7 +15,8 @@ import { marginsFor, plateLayoutOf } from './plate.js'
 import { createRasterCache } from './raster.js'
 import { FAKE_CHAR_ASPECT, fakeCanvas, rgbaImage } from './testing/fakeCanvas.js'
 import type { CanvasLike } from './canvaslike.js'
-import type { Scene, StereoOpts } from './types.js'
+import { DEFAULT_STEREO } from './types.js'
+import type { Scene, SirdsAlgorithm, StereoOpts } from './types.js'
 
 /**
  * Small stereo settings so the whole suite stays fast while leaving room for a
@@ -29,13 +30,19 @@ const H = 24
 const SLAB_X = 80
 
 /**
- * The plate the default (`shift`) encoder needs for these settings: 30px of
- * left margin and 15px of right, so a 240px stage emits a 285px plate (§10).
+ * The plate the **default** encoder needs for these settings. Margins are
+ * per-encoder (§10.3), so this tracks `DEFAULT_STEREO.algorithm` rather than
+ * naming one: at `linked` it is 15px either side, so a 240px stage emits a
+ * 270px plate; under `shift` it was 30/15 and 285px.
+ *
  * Spelled out here because every width assertion below is about the *plate*
  * while every window is in *stage* coordinates, and conflating the two is
- * exactly the mistake the split exists to make impossible.
+ * exactly the mistake the split exists to make impossible. Derived rather than
+ * hardcoded so that a default-encoder change moves the plate and the
+ * measurement windows together — the numbers below are consequences of §10.3,
+ * not independent facts.
  */
-const MARGINS = marginsFor(SEP.sepFar, 'shift')
+const MARGINS = marginsFor(SEP.sepFar, DEFAULT_STEREO.algorithm)
 const PLATE_W = MARGINS.left + W + MARGINS.right
 
 /**
@@ -168,7 +175,12 @@ describe('resolveStereo', () => {
     expect(o.depthBlur).toBe(0)   // off by default; see types.ts for why
     expect(o.cross).toBe(false)
     expect(o.seed).toBe(0)
-    expect(o.algorithm).toBe('shift')   // the new encoder is opt-in
+    // 'linked' as of 2026-10-09 — see DEFAULT_STEREO's own comment for the
+    // measurement and the blinded comparison behind it. This assertion only
+    // restates the literal; `defaults.test.ts` is what pins the default
+    // *behaviourally*, i.e. proves it reaches the encoder at all. That gap is
+    // how `algorithm` sat effectively unpinned here.
+    expect(o.algorithm).toBe('linked')
   })
 
   it('lets the scene override individual fields', () => {
@@ -318,13 +330,13 @@ describe('renderFrame', () => {
 
 describe('freezeNoise', () => {
   /** A slab parked in the right-hand third, sliding 40px over the scene. */
-  function movingScene(freezeNoise?: boolean): Scene {
+  function movingScene(freezeNoise?: boolean, algorithm?: SirdsAlgorithm): Scene {
     return {
       size: [W, H],
       fps: 12,
       duration: 1,
       freezeNoise,
-      stereo: { ...SEP, noiseScale: 1, seed: 11 },
+      stereo: { ...SEP, noiseScale: 1, seed: 11, ...(algorithm ? { algorithm } : {}) },
       layers: [
         {
           type: 'shape',
@@ -340,33 +352,93 @@ describe('freezeNoise', () => {
   }
 
   /**
-   * A window left of everything the layer can touch. SIRDS dependencies run
-   * strictly leftward, so this region is the dot field and nothing else.
+   * A window left of everything the layer can touch.
+   *
+   * **`shift` only.** Under `shift` the dependency inside a row is strictly
+   * leftward, so this region is the dot field and nothing else. Under `linked`
+   * it is not: `same[x] > x` always, so colours are resolved right to left and
+   * the *colours* upstream of an object do change when it moves — measured
+   * here at 50 of these 140 columns — while the far wallpaper's equality
+   * structure in the same window is bit-for-bit untouched (0 of 140 columns
+   * change their sepFar coherence). That is `linkedSirds`'s documented
+   * consequence 3, not a frozen seed leaking.
    */
   const bgRow = (f: PlateFrame) =>
     rowOf(f.pixels, f.width, H / 2).slice(f.stage.x, f.stage.x + 140)
 
-  async function render(freezeNoise?: boolean): Promise<PlateFrame[]> {
+  async function render(
+    freezeNoise?: boolean,
+    algorithm?: SirdsAlgorithm,
+  ): Promise<PlateFrame[]> {
     const out: PlateFrame[] = []
-    for await (const f of renderFrames(movingScene(freezeNoise), fakeCanvas())) out.push(f)
+    for await (const f of renderFrames(movingScene(freezeNoise, algorithm), fakeCanvas())) {
+      out.push(f)
+    }
     return out
   }
 
-  it('shares one dot field across frames when true, while the layer still moves', async () => {
-    const frames = await render(true)
+  it('shift: shares one dot field across frames when true, while the layer still moves', async () => {
+    // Pinned to `shift` rather than renumbered: the window `bgRow` measures is
+    // only object-free under an encoder whose dependencies run one way. See
+    // `bgRow`. The default encoder's version of this property is the next test.
+    const frames = await render(true, 'shift')
     expect(frames).toHaveLength(12)
     expect(bgRow(frames[5]!)).toEqual(bgRow(frames[0]!))
     // ...and it is still an animation, not 12 copies of one frame.
     expect(Array.from(frames[5]!.pixels)).not.toEqual(Array.from(frames[0]!.pixels))
   })
 
-  it('re-randomises the dot field per frame by default', async () => {
-    const frames = await render(undefined)
+  it('shares one dot field across frames when true, for either encoder', async () => {
+    // The same property stated without a window, so it holds for an encoder
+    // whose row dependencies are not one-directional. The layer ping-pongs, so
+    // frames 2 and 10 are the *same pose* — identical depth maps. One shared
+    // seed therefore means identical bytes, and a per-frame seed cannot
+    // produce them.
+    const pingpong = (freezeNoise: boolean, algorithm: SirdsAlgorithm): Scene => ({
+      size: [W, H],
+      fps: 12,
+      duration: 1,
+      freezeNoise,
+      stereo: { ...SEP, noiseScale: 1, seed: 11, algorithm },
+      layers: [
+        {
+          type: 'shape',
+          shape: 'rect',
+          at: [160, 0],
+          w: 40,
+          h: H,
+          depth: 1,
+          anim: { keys: [{ t: 0, x: 0 }, { t: 0.5, x: 40 }, { t: 1, x: 0 }] },
+        },
+      ],
+    })
+    for (const algorithm of ['shift', 'linked'] as const) {
+      for (const freezeNoise of [true, false]) {
+        const frames: PlateFrame[] = []
+        for await (const f of renderFrames(pingpong(freezeNoise, algorithm), fakeCanvas())) {
+          frames.push(f)
+        }
+        const a = Array.from(frames[2]!.pixels)
+        const b = Array.from(frames[10]!.pixels)
+        if (freezeNoise) expect(a, `${algorithm} frozen`).toEqual(b)
+        else expect(a, `${algorithm} unfrozen`).not.toEqual(b)
+      }
+    }
+  })
+
+  // Both pinned to `shift` for the same reason as above, and this direction is
+  // the one where it matters most: `bgRow` differs between two `linked` frames
+  // whether the seed moved or not (50 of 140 columns, measured — see `bgRow`),
+  // so under the default encoder these two assertions would pass even with
+  // `freezeNoise` broken. The test above covers the default encoder's version
+  // of this direction with a window-free measurement.
+  it('shift: re-randomises the dot field per frame by default', async () => {
+    const frames = await render(undefined, 'shift')
     expect(bgRow(frames[5]!)).not.toEqual(bgRow(frames[0]!))
   })
 
-  it('re-randomises when explicitly false', async () => {
-    const frames = await render(false)
+  it('shift: re-randomises when explicitly false', async () => {
+    const frames = await render(false, 'shift')
     expect(bgRow(frames[5]!)).not.toEqual(bgRow(frames[0]!))
   })
 

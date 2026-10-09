@@ -19,7 +19,9 @@ const frame = (width: number, height: number, x: number, w: number) => ({
 
 describe('stageGuideStyle', () => {
   it('places the stage at its real fraction of the plate', () => {
-    // 800px stage inside a 965px plate at the shipped `shift` margins.
+    // 800px stage inside a 965px plate, i.e. `shift`'s 110/55 margins. A hand
+    // built frame, not a scene: this function takes a rendered frame's own
+    // geometry, so it is independent of which encoder is the default.
     expect(stageGuideStyle(frame(965, 300, 110, 800))).toEqual({
       left: '11.3990%', width: '82.9016%', top: '0.0000%', height: '100.0000%',
     })
@@ -52,10 +54,12 @@ describe('stageGuideLabel', () => {
   const scene = (stereo?: Scene['stereo']): Scene => ({ size: [800, 300], stereo, layers: [] })
 
   it('names the stage, the plate and both margins', () => {
+    // The shipped defaults, which pad symmetrically since `linked` became the
+    // default encoder (2026-10-09). It read 965×300 and 110/55 under `shift`.
     const text = stageGuideLabel(plateLayoutOf(scene()), 1)
     expect(text).toContain('stage 800×300')
-    expect(text).toContain('965×300 plate')
-    expect(text).toContain('110px left + 55px right')
+    expect(text).toContain('910×300 plate')
+    expect(text).toContain('55px left + 55px right')
   })
 
   it('says the dead space is not croppable, which is the counter-intuitive half', () => {
@@ -67,12 +71,17 @@ describe('stageGuideLabel', () => {
 
   it('mentions the drawn size only when noiseScale changes it', () => {
     expect(stageGuideLabel(plateLayoutOf(scene()), 1)).not.toContain('noiseScale')
-    expect(stageGuideLabel(plateLayoutOf(scene()), 2)).toContain('1930×600')
+    // The default 910px plate at noiseScale 2; it was 1930×600 under `shift`.
+    expect(stageGuideLabel(plateLayoutOf(scene()), 2)).toContain('1820×600')
   })
 
-  it('tracks the encoder, since linked pads symmetrically', () => {
-    const text = stageGuideLabel(plateLayoutOf(scene({ algorithm: 'linked' })), 1)
-    expect(text).toContain('910×300 plate')
-    expect(text).toContain('55px left + 55px right')
+  // Was 'tracks the encoder, since linked pads symmetrically', asserting the
+  // linked numbers. Flipped to `shift` rather than renumbered: those numbers
+  // are now the default, so the linked spelling would just restate the test
+  // above and the label would stop being checked against a second encoder.
+  it('tracks the encoder, since shift pads left-heavily', () => {
+    const text = stageGuideLabel(plateLayoutOf(scene({ algorithm: 'shift' })), 1)
+    expect(text).toContain('965×300 plate')
+    expect(text).toContain('110px left + 55px right')
   })
 })

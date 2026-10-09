@@ -69,10 +69,12 @@ describe('public surface', () => {
       layers: [{ type: 'shape', shape: 'rect', at: [0, 0], w: 120, h: 8, depth: 1 }],
     }
     const frame = await core.renderFrame(scene, core.stillTime(scene), fakeCanvas())
-    // The emitted grid is the PLATE: a 120px stage plus `shift`'s 30/15
-    // margins, at noiseScale 2 (design §10).
-    expect(frame.width).toBe((30 + 120 + 15) * 2)
-    expect(frame.stage).toEqual({ x: 60, y: 0, width: 240, height: 16 })
+    // The emitted grid is the PLATE: a 120px stage plus the default encoder's
+    // margins, at noiseScale 2 (design §10). `linked` is the default as of
+    // 2026-10-09 and pads symmetrically, so that is 15/15 here and a 150px
+    // plate; under `shift` it was 30/15 and 165px.
+    expect(frame.width).toBe((15 + 120 + 15) * 2)
+    expect(frame.stage).toEqual({ x: 30, y: 0, width: 240, height: 16 })
     const { period } = core.dominantPeriod(core.rowOf(frame.pixels, frame.width, 8), 4, 60)
     expect(period).toBe(40) // sepNear 20 x noiseScale 2
   })

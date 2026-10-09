@@ -74,7 +74,7 @@ export interface StereoOpts
   /**
    * Which encoder to use. Required here and optional on {@link SirdsOpts}: a
    * resolved {@link StereoOpts} is the pipeline's single source of truth, and
-   * `resolveStereo` is the one place allowed to apply the `'shift'` default.
+   * `resolveStereo` is the one place allowed to apply the default.
    * A scene's own `stereo.algorithm` is still optional — `Scene['stereo']` is a
    * `Partial` of this.
    */
@@ -130,7 +130,17 @@ export const DEFAULT_STEREO: StereoOpts = {
   depthBlur: 0,
   cross: false,
   seed: 0,
-  algorithm: 'shift',
+  // 'linked' as of 2026-10-09, after a blinded comparison confirmed the
+  // measurement. Shaun ranked two shift renders as "heavy streaking" and two
+  // linked renders as "much cleaner", with both replicates of each grouping
+  // correctly and an independent motion pair agreeing. Crucially he did NOT
+  // report linked's own artifact (isolated 1px coherent columns), which was the
+  // one thing that could have made this a real trade.
+  //
+  // Measured: shift leaves a sepNear-periodic excess 36 SE above chance in
+  // seven runs each exactly 18px wide — the disparity budget, precisely wide
+  // enough to fuse. linked measures at chance. Costs ~2.9x at this budget.
+  algorithm: 'linked',
 }
 
 /**

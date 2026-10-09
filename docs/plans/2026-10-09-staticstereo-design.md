@@ -843,9 +843,16 @@ implementation; all are cheap to change.
     scene model — is reachable on the site only by hand-typing a URL or a `data:` URI.
     Given the depth panel exists to debug exactly that, a tiny inline `data:` URI example
     would make it one click away.
-15. **Which encoder should be the default?** Currently `'shift'`, unchanged, because the
-    choice is perceptual. The evidence so far favours `'linked'` on two counts and is
-    neutral on a third:
+15. ~~Which encoder should be the default?~~ **Answered 2026-10-09: `'linked'`.** A
+    blinded comparison (both encoders × two seeds, plus a motion pair) confirmed the
+    measurement — Shaun ranked both `shift` renders "heavy streaking" and both `linked`
+    renders "much cleaner", replicates grouping correctly, and crucially did **not**
+    report `linked`'s own 1px-column artifact, which was the only thing that could have
+    made it a bad trade. He also noted the ghost is visible in a *static* frame, which is
+    correct: it is a structural property, and motion only makes it noticeable. Accepted
+    cost: ~2.9× slower. **Note the registration argument below went untested** — an
+    absolute ~50px offset is not perceivable without a reference marker, and all four
+    blinded images showed the same apparent position. The original evidence:
 
     - **Ghost.** `shift` leaves a `sepNear`-periodic excess of 0.585 downstream, ~36 SE
       above a 0.500 chance baseline, in seven spurious runs each *exactly* 18px wide — the

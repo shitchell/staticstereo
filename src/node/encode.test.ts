@@ -212,6 +212,9 @@ describe('gifenc module interop', () => {
    * check anyway: that is the artifact `files: ["dist"]` publishes and the
    * `bin` entry point loads.
    */
+  // 20s, not the 5s default: this spawns tsc, which takes ~3.2s alone and
+  // ~4.7s under a loaded machine, so the default timeout made it fail about
+  // one run in three. Measured; the slowness is the compiler, not the code.
   it.skipIf(!HAVE_TSC)('writes a decodable GIF when loaded by node, not just by vite', async () => {
     // Built *inside* the repo, not in /tmp: node resolves `@napi-rs/canvas`
     // and `gifenc` by walking up from the importing file, so output parked
@@ -241,7 +244,7 @@ describe('gifenc module interop', () => {
     const r = new GifReader(await readFile(p))
     expect(r.numFrames()).toBe(1)
     expect(r.frameInfo(0).palette_size).toBe(2)
-  })
+  }, 20_000)
 })
 
 describe('resolveMp4Encoding', () => {

@@ -85,9 +85,14 @@ const SLAB: [number, number] = [120, 240]
  * encoder's dead margins (design §10). Written out rather than hardcoded so
  * the two encoders the tests below exercise get their own numbers — `shift`
  * pads 30/15 at this `sepFar`, `linked` pads 15/15.
+ *
+ * `MARGINS` tracks `DEFAULT_STEREO.algorithm` because none of the scene
+ * fixtures below name an encoder, so every plate width and every measurement
+ * offset here is a consequence of whichever one is the default. `linked` as of
+ * 2026-10-09, hence 15/15 and a 270px plate where it used to be 285.
  */
-const MARGINS = marginsFor(SEP.sepFar, 'shift')
-const LINKED_MARGINS = marginsFor(SEP.sepFar, 'linked')
+const MARGINS = marginsFor(SEP.sepFar, DEFAULT_STEREO.algorithm)
+const SHIFT_MARGINS = marginsFor(SEP.sepFar, 'shift')
 const PLATE_W = MARGINS.left + W + MARGINS.right
 /** A scene with no `stereo:` block gets the shipped defaults, hence a wider plate. */
 const DEFAULT_PLATE_W =
@@ -171,7 +176,8 @@ describe('stst still', () => {
     expect(r.code).toBe(0)
 
     const png = await readPng(out)
-    // 200px stage + shift's 30/15 dead margins = a 245px plate, x2 (§10).
+    // 200px stage + the default encoder's dead margins (§10). At `linked`'s
+    // 15/15 that is a 230px plate, x2 = 460; under `shift` it was 245 and 490.
     expect(png.width).toBe((200 + MARGINS.left + MARGINS.right) * 2)
     expect(png.height).toBe(160)
     // A dot field, not a blank canvas: both values present.
@@ -230,7 +236,8 @@ describe('stst still', () => {
     const out = join(d, 'one.png')
     const r = await cli(['still', path, '-o', out])
     expect(r.out).toMatch(new RegExp(`stage ${W}x${H} -> plate ${PLATE_W}x${H}`))
-    expect(r.out).toMatch(/dead margins 30\+15px, shift/)
+    // The scene names no encoder, so this is the default one reported back.
+    expect(r.out).toMatch(/dead margins 15\+15px, linked/)
   })
 })
 
@@ -288,29 +295,33 @@ describe('stst render', () => {
     expect(periodIn(row, BG, 1).period).toBe(SEP.sepFar)
   })
 
-  // The flag exists so Shaun can render both and compare before the default
-  // changes, so it has to reach the encoder *and* still encode the depth.
-  it('--algorithm linked renders a different image that still encodes the depth', async () => {
+  // The flag has to reach the encoder *and* still encode the depth. Was
+  // `--algorithm linked` against a bare default render; flipped to
+  // `--algorithm shift` rather than renumbered, because `linked` is now the
+  // default and the bare render already exercises it — comparing the flag
+  // against the default would have been comparing a render with itself, which
+  // is exactly how this test failed.
+  it('--algorithm shift renders a different image that still encodes the depth', async () => {
     const { dir: d, path } = await scene(SLAB_SCENE)
+    const defaultOut = join(d, 'default.gif')
     const shiftOut = join(d, 'shift.gif')
-    const linkedOut = join(d, 'linked.gif')
-    expect((await cli(['render', path, '-o', shiftOut, '--noise-scale', '1'])).code).toBe(0)
+    expect((await cli(['render', path, '-o', defaultOut, '--noise-scale', '1'])).code).toBe(0)
     expect((await cli([
-      'render', path, '-o', linkedOut, '--noise-scale', '1', '--algorithm', 'linked',
+      'render', path, '-o', shiftOut, '--noise-scale', '1', '--algorithm', 'shift',
     ])).code).toBe(0)
 
+    const dflt = decodeGif(await readFile(defaultOut), 'default.gif')
     const shift = decodeGif(await readFile(shiftOut), 'shift.gif')
-    const linked = decodeGif(await readFile(linkedOut), 'linked.gif')
+    const defaultRow = rgbaRow(dflt.frames[0]!.rgba, dflt.width, Math.floor(H / 2))
     const shiftRow = rgbaRow(shift.frames[0]!.rgba, shift.width, Math.floor(H / 2))
-    const linkedRow = rgbaRow(linked.frames[0]!.rgba, linked.width, Math.floor(H / 2))
-    expect(linkedRow).not.toEqual(shiftRow)
+    expect(shiftRow).not.toEqual(defaultRow)
 
-    // `linked` pads symmetrically, so its plate is narrower than shift's and
-    // its stage sits at a different offset — which is why `periodIn` takes the
-    // margins rather than assuming one encoder.
-    expect(linked.width).toBe(LINKED_MARGINS.left + W + LINKED_MARGINS.right)
-    expect(periodIn(linkedRow, SLAB, 1, LINKED_MARGINS).period).toBe(SEP.sepNear)
-    expect(periodIn(linkedRow, BG, 1, LINKED_MARGINS).period).toBe(SEP.sepFar)
+    // `shift` pads left-heavily, so its plate is wider than the default
+    // `linked` one and its stage sits at a different offset — which is why
+    // `periodIn` takes the margins rather than assuming one encoder.
+    expect(shift.width).toBe(SHIFT_MARGINS.left + W + SHIFT_MARGINS.right)
+    expect(periodIn(shiftRow, SLAB, 1, SHIFT_MARGINS).period).toBe(SEP.sepNear)
+    expect(periodIn(shiftRow, BG, 1, SHIFT_MARGINS).period).toBe(SEP.sepFar)
   })
 
   it('--cross inverts which region reads as nearer', async () => {
@@ -398,12 +409,15 @@ describe('stst preview', () => {
     const r = await cli(['preview', path])
     expect(r.code).toBe(0)
     expect(r.out).toMatch(new RegExp(`stage ${W}x${H} -> plate ${PLATE_W}x${H}`))
-    expect(r.out).toMatch(/margins  30px left \+ 15px right/)
-    expect(r.out).toMatch(/stage at 60,0 480x48 in the output/)
+    // The default encoder's symmetric margins, and the stage offset that
+    // follows from them: 15px x noiseScale 2. Under `shift` this read
+    // `30px left + 15px right` and `stage at 60,0`.
+    expect(r.out).toMatch(/margins  15px left \+ 15px right/)
+    expect(r.out).toMatch(/stage at 30,0 480x48 in the output/)
     expect(r.out).toMatch(/12 frames/)
     expect(r.out).toMatch(/sepFar 30/)
     expect(r.out).toMatch(/sepNear 20/)
-    expect(r.out).toMatch(/algorithm shift/)
+    expect(r.out).toMatch(/algorithm linked/)
     // The measurement is the point: a stereogram cannot be checked by eye.
     expect(r.out).toMatch(/period/)
     const match = /(\S+\.gif)/.exec(r.out)

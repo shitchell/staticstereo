@@ -114,11 +114,11 @@ Stereo (override the scene file):
   --noise-scale <n>        nearest-neighbour dot size (default 2)
   --depth-blur <px>        depth-edge softening (default 0, i.e. off)
   --seed <n>               dot-field seed
-  --algorithm <name>       encoder: shift (default) or linked. shift copies
-                           each pixel from sep px back, which smears a near
-                           object's content to the right edge; linked is
+  --algorithm <name>       encoder: linked (default) or shift. linked is
                            Thimbleby-Inglis-Witten constrained pairs with
-                           hidden-surface removal, which does not
+                           hidden-surface removal; shift copies each pixel
+                           from sep px back, which smears a near object's
+                           content to the right edge as a visible ghost
   --cross / --no-cross     invert depth for cross-eyed viewing
   --freeze-noise           reuse one dot field for every frame
   --no-freeze-noise        re-randomise every frame (the default)
