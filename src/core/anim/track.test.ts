@@ -86,7 +86,10 @@ describe('composeAnim', () => {
 // `compile = () => ({ keys: [] })` default, which would have made an unwired
 // preset render a motionless scene with no error at all.
 describe('composeAnim preset wiring', () => {
-  const ctx = { sceneW: 800, sceneH: 450, contentW: 100, contentH: 20, layerDepth: 1 }
+  const ctx = {
+    sceneW: 800, sceneH: 450, contentW: 100, contentH: 20, layerDepth: 1,
+    marginLeft: 110, marginRight: 55,
+  }
 
   it('throws rather than silently dropping a preset when no compiler is passed', () => {
     expect(() => composeAnim({ kind: 'marquee' }, 0, 1, ctx))

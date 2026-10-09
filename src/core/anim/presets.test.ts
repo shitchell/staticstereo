@@ -2,7 +2,20 @@ import { describe, it, expect } from 'vitest'
 import { compilePreset, PRESETS } from './presets.js'
 import { evalTrack } from './track.js'
 
-const ctx = { sceneW: 800, sceneH: 450, contentW: 1200, contentH: 90, layerDepth: 1 }
+/**
+ * The shared fixture. `marginLeft`/`marginRight` are the shipped `shift`
+ * margins for `sepFar: 110` (design §10.3), and they are deliberately
+ * **unequal** — a preset that added the wrong one, or added the same one
+ * twice, would still pass with a symmetric fixture.
+ */
+const ctx = {
+  sceneW: 800, sceneH: 450, contentW: 1200, contentH: 90, layerDepth: 1,
+  marginLeft: 110, marginRight: 55,
+}
+
+/** Fully off the plate on each side, in stage coordinates (§10). */
+const OFF_LEFT = -(ctx.contentW + ctx.marginLeft)   // -1310
+const OFF_RIGHT = ctx.sceneW + ctx.marginRight      // 855
 
 /**
  * Absolute depth a layer actually ends up at: tracks emit additive OFFSETS, so
@@ -21,17 +34,36 @@ describe('presets', () => {
     )
   })
 
-  it('marquee carries over-wide content fully off the left edge', () => {
-    // 1200px of text across an 800px viewport must end at -1200, not 0,
-    // or the tail never leaves the frame.
+  // UPDATED FOR THE PLATE/STAGE SPLIT (§10). The endpoints used to be
+  // `-contentW` and `+sceneW`, which are off the *stage* but still inside the
+  // *plate* that is emitted; the travel now runs margin to margin, so the track
+  // is expressed against the image that is actually written out. The
+  // assertions are exact rather than inequalities so that losing a margin term
+  // fails here. (§10.5's own justification for this — "text pops in at the
+  // stage edge" — is NOT what happens under a stage-only rasteriser; see
+  // `PresetCtx.marginLeft` for the measurement.)
+  it('marquee carries over-wide content fully off the left edge of the PLATE', () => {
+    // 1200px of text across an 800px stage with a 110px left margin must end at
+    // -1310, not -1200 and certainly not 0, or the tail never leaves the plate.
     const tr = compilePreset({ kind: 'marquee', speed: 100 }, ctx)
     const end = evalTrack({ ...tr, repeat: 'once' }, 1e6, 1)
-    expect(end.x).toBeLessThanOrEqual(-ctx.contentW)
+    expect(end.x).toBe(OFF_LEFT)
+    expect(end.x).toBeLessThan(-ctx.contentW)
   })
 
-  it('marquee starts fully off the right edge', () => {
+  it('marquee starts fully off the right edge of the PLATE', () => {
     const tr = compilePreset({ kind: 'marquee', speed: 100 }, ctx)
-    expect(evalTrack(tr, 0, 1).x).toBeGreaterThanOrEqual(ctx.sceneW)
+    expect(evalTrack(tr, 0, 1).x).toBe(OFF_RIGHT)
+    expect(evalTrack(tr, 0, 1).x).toBeGreaterThan(ctx.sceneW)
+  })
+
+  it('marquee endpoints reduce to the pre-margin values when margins are 0', () => {
+    // Pins the relationship rather than only the arithmetic: with no dead space
+    // there is nothing to traverse and the old endpoints are correct.
+    const tr = compilePreset({ kind: 'marquee', speed: 100 },
+      { ...ctx, marginLeft: 0, marginRight: 0 })
+    expect(evalTrack(tr, 0, 1).x).toBe(ctx.sceneW)
+    expect(evalTrack({ ...tr, repeat: 'once' }, 1e6, 1).x).toBe(-ctx.contentW)
   })
 
   it('marquee loops by default', () => {
@@ -99,10 +131,14 @@ describe('presets implemented from prose spec', () => {
     expect(end.y).toBeCloseTo(50)
   })
 
-  it('slide-in enters from off-frame and rests at 0', () => {
+  // UPDATED FOR THE PLATE/STAGE SPLIT: the two horizontal directions gained
+  // their margin, the two vertical ones did not, because margins are x-only
+  // (§10.2). Both halves matter — a blanket "add the margin" would push a
+  // `from: 'top'` entry a plate-margin's worth above the frame for no reason.
+  it('slide-in enters from off-PLATE horizontally, off-frame vertically, and rests at 0', () => {
     for (const [from, channel, offset] of [
-      ['left', 'x', -ctx.contentW],
-      ['right', 'x', ctx.sceneW],
+      ['left', 'x', OFF_LEFT],
+      ['right', 'x', OFF_RIGHT],
       ['top', 'y', -ctx.contentH],
       ['bottom', 'y', ctx.sceneH],
     ] as const) {
@@ -151,7 +187,11 @@ describe('presets implemented from prose spec', () => {
   })
 
   it('marquee duration follows speed over the full travel distance', () => {
-    // 800px of viewport + 1200px of content = 2000px at 100px/s.
-    expect(compilePreset({ kind: 'marquee', speed: 100 }, ctx).duration).toBeCloseTo(20)
+    // 800px of stage + 1200px of content + 165px of margins = 2165px at
+    // 100px/s. The margins lengthen the travel, so a `speed` keeps meaning
+    // px/sec rather than silently scrolling faster to cover more ground.
+    expect(compilePreset({ kind: 'marquee', speed: 100 }, ctx).duration)
+      .toBeCloseTo((OFF_RIGHT - OFF_LEFT) / 100)
+    expect(OFF_RIGHT - OFF_LEFT).toBe(2165)
   })
 })

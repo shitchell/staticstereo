@@ -25,7 +25,12 @@
 /* ------------------------------------------------------------------ pipeline */
 
 export { DEFAULT_FPS, frameTimes, isStill, renderFrame, renderFrames, resolveStereo, sceneFps, stillTime } from './render.js'
-export type { Frame, SequenceFrame } from './render.js'
+export type { Frame, PlateFrame, SequenceFrame } from './render.js'
+
+/* ------------------------------------------------- plate / stage geometry */
+
+export { marginsFor, padDepth, plateLayoutOf, scaleRect, sceneMargins } from './plate.js'
+export type { Margins, PlateLayout, Rect } from './plate.js'
 
 /* -------------------------------------------------------------- scene model */
 

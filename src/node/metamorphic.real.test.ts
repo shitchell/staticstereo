@@ -42,12 +42,13 @@ import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { nodeCanvas } from './canvas.js'
 import { loadScene } from '../cli/scene.js'
+import { marginsFor, padDepth } from '../core/plate.js'
+import type { Margins } from '../core/plate.js'
 import { rasterDepth } from '../core/raster.js'
 import { dominantPeriod, MIN_OVERLAP, rowOf } from '../core/analysis.js'
 import {
   diffAgainstControl, encoderFor, median, report, rowsWithDepth, runLengths,
 } from '../core/testing/metamorphic.js'
-import type { Encoder } from '../core/testing/metamorphic.js'
 import { DEFAULT_STEREO } from '../core/types.js'
 import type { Scene, SirdsAlgorithm, SirdsOpts } from '../core/types.js'
 
@@ -189,71 +190,194 @@ describe('row locality on the committed examples', () => {
   const EXAMPLES = ['bouncing-ball.yaml', 'pacman.yaml', 'scrolling-text.yaml']
   const TIMES = [0.25, 1.0, 2.0, 3.5]
 
-  /** Rows with depth vs rows that changed, for one scene at one time. */
-  async function probe(file: string, seconds: number, encode: Encoder) {
+  /** No padding at all — the pipeline as it was before the plate/stage split. */
+  const UNPADDED: Margins = { left: 0, right: 0 }
+
+  /**
+   * Extra seeds a candidate "lost" row is re-tested against.
+   *
+   * **This is what makes the probe usable on real glyphs, and it is not a
+   * tolerance.** A control diff measures colour, and changing `sep` at one
+   * column only swaps *which* of two random source pixels is copied — those two
+   * agree half the time, so a row holding k depth pixels is silent at any given
+   * seed with probability about `2^-k` even when the encoder did its job
+   * perfectly (see `Reach`'s docs). Real text is full of 1–3px glyph tips:
+   * measured on `scrolling-text.yaml`, exactly one row at t=2.0 (3 depth
+   * pixels, x=686..688, depth 0.32) and one at t=3.5 (3 pixels, x=536..538)
+   * went silent at seed 7 — mid-frame, nowhere near an edge.
+   *
+   * A row lost to a **dead zone** is a different thing entirely and is silent
+   * at *every* seed, deterministically: where the encoder has no in-range
+   * partner column it writes `noiseAt(seed, x, y)`, which is positional, so
+   * that column is bit-identical in the subject and in the control no matter
+   * what the seed is. Re-testing against more seeds therefore cannot hide a
+   * dead zone — it can only remove the statistical false positives — and the
+   * calibration test below demonstrates both halves of that.
+   */
+  const CONFIRM_SEEDS = [11, 23, 41, 59, 97, 151]
+
+  /**
+   * Rows with depth vs rows that changed, for one scene at one time.
+   *
+   * The depth map is **padded to plate width** the way `render.ts` does it
+   * (design §10): the scene is rasterised at stage size, then the stage is
+   * inset by the encoder's dead margins and the margin columns are
+   * edge-extended. Passing `margins` explicitly rather than deriving them is
+   * what lets the same probe measure the pre-split behaviour, which is the only
+   * way to know this measurement is not vacuous.
+   *
+   * `rowsWithDepth` is unchanged by the padding — edge extension copies a row's
+   * own border sample sideways, so it can neither create depth in an empty row
+   * nor remove it from a filled one — so the intended row set is still exactly
+   * what the author authored.
+   */
+  async function probe(
+    file: string, seconds: number, algorithm: SirdsAlgorithm, margins: Margins,
+  ) {
     const scene = await loadScene(resolve(ROOT, 'examples', file))
     const [w, h] = scene.size
     const depth = await rasterDepth(scene, seconds, canvas)
-    const diff = diffAgainstControl(encode, depth, w, h)
+    const plateW = margins.left + w + margins.right
+    const plate = padDepth(depth, w, h, margins)
     const want = rowsWithDepth(depth, w, h)
-    let leaked = 0, lost = 0
+
+    const diff = diffAgainstControl(encoderFor(opts(algorithm)), plate, plateW, h)
+    let leaked = 0
+    let candidates: number[] = []
     for (let y = 0; y < h; y++) {
       if (diff.rows[y] && !want[y]) leaked++
-      if (!diff.rows[y] && want[y]) lost++
+      if (!diff.rows[y] && want[y]) candidates.push(y)
     }
-    return { w, h, leaked, lost, depthRows: [...want].filter(Boolean).length }
+
+    // Only paid when there is something to confirm, which after padding is
+    // almost never — so the seed sweep costs nothing on the green path.
+    for (const seed of CONFIRM_SEEDS) {
+      if (candidates.length === 0) break
+      const d = diffAgainstControl(encoderFor(opts(algorithm, seed)), plate, plateW, h)
+      candidates = candidates.filter(y => !d.rows[y])
+    }
+
+    return {
+      w, h, leaked, lost: candidates.length,
+      depthRows: [...want].filter(Boolean).length,
+    }
   }
 
   /** Every (example, time) pair, measured once per encoder. */
-  async function sweep(algorithm: SirdsAlgorithm) {
-    const encode = encoderFor(opts(algorithm))
+  async function sweep(algorithm: SirdsAlgorithm, margins: Margins) {
     const out: { label: string; leaked: number; lost: number; depthRows: number; h: number }[] = []
     for (const file of EXAMPLES) {
       for (const seconds of TIMES) {
-        const r = await probe(file, seconds, encode)
+        const r = await probe(file, seconds, algorithm, margins)
         out.push({ label: `${file.replace('.yaml', '')}@${seconds}`, ...r })
       }
     }
     return out
   }
 
+  const marginsOf = (algorithm: SirdsAlgorithm): Margins => marginsFor(SEP_FAR, algorithm)
+
   // NO LEAKAGE. The real-content confirmation of PROPERTY 1: across three
   // committed scenes at four sample times, not one row without authored depth
   // changed. This is the positional-noise fix holding on content rather than on
-  // a fixture.
+  // a fixture, and it has to keep holding through the padding — edge extension
+  // copies a row's own samples sideways and must not spread depth into a row
+  // that had none.
   it.each(['shift', 'linked'] as const)('%s: no row changes without depth', async algorithm => {
-    const rows = await sweep(algorithm)
+    const rows = await sweep(algorithm, marginsOf(algorithm))
     report(`${algorithm} example rows leaked`,
       rows.map(r => `${r.label}:${r.leaked}`).join(' '))
     expect(rows.map(r => r.leaked)).toEqual(rows.map(() => 0))
   })
 
-  // PENDING — LIVE DEFECT #3, on committed content.
+  // WAS `it.fails` — LIVE DEFECT #3, now fixed by the plate/stage split.
   //
-  // The complement: a row that carries authored depth and produces no signal at
-  // all has lost its content outright. Measured, both encoders: pacman at
-  // t=0.25s loses 62 of 80 rows, because `slide` brings it in from x=-60 and at
-  // that instant its whole visible sliver is inside the left dead zone. A
-  // viewer does not see it slide in; they see it pop into existence once it
-  // clears the dead-zone width.
+  // The complement of the property above: a row that carries authored depth and
+  // produces no signal at all has lost its content outright. Measured before
+  // the split, both encoders: pacman at t=0.25s lost 62 of 80 rows, because
+  // `slide` brings it in from x=-60 and at that instant its whole visible
+  // sliver sat inside the left dead zone, and scrolling-text at t=0.25 lost 94
+  // of 104 rows under `linked`. A viewer did not see pacman slide in; they saw
+  // it pop into existence once it cleared the dead-zone width.
   //
-  // `it.fails`, not a relaxed bound: the examples are correct YAML and the
-  // encoder is losing their content. When the edge handling is fixed (the
-  // plate/stage split the ball example's comment refers to), this goes red and
-  // becomes an ordinary guard.
-  it.fails.each(['shift', 'linked'] as const)(
-    '%s: no row with depth produces nothing [PENDING: live defect]', async algorithm => {
-      const rows = await sweep(algorithm)
-      report(`${algorithm} example rows lost`,
+  // With the stage inset by the encoder's own margins the dead zone lies
+  // entirely in emitted-but-dead plate columns, so nothing an author composed
+  // can fall into it. The sibling test below keeps the pre-split numbers
+  // measured, so this one cannot pass by being blind.
+  it.each(['shift', 'linked'] as const)(
+    '%s: no row with depth produces nothing', async algorithm => {
+      const rows = await sweep(algorithm, marginsOf(algorithm))
+      report(`${algorithm} example rows lost (padded)`,
         rows.filter(r => r.lost > 0).map(r => `${r.label}:${r.lost}/${r.depthRows}`).join(' ') || 'none')
       expect(rows.map(r => r.lost)).toEqual(rows.map(() => 0))
     })
 
-  it('a ball placed in the left dead zone DOES lose rows — the probe is not vacuous', async () => {
-    // The same probe, pointed at the geometry the examples deliberately avoid.
-    // Without this, `lost === 0` above could mean the measurement is blind
-    // rather than the content being safe. r=46 at cx=40 sits entirely inside
-    // the 92px dead zone of the shift encoder.
+  // The before/after, as a measurement rather than a comment. Keeps the defect
+  // this fixed on the record and proves the probe above can fail: run the exact
+  // same sweep with no margins and the committed examples lose whole bands of
+  // rows.
+  it.each(['shift', 'linked'] as const)(
+    '%s: the same sweep with NO margins loses rows — the fix is what closed it',
+    async algorithm => {
+      const before = await sweep(algorithm, UNPADDED)
+      const after = await sweep(algorithm, marginsOf(algorithm))
+      report(`${algorithm} example rows lost (unpadded)`,
+        before.filter(r => r.lost > 0).map(r => `${r.label}:${r.lost}/${r.depthRows}`).join(' ') || 'none')
+      const total = (rs: typeof before) => rs.reduce((a, r) => a + r.lost, 0)
+      report(`${algorithm} total rows lost, unpadded → padded`,
+        `${total(before)} → ${total(after)}`)
+      expect(total(before)).toBeGreaterThan(0)
+      expect(total(after)).toBe(0)
+    })
+
+  // The calibration for `CONFIRM_SEEDS`, and the reason it is not a tolerance.
+  // Two kinds of silence exist in this probe and they behave oppositely under a
+  // seed change, so the sweep separates them rather than blurring them.
+  it('dead-zone silence is seed-independent; thin-feature silence is not', async () => {
+    const w = 400, h = 200
+    const encodeAt = (seed: number) => encoderFor(opts('shift', seed))
+
+    // (a) A full-height slab inside the unpadded dead zone: no in-range source
+    // column exists, so every one of those columns is positional noise and is
+    // bit-identical to the control at EVERY seed.
+    const dead = new Float32Array(w * h)
+    for (let y = 0; y < h; y++) for (let x = 0; x < 40; x++) dead[y * w + x] = 1
+    const deadSilent = [7, ...CONFIRM_SEEDS].map(s =>
+      diffAgainstControl(encodeAt(s), dead, w, h).changed === 0)
+
+    // (b) A 3px feature in the middle of the frame, which the encoder encodes
+    // perfectly. Whether a given ROW of it leaves a colour mark is a coin flip
+    // per pixel, so about `h / 2^3` rows go silent at any one seed — and a
+    // *different* set of rows at each seed, which is why intersecting across
+    // seeds drives the count to zero while the dead-zone count above stays put.
+    const thin = new Float32Array(w * h)
+    for (let y = 0; y < h; y++) for (let x = 200; x < 203; x++) thin[y * w + x] = 0.3
+    let surviving = Array.from({ length: h }, (_v, y) => y)
+    const perSeed: number[] = []
+    for (const s of [7, ...CONFIRM_SEEDS]) {
+      const d = diffAgainstControl(encodeAt(s), thin, w, h)
+      const silent = surviving.filter(y => !d.rows[y])
+      perSeed.push([...d.rows].filter(v => v === 0).length)
+      surviving = silent
+    }
+
+    report('dead-zone slab silent at each seed', deadSilent.join(','))
+    report('3px mid-frame feature: silent rows per seed (of 200)', perSeed.join(','))
+    report('3px mid-frame feature: rows silent at ALL 7 seeds', surviving.length)
+    expect(deadSilent.every(Boolean)).toBe(true)
+    // Silent at one seed: a real and sizeable population. Silent at all seven:
+    // none. The first number is what a single-seed probe would have reported as
+    // "lost content"; the second is the truth.
+    expect(perSeed[0]!).toBeGreaterThan(5)
+    expect(surviving).toEqual([])
+  })
+
+  it('a ball placed in the left dead zone DOES lose rows without margins', async () => {
+    // The same probe, pointed at the geometry the examples used to have to
+    // avoid. Without this, `lost === 0` above could mean the measurement is
+    // blind rather than the content being safe. r=46 at cx=40 sits entirely
+    // inside the 92px dead zone of the unpadded shift encoder — and entirely
+    // inside the *stage* once the plate margins exist, which is the point.
     const w = 800, h = 300
     const scene: Scene = {
       size: [w, h],
@@ -261,12 +385,19 @@ describe('row locality on the committed examples', () => {
     }
     const depth = await rasterDepth(scene, 0, canvas)
     const encode = encoderFor(opts('shift'))
-    const diff = diffAgainstControl(encode, depth, w, h)
     const want = rowsWithDepth(depth, w, h)
-    let lost = 0
-    for (let y = 0; y < h; y++) if (!diff.rows[y] && want[y]) lost++
-    report('shift: rows lost for a ball r=46 centred at x=40',
-      `${lost}/${[...want].filter(Boolean).length}`)
-    expect(lost).toBeGreaterThan(0)
+    const lostWith = (margins: Margins): number => {
+      const plateW = margins.left + w + margins.right
+      const diff = diffAgainstControl(encode, padDepth(depth, w, h, margins), plateW, h)
+      let lost = 0
+      for (let y = 0; y < h; y++) if (!diff.rows[y] && want[y]) lost++
+      return lost
+    }
+    const bare = lostWith(UNPADDED)
+    const padded = lostWith(marginsFor(SEP_FAR, 'shift'))
+    report('shift: rows lost for a ball r=46 centred at x=40, unpadded → padded',
+      `${bare}/${[...want].filter(Boolean).length} → ${padded}`)
+    expect(bare).toBeGreaterThan(0)
+    expect(padded).toBe(0)
   })
 })

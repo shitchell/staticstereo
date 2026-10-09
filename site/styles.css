@@ -101,6 +101,44 @@ canvas {
   image-rendering: pixelated;
 }
 
+/*
+  The stage guide (design §10.5).
+
+  `.canvas-wrap` is a positioning context AND the clip for the overlay's
+  shade-everything-outside box-shadow, which is how one element marks the stage
+  and dims both dead strips without a second node per strip.
+
+  Nothing here touches the canvas pixels: the margin columns are the partner
+  pixels fusion needs for the stage's own edges, so they stay exactly as
+  rendered. The dim is a translucent wash over them, so black dots stay darker
+  than white ones and the strips are still fusible — and the whole overlay is
+  behind a checkbox for anyone who wants it out of the way entirely.
+*/
+.canvas-wrap {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+}
+
+.stage-guide {
+  position: absolute;
+  pointer-events: none;
+  box-sizing: border-box;
+  border: 1px dashed var(--accent);
+  box-shadow: 0 0 0 100vmax rgb(0 0 0 / 35%);
+}
+
+.stage-guide[hidden] {
+  display: none;
+}
+
+label.check.inline {
+  align-self: center;
+  flex: none;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
 .timeline {
   display: flex;
   align-items: center;

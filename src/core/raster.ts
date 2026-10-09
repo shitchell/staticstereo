@@ -20,6 +20,7 @@
  */
 import { composeAnim, compilePreset } from './anim/index.js'
 import type { PresetCtx } from './anim/index.js'
+import { sceneMargins } from './plate.js'
 import type { CanvasLike, Ctx2D, DecodedGif, DecodedImage, ImageDataLike } from './canvaslike.js'
 import type { Layer, MaskSource, Scene, Transform } from './types.js'
 
@@ -114,6 +115,13 @@ export async function rasterDepth(
   }
   const out = new Float32Array(w * h)
   const sceneDuration = sceneDurationOf(scene)
+  // The depth map stays stage-sized — `scene.size` *is* the stage (design §10)
+  // and `render.ts` pads it to plate width after blurring. The margins are
+  // needed here only so a preset computing an off-frame pose can put it off the
+  // *plate*; derived from the scene rather than taken as an argument so that a
+  // depth map and the frame encoded from it can never disagree about where
+  // off-screen is.
+  const margins = sceneMargins(scene)
   // One scratch surface for every layer: each layer's mask is read back before
   // the next is drawn, and compositing happens in `out`, never on the canvas.
   const scratch = canvas.make(w, h)
@@ -130,6 +138,8 @@ export async function rasterDepth(
       contentW: prep.contentW,
       contentH: prep.contentH,
       layerDepth,
+      marginLeft: margins.left,
+      marginRight: margins.right,
     }
     const t: Transform = composeAnim(layer.anim, seconds, sceneDuration, ctx, compilePreset)
 

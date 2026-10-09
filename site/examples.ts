@@ -52,9 +52,10 @@ export const EXAMPLES: Example[] = [
     id: 'marquee',
     label: 'MARQUEE — scrolling text wider than the frame',
     note:
-      'The track travels from +sceneW to -contentW, measured from the real text ' +
-      'metrics, so an over-wide string leaves the frame completely instead of ' +
-      'parking its tail on screen.',
+      'The track travels the whole PLATE — from +stageW + rightMargin to ' +
+      '-(contentW + leftMargin), with contentW measured from the real text ' +
+      'metrics — so an over-wide string crosses the whole emitted image at the ' +
+      'given speed and leaves completely, instead of parking its tail on screen.',
     scene: {
       size: SIZE,
       fps: 12,

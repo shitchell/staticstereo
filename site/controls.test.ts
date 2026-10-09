@@ -180,6 +180,7 @@ describe('presetNote', () => {
    */
   const CTX: PresetCtx = {
     sceneW: 640, sceneH: 360, contentW: 200, contentH: 100, layerDepth: 1,
+    marginLeft: 110, marginRight: 55,
   }
   const movesNothing = (kind: string): boolean => {
     const track = compilePreset({ kind } as Preset, CTX)

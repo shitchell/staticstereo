@@ -18,13 +18,23 @@
  *
  * ## Honest status, up front
  *
- * Four tests here, and two more in `src/node/metamorphic.real.test.ts`, are
- * **red on purpose** and marked `it.fails`. They cover two live, unfixed
- * defects of the default `'shift'` encoder — unbounded rightward propagation
- * and left-edge depth loss — stated as four separate bounds because the two
- * defects have four distinct consequences (raw reach, fusible ghost echoes,
- * dead-zone width, dead-zone asymmetry) and a partial fix should move them
- * independently.
+ * Four tests here are **red on purpose** and marked `it.fails`. They cover two
+ * live, unfixed defects of the default `'shift'` encoder — unbounded rightward
+ * propagation and left-edge depth loss — stated as four separate bounds because
+ * the two defects have four distinct consequences (raw reach, fusible ghost
+ * echoes, dead-zone width, dead-zone asymmetry) and a partial fix should move
+ * them independently.
+ *
+ * Two more `it.fails` used to live in `src/node/metamorphic.real.test.ts`,
+ * covering the left-edge loss on committed example scenes. **They are ordinary
+ * `it` now**: the plate/stage split (design §10, `src/core/plate.ts`) moves the
+ * encoder's dead zone out of the authoring area, so no content an author can
+ * place falls into it. The four below are unchanged by that and are *meant* to
+ * be: everything here calls `sirdsFromDepth` directly, so it measures the
+ * encoder, not the pipeline. Padding around a dead zone is not the same thing
+ * as not having one — the pixels are still discarded, they are just discarded
+ * somewhere nothing is composed — and conflating the two is how a workaround
+ * gets mistaken for a fix.
  *
  * `it.fails` inverts the result, so the suite is green today *and goes red the
  * moment any of those bounds starts being met* — at which point the marker is
@@ -586,12 +596,19 @@ describe('P4 completeness', () => {
     expect(DEAD[algorithm].left + DEAD[algorithm].right).toBeGreaterThan(0) // both lose some
   })
 
-  // PENDING — LIVE DEFECT #3, left-edge depth loss.
+  // PENDING — LIVE DEFECT #3, left-edge depth loss, *in the encoder*.
   //
   // `shift` has no source column for `x < sep`, so it discards the depth there
   // outright: measured 92px of dead zone on the left and 0 on the right. A ball
   // of radius 60 centred at x=80 loses its left 72px and fuses as a crescent.
   // `linked` meets the bound at 44/44.
+  //
+  // Still `it.fails` after the plate/stage split, and deliberately: the split
+  // pads the stage so that the dead zone falls in emitted-but-dead plate
+  // columns (`plate.test.ts` measures 120/120 stage columns encoded for a slab
+  // at stage x=0, up from 28), which fixes the *authoring* consequence without
+  // touching the encoder. These columns are still discarded. The bound stays
+  // red until an encoder meets it.
   it.fails('shift loses no more than sepFar/2 at either edge [PENDING: live defect]', () => {
     report('shift dead zone vs bound',
       `${DEAD.shift.left}/${DEAD.shift.right} vs ${SEP_FAR / 2}`)

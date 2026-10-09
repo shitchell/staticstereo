@@ -368,8 +368,11 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
       // Harvest the registry's own message — it lists the valid kinds and is
       // the single source of truth for what they are.
       try {
+        // Values are irrelevant: this call exists only to make the registry
+        // throw its own "unknown preset" message, which lists the valid kinds.
         compilePreset({ kind: kind as string }, {
           sceneW: 1, sceneH: 1, contentW: 1, contentH: 1, layerDepth: 1,
+          marginLeft: 0, marginRight: 0,
         })
       } catch (err) {
         fail(`${path}: ${(err as Error).message}`)

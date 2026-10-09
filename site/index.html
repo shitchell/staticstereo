@@ -41,8 +41,26 @@
     <main>
       <section class="views">
         <figure class="view">
-          <figcaption>Stereogram</figcaption>
-          <canvas id="stereo-canvas" width="16" height="9"></canvas>
+          <figcaption>
+            Stereogram
+            <label class="check inline">
+              <input id="stageGuide" type="checkbox" checked />
+              stage guide
+            </label>
+          </figcaption>
+          <!--
+            The guide is an overlay element, never a tint applied to the pixels.
+            The margin columns are the partner pixels fusion pairs the stage's
+            edge columns with (design 10.4), so recolouring them would stop the
+            preview fusing at exactly the edges the plate/stage split exists to
+            rescue. `overflow: hidden` on this wrapper is what clips the
+            shade-everything-outside box-shadow in styles.css.
+          -->
+          <div class="canvas-wrap">
+            <canvas id="stereo-canvas" width="16" height="9"></canvas>
+            <div id="stage-guide" class="stage-guide" aria-hidden="true"></div>
+          </div>
+          <p class="note" id="guide-note"></p>
         </figure>
         <figure class="view">
           <figcaption>

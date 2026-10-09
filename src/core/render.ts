@@ -1,14 +1,21 @@
 /**
  * The render pipeline: scene × time → a dot field.
  *
- *     rasterDepth → blurDepth → sirdsFromDepth → upscale
+ *     rasterDepth → blurDepth → padDepth → sirdsFromDepth → upscale
+ *     └── stage ──────────────┘ └── plate ──────────────────────────┘
  *
  * Every stage is already tested on its own; what lives here is the *order* and
- * the three things only this file can get wrong:
+ * the four things only this file can get wrong:
  *
  * - **`depthBlur` is applied here**, between compositing and encoding, never
  *   inside the rasteriser — so the rasteriser's max-compositing invariant stays
  *   exactly testable on unblurred output (design §2.2).
+ * - **The depth map is padded to plate width before encoding** (design §10).
+ *   `scene.size` is the *stage*; the encoders cannot express depth within one
+ *   separation of a plate edge, so the stage is inset by {@link marginsFor}'s
+ *   per-encoder margins and the margin columns are filled by edge-extending the
+ *   stage. Without this an object at stage x=0 is silently cropped — measured
+ *   at 100 of 120 columns under `shift` and 78 of 120 under `linked`.
  * - **`noiseScale` is applied exactly once.** This is the only place `upscale`
  *   is called. A forgotten call halves every measured period and a doubled one
  *   squares it, and neither throws, so `render.test.ts` measures the period
@@ -22,6 +29,8 @@
  * browser bundle. `purity.test.ts` enforces it.
  */
 import { blurDepth } from './blur.js'
+import { marginsFor, padDepth, scaleRect } from './plate.js'
+import type { Rect } from './plate.js'
 import { createRasterCache, rasterDepth, sceneDurationOf } from './raster.js'
 import type { RasterCache } from './raster.js'
 import { sirdsFromDepth, upscale } from './sirds.js'
@@ -39,15 +48,45 @@ import type { Scene, SirdsOpts, StereoOpts } from './types.js'
  */
 export const DEFAULT_FPS = 12
 
-/** A rendered frame: single-channel, 0 or 255, row-major. */
+/**
+ * A rendered frame: single-channel, 0 or 255, row-major.
+ *
+ * Deliberately *not* widened with the plate/stage fields below. This is the
+ * shape every encoder consumes (structurally, as `GreyFrame`), and a depth-map
+ * dump or a hand-built test fixture is a legitimate `Frame` with no stage in
+ * it. {@link PlateFrame} is what the pipeline produces.
+ */
 export interface Frame {
   readonly pixels: Uint8Array
   readonly width: number
   readonly height: number
 }
 
+/**
+ * What {@link renderFrame} returns: the **plate**, plus where the **stage** sits
+ * inside it.
+ *
+ * `width`/`height` are the plate — the whole emitted grid, margins included,
+ * which is what gets written to PNG. `stage` is the sub-rectangle that survives
+ * fusion and the one an author's coordinates refer to.
+ *
+ * **`stage` is in output pixels**, the same space as `pixels`, `width` and
+ * `height` — i.e. scene px × `noiseScale`. That is the space a consumer needs:
+ * the CLI prints the plate it wrote, the site draws a guide over the rendered
+ * canvas, and a cropper slices `pixels`. Scene-pixel geometry, which is what the
+ * *scene* is written in, comes from `plateLayoutOf(scene)` instead. Mixing the
+ * two on one object would be an invitation to multiply by `noiseScale` twice.
+ *
+ * The margins are deliberately not a separate field: they are
+ * `stage.x` and `width - stage.x - stage.width`, and a second copy of the same
+ * numbers is a second thing that can disagree.
+ */
+export interface PlateFrame extends Frame {
+  readonly stage: Rect
+}
+
 /** A frame plus where it sits in the sequence. */
-export interface SequenceFrame extends Frame {
+export interface SequenceFrame extends PlateFrame {
   readonly index: number
   /** The sample time this frame was rendered at, in seconds. */
   readonly seconds: number
@@ -141,9 +180,11 @@ export async function renderFrame(
   seconds: number,
   canvas: CanvasLike,
   cache: RasterCache = createRasterCache(),
-): Promise<Frame> {
+): Promise<PlateFrame> {
   const [w, h] = scene.size
   const o = resolveStereo(scene)
+  const margins = marginsFor(o.sepFar, o.algorithm)
+  const plateW = margins.left + w + margins.right
 
   const depth = await rasterDepth(scene, seconds, canvas, cache)
 
@@ -159,6 +200,15 @@ export async function renderFrame(
   // the input that provokes it.)
   const smoothed = blurDepth(depth, w, h, o.depthBlur)
 
+  // §10: stage → plate. The rasteriser and the blur work in stage coordinates,
+  // because that is the space the scene is authored in; the encoder works on
+  // the plate, because that is the only way depth at the stage's own edges
+  // reaches the output. Padding *after* the blur rather than before is a
+  // no-op for the horizontal pass (`blurDepth` clamps to the border pixel,
+  // which is edge extension) and keeps the blur radius a property of the
+  // authored picture rather than of the margin width.
+  const plateDepth = padDepth(smoothed, w, h, margins)
+
   // The five fields the encoder actually consumes, spelled out rather than
   // passing `o`. `StereoOpts` is assignable to `SirdsOpts`, so handing the
   // whole object over compiles and silently ignores noiseScale/depthBlur; an
@@ -170,13 +220,14 @@ export async function renderFrame(
     seed: frameSeed(o.seed, seconds, scene.freezeNoise === true),
     algorithm: o.algorithm,
   }
-  const grey = sirdsFromDepth(smoothed, w, h, enc)
+  const grey = sirdsFromDepth(plateDepth, plateW, h, enc)
 
   // The single `upscale` in the codebase's render path.
   return {
-    pixels: upscale(grey, w, h, o.noiseScale),
-    width: w * o.noiseScale,
+    pixels: upscale(grey, plateW, h, o.noiseScale),
+    width: plateW * o.noiseScale,
     height: h * o.noiseScale,
+    stage: scaleRect({ x: margins.left, y: 0, width: w, height: h }, o.noiseScale),
   }
 }
 

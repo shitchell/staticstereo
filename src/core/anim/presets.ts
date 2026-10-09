@@ -12,12 +12,51 @@ import type { Easing, Preset, Track } from '../types.js'
  * Measurements a preset may need. `contentW`/`contentH` are the *measured* size
  * of the layer being animated (text metrics, image dimensions), which is what
  * lets `marquee` scroll an over-wide string all the way off the frame.
+ *
+ * `sceneW`/`sceneH` are the **stage** (design §10): the region that survives
+ * fusion, and the space a layer's `at` and a track's `x`/`y` are expressed in.
  */
 export interface PresetCtx {
   sceneW: number
   sceneH: number
   contentW: number
   contentH: number
+  /**
+   * Plate margin widths in **stage pixels**, left and right of the stage
+   * (design §10). Used by the presets that compute an *off-frame* pose, so that
+   * "off-frame" means off the whole emitted image rather than off a
+   * sub-rectangle of it.
+   *
+   * **What this does and does not buy, measured.** Design §10.5 justifies these
+   * with "a `marquee` travelling to `stageW` would pop in at the stage edge
+   * rather than slide in from off-plate". **That rationale does not hold for
+   * this pipeline and the number it implies is not what is observed.** The
+   * rasteriser draws the *stage* (`rasterDepth` is `scene.size`-sized) and
+   * `render.ts` fills the margins by edge-extending it, so a layer positioned
+   * outside the stage is not drawn *anywhere* — there is no "visible in the
+   * dead strip" state for it to be in. Measured on a 40px full-height slab
+   * entering a 240px stage with 30/15 margins: at `x = 241` the plate carries
+   * no near structure at all, and at `x = 239` it carries 16 coherent columns.
+   * The margin terms move that transition in *time* and change nothing about
+   * what the frame looks like when it happens.
+   *
+   * What does pop is the padding itself, and no preset can fix it: the instant
+   * the slab touches the stage's last column, **all 15** right-margin columns
+   * become near depth at once, because that is what edge extension is. That is
+   * a property of §10.3's fill rule, not of the animation.
+   *
+   * They are kept because the endpoint is still the honest one — a track should
+   * be expressed against the image that is emitted, `marquee`'s `speed` should
+   * mean px/sec across that image, and the loop then has a clean empty gap
+   * instead of cutting from "tail leaving" straight back to "head arriving" —
+   * and because it is the invariant that stays correct if the rasteriser ever
+   * moves into plate coordinates. Required rather than optional so that a
+   * caller which has not thought about margins is a compile error.
+   *
+   * Margins are x-only, so there is no top/bottom pair (§10.2).
+   */
+  marginLeft: number
+  marginRight: number
   /**
    * The layer's own base depth, before any animator offset.
    *
@@ -150,10 +189,14 @@ export const PRESETS: Record<string, PresetFn> = {
     const dir = direction(p, 'from', 'left')
     const horizontal = dir === 'left' || dir === 'right'
     // Off-frame by the content's own extent on the near side, by the scene's on
-    // the far side — the same convention marquee uses.
+    // the far side — the same convention marquee uses. Off-**plate**, not
+    // off-stage, on the two horizontal directions, so the start pose is off the
+    // image that is actually emitted. Margins are x-only, so top/bottom are
+    // unchanged (design §10.2). See `PresetCtx.marginLeft` for what this is and
+    // is not measured to buy.
     const offset =
-      dir === 'left' ? -ctx.contentW :
-      dir === 'right' ? ctx.sceneW :
+      dir === 'left' ? -(ctx.contentW + ctx.marginLeft) :
+      dir === 'right' ? ctx.sceneW + ctx.marginRight :
       dir === 'top' ? -ctx.contentH :
       ctx.sceneH
     return overrides({
@@ -166,16 +209,25 @@ export const PRESETS: Record<string, PresetFn> = {
   },
 
   /**
-   * Right-to-left scroll. Travels from `+sceneW` (fully off the right edge) to
-   * `-contentW` (fully off the left edge). Ending at 0 would leave the tail of
-   * an over-wide string parked on screen forever, which is the bug this
-   * endpoint exists to prevent.
+   * Right-to-left scroll. Travels from `+sceneW + marginRight` (fully off the
+   * right-hand edge of the **plate**) to `-(contentW + marginLeft)` (fully off
+   * the left-hand edge of the plate). Ending at 0 would leave the tail of an
+   * over-wide string parked on screen forever, which is the bug the
+   * `-contentW` part of this endpoint exists to prevent.
+   *
+   * The margin terms express the travel against the **emitted** image rather
+   * than against the stage, which is also what keeps `speed` meaning px/sec
+   * across the picture: at the shipped defaults under `shift` the plate is
+   * 165px wider than the stage, so a stage-only travel would scroll the same
+   * string over a 17% shorter distance at the same nominal rate. See
+   * `PresetCtx.marginLeft` for the measurement of what this changes — which is
+   * the timing, not the appearance.
    */
   marquee: (p, ctx) => {
     const speed = num(p, 'speed', 60)
     if (speed <= 0) throw new Error(`preset "marquee": "speed" must be > 0 px/sec, got ${speed}`)
-    const from = ctx.sceneW
-    const to = -ctx.contentW
+    const from = ctx.sceneW + ctx.marginRight
+    const to = -(ctx.contentW + ctx.marginLeft)
     const tr: Track = {
       keys: [{ t: 0, x: from }, { t: 1, x: to }],
       ease: 'linear',

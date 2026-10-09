@@ -9,8 +9,9 @@ import {
   sceneFps,
   stillTime,
 } from './render.js'
-import type { Frame } from './render.js'
+import type { PlateFrame } from './render.js'
 import { dominantPeriod, rowOf } from './analysis.js'
+import { marginsFor, plateLayoutOf } from './plate.js'
 import { createRasterCache } from './raster.js'
 import { FAKE_CHAR_ASPECT, fakeCanvas, rgbaImage } from './testing/fakeCanvas.js'
 import type { CanvasLike } from './canvaslike.js'
@@ -26,6 +27,16 @@ const W = 240
 const H = 24
 /** Left edge of the flat slab, in scene pixels. */
 const SLAB_X = 80
+
+/**
+ * The plate the default (`shift`) encoder needs for these settings: 30px of
+ * left margin and 15px of right, so a 240px stage emits a 285px plate (§10).
+ * Spelled out here because every width assertion below is about the *plate*
+ * while every window is in *stage* coordinates, and conflating the two is
+ * exactly the mistake the split exists to make impossible.
+ */
+const MARGINS = marginsFor(SEP.sepFar, 'shift')
+const PLATE_W = MARGINS.left + W + MARGINS.right
 
 /**
  * Measurement windows, in *scene* pixels (scaled by noiseScale at use).
@@ -52,19 +63,25 @@ function slabScene(extra: Partial<Scene> = {}, stereo: Partial<StereoOpts> = {})
 /**
  * Measure the horizontal repeat period over a window of the rendered frame.
  *
- * `x0`/`x1` are scene pixels; the frame is `noiseScale` times wider, so the
- * window scales with it. That is deliberate: the same window expressed in
- * scene space must yield `period × noiseScale` for every noiseScale, which is
- * exactly the "applied once" property under test.
+ * `x0`/`x1` are **stage** pixels; the frame is the plate, `noiseScale` times
+ * wider and inset by the left margin, so the window is scaled *and* offset by
+ * `frame.stage`. Both corrections are load-bearing: the same window expressed
+ * in stage space must yield `period × noiseScale` for every noiseScale (the
+ * "upscale applied once" property), and it must address the columns the author
+ * composed into rather than the dead strip beside them.
  */
 function periodIn(
-  frame: Frame,
+  frame: PlateFrame,
   n: number,
   [x0, x1]: [number, number],
   row = Math.floor(H / 2),
 ): { period: number; score: number; samples: number } {
-  const line = rowOf(frame.pixels, frame.width, row * n)
-  return dominantPeriod(line.slice(x0 * n, x1 * n), 4, Math.round(SEP.sepFar * n * 1.3))
+  const line = rowOf(frame.pixels, frame.width, frame.stage.y + row * n)
+  return dominantPeriod(
+    line.slice(frame.stage.x + x0 * n, frame.stage.x + x1 * n),
+    4,
+    Math.round(SEP.sepFar * n * 1.3),
+  )
 }
 
 /** A CanvasLike that counts the calls the cache is supposed to eliminate. */
@@ -214,9 +231,13 @@ describe('renderFrame', () => {
     it(`measures sepNear/sepFar x noiseScale with noiseScale ${n}`, async () => {
       const frame = await renderFrame(slabScene({}, { noiseScale: n }), 0, fakeCanvas())
 
-      expect(frame.width).toBe(W * n)
+      // The PLATE is emitted (§10.4), and the stage is reported inside it.
+      expect(frame.width).toBe(PLATE_W * n)
       expect(frame.height).toBe(H * n)
-      expect(frame.pixels).toHaveLength(W * n * H * n)
+      expect(frame.pixels).toHaveLength(PLATE_W * n * H * n)
+      expect(frame.stage).toEqual({
+        x: MARGINS.left * n, y: 0, width: W * n, height: H * n,
+      })
 
       const inside = periodIn(frame, n, SLAB)
       expect(inside.period).toBe(SEP.sepNear * n)
@@ -229,6 +250,26 @@ describe('renderFrame', () => {
       expect(inside.period).toBeLessThan(outside.period)
     })
   }
+
+  it('reports the same geometry plateLayoutOf predicts, scaled by noiseScale', async () => {
+    // The CLI prints `plateLayoutOf(scene)` without rendering and the site
+    // draws its guide from `frame.stage`. If those two ever disagreed, the
+    // guide would be drawn in the wrong place and the printed plate size would
+    // not be the size of the file on disk.
+    for (const [algorithm, n] of [['shift', 1], ['linked', 2], ['shift', 3]] as const) {
+      const scene = slabScene({}, { algorithm, noiseScale: n })
+      const layout = plateLayoutOf(scene)
+      const frame = await renderFrame(scene, 0, fakeCanvas())
+      expect(frame.width, `${algorithm} x${n}`).toBe(layout.plate.width * n)
+      expect(frame.height).toBe(layout.plate.height * n)
+      expect(frame.stage).toEqual({
+        x: layout.stage.x * n, y: 0, width: layout.stage.width * n, height: layout.stage.height * n,
+      })
+      // And the margins are recoverable from the frame alone, which is what the
+      // frame omits them for.
+      expect(frame.width - frame.stage.x - frame.stage.width).toBe(layout.margins.right * n)
+    }
+  })
 
   it('emits a two-value dot field', async () => {
     const frame = await renderFrame(slabScene(), 0, fakeCanvas())
@@ -302,10 +343,11 @@ describe('freezeNoise', () => {
    * A window left of everything the layer can touch. SIRDS dependencies run
    * strictly leftward, so this region is the dot field and nothing else.
    */
-  const bgRow = (f: Frame) => rowOf(f.pixels, f.width, H / 2).slice(0, 140)
+  const bgRow = (f: PlateFrame) =>
+    rowOf(f.pixels, f.width, H / 2).slice(f.stage.x, f.stage.x + 140)
 
-  async function render(freezeNoise?: boolean): Promise<Frame[]> {
-    const out: Frame[] = []
+  async function render(freezeNoise?: boolean): Promise<PlateFrame[]> {
+    const out: PlateFrame[] = []
     for await (const f of renderFrames(movingScene(freezeNoise), fakeCanvas())) out.push(f)
     return out
   }
@@ -357,8 +399,9 @@ describe('renderFrames', () => {
     const got: { index: number; seconds: number }[] = []
     for await (const f of renderFrames(scene, fakeCanvas({ images: { 'dot.png': dot } }))) {
       got.push({ index: f.index, seconds: f.seconds })
-      expect(f.width).toBe(W)
+      expect(f.width).toBe(PLATE_W)
       expect(f.height).toBe(H)
+      expect(f.stage.width).toBe(W)
     }
     expect(got.map(g => g.index)).toEqual(times.map((_, i) => i))
     expect(got.map(g => g.seconds)).toEqual(times)
@@ -417,8 +460,16 @@ describe('a still of a marquee scene (design §4.1)', () => {
   const SIZE = 16
   /** The fake canvas's own metric, so the expectation tracks the fake. */
   const contentW = TEXT.length * SIZE * FAKE_CHAR_ASPECT
+  /**
+   * The marquee's travel, now margin to margin rather than stage edge to stage
+   * edge (§10.5). Expressed from the geometry rather than hardcoded, so this
+   * test says what it depends on: had it kept `W + contentW`, the derived
+   * duration would be 1.17s and the "midpoint" sample would land somewhere
+   * other than the middle of the travel.
+   */
+  const travel = (W + MARGINS.right) - -(contentW + MARGINS.left)
   /** Pick a speed that makes the marquee's own window exactly 1s, the still's. */
-  const speed = W + contentW
+  const speed = travel
 
   const scene: Scene = {
     size: [W, H],
@@ -428,32 +479,51 @@ describe('a still of a marquee scene (design §4.1)', () => {
     ],
   }
 
-  /** Where the text sits at u = 0.5, with a margin clear of the blurred edges. */
-  const x0 = W - (W + contentW) * 0.5
+  /** Where the text sits at u = 0.5, in STAGE px, clear of the glyph edges. */
+  const x0 = (W + MARGINS.right) - travel * 0.5
   const band: [number, number] = [Math.ceil(x0) + 12, Math.floor(x0 + contentW) - 12]
   const textRow = 8 // text is drawn from the top, so it spans y in [0, 16)
 
-  it('samples the midpoint and finds the text', async () => {
-    expect(frameTimes(scene)).toEqual([0.5])
-    const frame = await renderFrame(scene, stillTime(scene), fakeCanvas())
-    const measured = dominantPeriod(
-      rowOf(frame.pixels, frame.width, textRow).slice(band[0], band[1]),
+  /** `band` is in stage px; the frame is the plate. */
+  function measure(frame: PlateFrame) {
+    return dominantPeriod(
+      rowOf(frame.pixels, frame.width, frame.stage.y + textRow)
+        .slice(frame.stage.x + band[0], frame.stage.x + band[1]),
       4,
       Math.round(SEP.sepFar * 1.1),
     )
+  }
+
+  it('samples the midpoint and finds the text', async () => {
+    expect(frameTimes(scene)).toEqual([0.5])
+    const measured = measure(await renderFrame(scene, stillTime(scene), fakeCanvas()))
     expect(measured.period).toBe(SEP.sepNear)
     expect(measured.score).toBe(1)
   })
 
   it('would render completely empty at t = 0, which is why the midpoint is the default', async () => {
-    const frame = await renderFrame(scene, 0, fakeCanvas())
-    const measured = dominantPeriod(
-      rowOf(frame.pixels, frame.width, textRow).slice(band[0], band[1]),
-      4,
-      Math.round(SEP.sepFar * 1.1),
-    )
-    // Pure background: the marquee's t=0 pose is fully off the right edge.
+    const measured = measure(await renderFrame(scene, 0, fakeCanvas()))
+    // Pure background: the marquee's t=0 pose is fully off the right edge of
+    // the PLATE, which is now `W + marginRight` rather than `W` — the text's
+    // left edge lands exactly on the plate's last column.
     expect(measured.period).toBe(SEP.sepFar)
     expect(measured.score).toBe(1)
+  })
+
+  it('draws literally nothing at t=0, margins included', async () => {
+    // Stated exactly rather than as a period measurement: at t=0 the frame must
+    // be bit-identical to the same scene with no layers at all, so not one
+    // column of the plate — dead strips included — carries the text.
+    //
+    // Honest note: this assertion is **insensitive to the margin terms**, and
+    // that is itself the finding. Reverting `marquee` to `+sceneW` keeps it
+    // green, because a layer positioned outside the stage is not rasterised at
+    // all — the margins are edge-extensions of the stage, not a second place to
+    // draw. See `PresetCtx.marginLeft`. What it does catch is a marquee whose
+    // t=0 pose is on-stage at all, which is the property §4.1 depends on.
+    const frame = await renderFrame(scene, 0, fakeCanvas())
+    const empty = await renderFrame({ ...scene, layers: [] }, 0, fakeCanvas())
+    expect(frame.width).toBe(empty.width)
+    expect(Array.from(frame.pixels)).toEqual(Array.from(empty.pixels))
   })
 })

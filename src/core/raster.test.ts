@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { marginsFor } from './plate.js'
 import { rasterDepth } from './raster.js'
 import { fakeCanvas, rgbaImage, FAKE_CHAR_ASPECT } from './testing/fakeCanvas.js'
 import type { Scene } from './types.js'
@@ -261,23 +262,36 @@ describe('rasterDepth layer transform', () => {
 describe('rasterDepth text measurement', () => {
   const CHARS = 100
   const SIZE = 10
-  const CONTENT_W = CHARS * SIZE * FAKE_CHAR_ASPECT // 600px of text in a 40px frame
+  const STAGE_W = 40
+  const CONTENT_W = CHARS * SIZE * FAKE_CHAR_ASPECT // 600px of text in a 40px stage
 
   /**
-   * `marquee` travels from +sceneW to -contentW. Both assertions below fail if
-   * `contentW` is not a real `measureText` result: with contentW = 0 the travel
-   * collapses to 40px and the midpoint leaves the left 20 columns empty instead
-   * of covered.
+   * A small explicit `sepFar` so the plate margins are small, readable numbers
+   * rather than the shipped 110/55 against a 40px stage.
    */
+  const SEP_FAR = 10
+  const MARGINS = marginsFor(SEP_FAR, 'shift') // { left: 10, right: 5 }
+
+  /**
+   * `marquee` travels from `+sceneW + marginRight` to `-(contentW +
+   * marginLeft)` (design §10.5). Both assertions below fail if `contentW` is
+   * not a real `measureText` result: with contentW = 0 the travel collapses to
+   * 55px and the midpoint leaves most of the stage empty instead of covered.
+   */
+  const FROM = STAGE_W + MARGINS.right
+  const TO = -(CONTENT_W + MARGINS.left)
+  const TRAVEL = FROM - TO
+
   function marqueeScene(): Scene {
     return {
-      size: [40, 10],
+      size: [STAGE_W, 10],
       duration: 1,
+      stereo: { sepFar: SEP_FAR, sepNear: 5 },
       layers: [
         {
           type: 'text', text: 'X'.repeat(CHARS), size: SIZE, at: [0, 0], depth: 1,
           // speed chosen so the preset's derived duration is exactly 1s
-          anim: { kind: 'marquee', speed: 40 + CONTENT_W },
+          anim: { kind: 'marquee', speed: TRAVEL },
         },
       ],
     }
@@ -289,12 +303,22 @@ describe('rasterDepth text measurement', () => {
   })
 
   it('carries over-wide text off the left edge by its measured width', async () => {
-    // u = 0.98 -> x = 40 - 0.98 * 640 = -587.2, so the text spans [-587.2, 12.8)
-    const d = await rasterDepth(marqueeScene(), 0.98, fakeCanvas())
-    expect(at(d, 40, 12, 5)).toBeCloseTo(1, 6)
-    expect(at(d, 40, 13, 5)).toBe(0)
-    expect(at(d, 40, 39, 5)).toBe(0)
+    // Sampled at whatever u puts the text's right edge at stage x = 12.8, so
+    // the expectation stays on the column it was written for while the travel
+    // itself is derived from the geometry.
+    const u = (FROM - (12.8 - CONTENT_W)) / TRAVEL
+    const d = await rasterDepth(marqueeScene(), u, fakeCanvas())
+    expect(at(d, STAGE_W, 12, 5)).toBeCloseTo(1, 6)
+    expect(at(d, STAGE_W, 13, 5)).toBe(0)
+    expect(at(d, STAGE_W, 39, 5)).toBe(0)
   })
+
+  // Deliberately NOT tested here: that the travel ends off the *plate*.
+  // `rasterDepth` returns a stage-sized depth map, so no assertion on its
+  // output can distinguish "parked in the left margin" from "gone" — the
+  // margin columns do not exist yet at this stage of the pipeline. That
+  // endpoint is pinned exactly in `anim/presets.test.ts` and on rendered
+  // output in `render.test.ts`.
 })
 
 describe('rasterDepth scene duration', () => {

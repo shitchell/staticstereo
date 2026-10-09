@@ -5,7 +5,8 @@ import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { run } from './index.js'
-import { dominantPeriod } from '../core/index.js'
+import { DEFAULT_STEREO, dominantPeriod, marginsFor } from '../core/index.js'
+import type { Margins } from '../core/index.js'
 import { decodeGif } from '../shared/gif.js'
 
 /**
@@ -75,9 +76,23 @@ const NOISE = 2
 const W = 240
 const H = 24
 const SLAB_X = 80
-/** Measurement windows in *scene* px; the frame is NOISE times wider. */
+/** Measurement windows in *stage* px; the plate is wider and offset (§10). */
 const BG: [number, number] = [0, 60]
 const SLAB: [number, number] = [120, 240]
+
+/**
+ * What the CLI actually emits: the **plate**, i.e. the stage inset by the
+ * encoder's dead margins (design §10). Written out rather than hardcoded so
+ * the two encoders the tests below exercise get their own numbers — `shift`
+ * pads 30/15 at this `sepFar`, `linked` pads 15/15.
+ */
+const MARGINS = marginsFor(SEP.sepFar, 'shift')
+const LINKED_MARGINS = marginsFor(SEP.sepFar, 'linked')
+const PLATE_W = MARGINS.left + W + MARGINS.right
+/** A scene with no `stereo:` block gets the shipped defaults, hence a wider plate. */
+const DEFAULT_PLATE_W =
+  W + marginsFor(DEFAULT_STEREO.sepFar, DEFAULT_STEREO.algorithm).left +
+  marginsFor(DEFAULT_STEREO.sepFar, DEFAULT_STEREO.algorithm).right
 
 const SLAB_SCENE =
   `size: [${W}, ${H}]\n` +
@@ -110,11 +125,22 @@ function rgbaRow(data: ArrayLike<number>, width: number, y: number): number[] {
   return out
 }
 
-/** Measure the repeat period over a window given in *scene* pixels. */
+/**
+ * Measure the repeat period over a window given in *stage* pixels.
+ *
+ * The window is offset by the left margin as well as scaled by `noiseScale`,
+ * because the file on disk is the plate: stage x=0 is at plate x=marginLeft.
+ * Without the offset these windows silently measure the dead strip for the
+ * first `marginLeft` columns of every assertion.
+ */
 function periodIn(
-  row: number[], [x0, x1]: [number, number], n: number,
+  row: number[], [x0, x1]: [number, number], n: number, margins: Margins = MARGINS,
 ): { period: number; score: number; samples: number } {
-  return dominantPeriod(row.slice(x0 * n, x1 * n), 4, Math.round(SEP.sepFar * n * 1.3))
+  return dominantPeriod(
+    row.slice((margins.left + x0) * n, (margins.left + x1) * n),
+    4,
+    Math.round(SEP.sepFar * n * 1.3),
+  )
 }
 
 /* ------------------------------------------------------------------ the tests */
@@ -145,7 +171,8 @@ describe('stst still', () => {
     expect(r.code).toBe(0)
 
     const png = await readPng(out)
-    expect(png.width).toBe(400)
+    // 200px stage + shift's 30/15 dead margins = a 245px plate, x2 (§10).
+    expect(png.width).toBe((200 + MARGINS.left + MARGINS.right) * 2)
     expect(png.height).toBe(160)
     // A dot field, not a blank canvas: both values present.
     const values = new Set<number>()
@@ -195,7 +222,15 @@ describe('stst still', () => {
     const out = join(d, 'one.png')
     expect((await cli(['still', path, '-o', out])).code).toBe(0)
     const png = await readPng(out)
-    expect(png.width).toBe(W * NOISE)
+    expect(png.width).toBe(PLATE_W * NOISE)
+  })
+
+  it('reports the stage it was given and the plate it emitted', async () => {
+    const { dir: d, path } = await scene(SLAB_SCENE)
+    const out = join(d, 'one.png')
+    const r = await cli(['still', path, '-o', out])
+    expect(r.out).toMatch(new RegExp(`stage ${W}x${H} -> plate ${PLATE_W}x${H}`))
+    expect(r.out).toMatch(/dead margins 30\+15px, shift/)
   })
 })
 
@@ -209,7 +244,7 @@ describe('stst render', () => {
 
     const gif = decodeGif(await readFile(out), 'out.gif')
     expect(gif.frames).toHaveLength(12)
-    expect(gif.width).toBe(W * NOISE)
+    expect(gif.width).toBe(PLATE_W * NOISE)
     // GIF stores delays in 10ms units, so 12fps (83ms) reads back as 80ms.
     expect(gif.frames[0]!.delayMs).toBe(80)
   })
@@ -247,7 +282,7 @@ describe('stst render', () => {
     expect((await cli(['render', path, '-o', out, '--noise-scale', '1'])).code).toBe(0)
 
     const gif = decodeGif(await readFile(out), 'out.gif')
-    expect(gif.width).toBe(W)
+    expect(gif.width).toBe(PLATE_W)
     const row = rgbaRow(gif.frames[0]!.rgba, gif.width, Math.floor(H / 2))
     expect(periodIn(row, SLAB, 1).period).toBe(SEP.sepNear)
     expect(periodIn(row, BG, 1).period).toBe(SEP.sepFar)
@@ -270,8 +305,12 @@ describe('stst render', () => {
     const linkedRow = rgbaRow(linked.frames[0]!.rgba, linked.width, Math.floor(H / 2))
     expect(linkedRow).not.toEqual(shiftRow)
 
-    expect(periodIn(linkedRow, SLAB, 1).period).toBe(SEP.sepNear)
-    expect(periodIn(linkedRow, BG, 1).period).toBe(SEP.sepFar)
+    // `linked` pads symmetrically, so its plate is narrower than shift's and
+    // its stage sits at a different offset — which is why `periodIn` takes the
+    // margins rather than assuming one encoder.
+    expect(linked.width).toBe(LINKED_MARGINS.left + W + LINKED_MARGINS.right)
+    expect(periodIn(linkedRow, SLAB, 1, LINKED_MARGINS).period).toBe(SEP.sepNear)
+    expect(periodIn(linkedRow, BG, 1, LINKED_MARGINS).period).toBe(SEP.sepFar)
   })
 
   it('--cross inverts which region reads as nearer', async () => {
@@ -313,7 +352,7 @@ describe('stst render', () => {
     )
     const out = join(d, 'still.png')
     expect((await cli(['render', path, '-o', out])).code).toBe(0)
-    expect((await readPng(out)).width).toBe(W * 2)
+    expect((await readPng(out)).width).toBe(DEFAULT_PLATE_W * 2)
   })
 })
 
@@ -358,7 +397,9 @@ describe('stst preview', () => {
     const { path } = await scene(SLAB_SCENE)
     const r = await cli(['preview', path])
     expect(r.code).toBe(0)
-    expect(r.out).toMatch(/240x24/)
+    expect(r.out).toMatch(new RegExp(`stage ${W}x${H} -> plate ${PLATE_W}x${H}`))
+    expect(r.out).toMatch(/margins  30px left \+ 15px right/)
+    expect(r.out).toMatch(/stage at 60,0 480x48 in the output/)
     expect(r.out).toMatch(/12 frames/)
     expect(r.out).toMatch(/sepFar 30/)
     expect(r.out).toMatch(/sepNear 20/)
@@ -378,7 +419,7 @@ describe('stst preview', () => {
     const r = await cli(['preview', path, '-o', out])
     expect(r.code).toBe(0)
     expect(r.out).toMatch(/still/)
-    expect((await readPng(out)).width).toBe(W * 2)
+    expect((await readPng(out)).width).toBe(DEFAULT_PLATE_W * 2)
   })
 
   it('reports the depth range it rasterised', async () => {

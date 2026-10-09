@@ -35,6 +35,7 @@ import {
   dominantPeriod,
   frameTimes,
   isStill,
+  plateLayoutOf,
   rasterDepth,
   renderFrame,
   renderFrames,
@@ -128,7 +129,16 @@ async function execute(args: CliArgs, io: Io): Promise<void> {
 
   if (args.depthMap !== undefined) {
     await writeDepthMap(args.depthMap, scene, sampleAt, canvas, cache)
-    say(`stst: wrote ${args.depthMap} (depth map at t=${sampleAt.toFixed(2)}s)`)
+    // Stage-sized and deliberately so: this is the authored depth, in the
+    // coordinates the scene file is written in. The plate's margins are
+    // edge-extended copies added downstream (§10.3) and carry no authoring
+    // information, so including them would make the panel disagree with the
+    // scene it is there to debug.
+    const [dw, dh] = scene.size
+    say(
+      `stst: wrote ${args.depthMap} (${dw}x${dh} stage depth map at ` +
+      `t=${sampleAt.toFixed(2)}s)`,
+    )
   }
 
   switch (args.command) {
@@ -137,7 +147,7 @@ async function execute(args: CliArgs, io: Io): Promise<void> {
       const frame = await renderFrame(scene, sampleAt, canvas, cache)
       await writePng(out, frame)
       say(
-        `stst: wrote ${out} (${frame.width}x${frame.height}, ` +
+        `stst: wrote ${out} (${frame.width}x${frame.height}, ${geometryOf(scene)}, ` +
         `one frame at t=${sampleAt.toFixed(2)}s)`,
       )
       return
@@ -146,7 +156,10 @@ async function execute(args: CliArgs, io: Io): Promise<void> {
     case 'render': {
       const out = args.output!
       const written = await writeSequence(out, scene, args, canvas, cache)
-      say(`stst: wrote ${written.label} (${written.frames} frames, ${written.size})`)
+      say(
+        `stst: wrote ${written.label} (${written.frames} frames, ${written.size}, ` +
+        `${written.geometry})`,
+      )
       return
     }
 
@@ -177,7 +190,32 @@ interface Written {
   /** The path to show the user; for a sequence, the directory pattern. */
   label: string
   frames: number
+  /** The emitted pixel dimensions — the plate, times noiseScale. */
   size: string
+  /** `stage 800x300 -> plate 965x300` in scene px. See {@link geometryOf}. */
+  geometry: string
+}
+
+/**
+ * What the author composed versus what was emitted (design §10).
+ *
+ * Reported on every command that writes an image, because the difference is
+ * otherwise invisible and surprising: `size: [800, 300]` produces a 965px-wide
+ * PNG, and the extra 165px are dead strips that exist only so the stage's own
+ * edges can be encoded at all. A user who does not know that reads the file's
+ * width as a bug — or worse, composes into the margin because the picture
+ * looks wider than they asked for.
+ *
+ * In **scene** pixels, matching what the scene file says. The output pixel
+ * dimensions are already reported alongside and are this times `noiseScale`.
+ */
+function geometryOf(scene: Scene): string {
+  const { stage, plate, margins } = plateLayoutOf(scene)
+  const algorithm = resolveStereo(scene).algorithm
+  return (
+    `stage ${stage.width}x${stage.height} -> plate ${plate.width}x${plate.height} ` +
+    `(dead margins ${margins.left}+${margins.right}px, ${algorithm})`
+  )
 }
 
 /**
@@ -191,14 +229,18 @@ async function writeSequence(
 ): Promise<Written> {
   const format = outputFormat(out)
   const o = resolveStereo(scene)
-  const [w, h] = scene.size
-  const size = `${w * o.noiseScale}x${h * o.noiseScale}`
+  // The emitted grid is the plate, not `scene.size` — `scene.size` is the stage
+  // (design §10). Reporting the stage here was the whole defect: the file on
+  // disk is wider than the number printed.
+  const { plate } = plateLayoutOf(scene)
+  const size = `${plate.width * o.noiseScale}x${plate.height * o.noiseScale}`
+  const geometry = geometryOf(scene)
   const count = frameTimes(scene).length
 
   switch (format) {
     case 'gif':
       await writeGif(out, renderFrames(scene, canvas, cache), { fps: sceneFps(scene) })
-      return { label: out, frames: count, size }
+      return { label: out, frames: count, size, geometry }
 
     case 'mp4':
       // `args.mp4` is spread last and is empty unless a flag was given, so the
@@ -207,20 +249,20 @@ async function writeSequence(
       await writeMp4(out, renderFrames(scene, canvas, cache), {
         fps: sceneFps(scene), ...args.mp4,
       })
-      return { label: out, frames: count, size }
+      return { label: out, frames: count, size, geometry }
 
     case 'png': {
       if (isStill(scene)) {
         const frame = await renderFrame(scene, stillTime(scene), canvas, cache)
         await writePng(out, frame)
-        return { label: out, frames: 1, size }
+        return { label: out, frames: 1, size, geometry }
       }
       // An animation cannot be one PNG, so `-o anim/frame.png` becomes
       // `anim/frame-0000.png`, … — padded so ffmpeg can read it straight back.
       const dir = dirname(out)
       const prefix = `${basename(out, extname(out))}-`
       const paths = await writePngSequence(dir, renderFrames(scene, canvas, cache), { prefix })
-      return { label: join(dir, `${prefix}%04d.png`), frames: paths.length, size }
+      return { label: join(dir, `${prefix}%04d.png`), frames: paths.length, size, geometry }
     }
   }
 }
@@ -272,6 +314,7 @@ async function previewReport(
   const o = resolveStereo(scene)
   const [w, h] = scene.size
   const times = frameTimes(scene)
+  const layout = plateLayoutOf(scene)
 
   const depth = await rasterDepth(scene, seconds, canvas, cache)
   let lo = Number.POSITIVE_INFINITY
@@ -282,7 +325,13 @@ async function previewReport(
   }
 
   const frame = await renderFrame(scene, seconds, canvas, cache)
-  const row = rowOf(frame.pixels, frame.width, Math.floor(frame.height / 2))
+  // Measured over the STAGE, not the whole plate. The margins are
+  // edge-extended copies of the stage's own border columns (§10.3), so a
+  // full-plate window mixes the subject's period with a strip of whatever
+  // happened to be at the stage's edge — which is a reading of the padding, not
+  // of the picture.
+  const row = rowOf(frame.pixels, frame.width, frame.stage.y + Math.floor(frame.stage.height / 2))
+    .slice(frame.stage.x, frame.stage.x + frame.stage.width)
   const measured = dominantPeriod(
     row,
     Math.max(2, Math.floor(o.sepNear * o.noiseScale * 0.5)),
@@ -297,12 +346,17 @@ async function previewReport(
 
   return [
     `stst preview: ${source}`,
-    `  size     ${w}x${h} scene -> ${written.size} output (noiseScale ${o.noiseScale})`,
+    `  size     stage ${w}x${h} -> plate ${layout.plate.width}x${layout.plate.height} ` +
+      `-> ${written.size} output (noiseScale ${o.noiseScale})`,
+    `  margins  ${layout.margins.left}px left + ${layout.margins.right}px right of dead ` +
+      `space, emitted not cropped; compose inside the stage only`,
+    `  stage at ${frame.stage.x},${frame.stage.y} ${frame.stage.width}x${frame.stage.height} ` +
+      `in the output`,
     `  timing   ${timing}`,
     `  stereo   ${stereoLine(o)}`,
     `  depth    ${lo.toFixed(2)}..${hi.toFixed(2)} over ${scene.layers.length} ` +
       `layer${scene.layers.length === 1 ? '' : 's'} at t=${seconds.toFixed(2)}s`,
-    `  period   middle row ${describePeriod(measured)}; ` +
+    `  period   middle stage row ${describePeriod(measured)}; ` +
       `expect ${o.sepNear * o.noiseScale}px near, ${o.sepFar * o.noiseScale}px far`,
     `  wrote    ${written.label}`,
   ]

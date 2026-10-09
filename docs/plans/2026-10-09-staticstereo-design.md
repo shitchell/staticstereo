@@ -848,8 +848,8 @@ implementation; all are cheap to change.
 
 ## 10. Plate, stage, and margins
 
-**Status: specified, not yet implemented.** Queued behind the encoder work, because it
-lives in `render.ts`.
+**Status: implemented** in `src/core/plate.ts` and `src/core/render.ts`. §10.5's first
+bullet did not survive measurement and is retracted in §10.6; everything else held.
 
 ### 10.1 Terms
 
@@ -918,7 +918,90 @@ that they can be removed.
 ### 10.5 Consequences
 
 - **Presets must be margin-aware.** A `marquee` travelling to `stageW` would pop in at the
-  stage edge rather than slide in from off-plate.
+  stage edge rather than slide in from off-plate. **The second half of that sentence is
+  wrong and is retracted in §10.6**; the presets are margin-aware anyway, for a weaker
+  reason recorded there.
 - **The site should draw a stage guide** over the preview. Otherwise the dead space is
   invisible and authors will compose into it.
 - **`y` stays top-down**, so `{0, 0}` is the stage's top-left.
+
+### 10.6 Corrections from implementation (2026-10-09)
+
+Measured while building §10. The margin table in §10.3 and the edge-extension rule both
+held; three other things in this section did not.
+
+1. **The dead zone does close, and the pre-split loss was worse than §10.3's ball
+   measurement suggested.** A 120px full-height slab at stage x=0, scored by
+   `coherentColumns` at `sepNear` on the plate and counting stage columns whose signal
+   column is both in range and coherent: **28 of 120 under `shift`, 74 of 120 under
+   `linked`** without margins, and **120 of 120 under both** with them. On committed
+   content, `pacman.yaml` at t=0.25 lost **62 of 80** rows outright under both encoders and
+   now loses **0**; a ball of r=46 at cx=40 lost **92 of 92** rows and now loses 0.
+
+   The task brief this was built from quoted 100/120 and 78/120 for the slab, and
+   94/104 rows for `scrolling-text.yaml` at t=0.25 under `linked`. **None of the three
+   reproduced.** 28 and 74 are exactly `120 - sepNear` and `120 - (sepNear >> 1)`, which is
+   what the instrument must report (a stage column whose partner is off-plate has no
+   percept), so the discrepancy is in the criterion, not in the encoder. The
+   `scrolling-text` figure is not reachable at all once `marquee` is margin-aware, because
+   the text is at a different x at that instant; the loss it refers to was at other sample
+   times and was a different defect — see item 3.
+
+2. **§10.5's pop-in argument for margin-aware presets is false for this pipeline, and the
+   presets are margin-aware for a weaker reason.** The rasteriser draws the *stage*
+   (`rasterDepth` is `scene.size`-sized) and `render.ts` fills the margins by edge-extending
+   it, so a layer positioned outside the stage is not drawn *anywhere* — there is no
+   "visible in the dead strip" state for it to pop out of. Measured on a 40px full-height
+   slab entering a 240px stage with 30/15 margins: at `x = 241` the plate carries no near
+   structure at all; at `x = 239` it carries 16 coherent columns. The margin terms move
+   that transition in time and change nothing about what the frame looks like when it
+   happens.
+
+   They were kept because the endpoint is still the honest one — a track should be
+   expressed against the image that is emitted, `marquee`'s `speed` should mean px/sec
+   across that image (the plate is 17% wider than the stage at the shipped defaults), and
+   the loop then has a clean empty gap — and because it is the invariant that stays correct
+   if the rasteriser ever moves into plate coordinates. The argument as written in §10.5
+   only holds for that second design.
+
+   What *does* pop, and no preset can fix it: the instant a layer touches the stage's last
+   column, **all** right-margin columns become near depth at once, because that is what
+   edge extension is. The cost of the alternative (zero-fill) is a fabricated depth cliff at
+   the stage boundary — measured, a uniformly near stage encodes as 873 of 873 pairable
+   plate columns coherent at `sepNear` under edge extension and only 800 under zero-fill,
+   i.e. the margins read as a far plane abutting the authored near one. Edge extension is
+   kept; the flicker is the price and it is confined to dead space.
+
+3. **`shift` displaces every percept half a separation to the left, and that is now the
+   strongest argument for making `linked` the default.** A pair `(P, P+sep)` fuses to a
+   point seen at `P + sep/2`. `linked` links `(x - sep/2, x + sep/2)`, so the percept of
+   stage column x is at stage column x. `shift` links `(x - sep, x)`, so its percept sits at
+   `x - sep/2` — 46 to 55px left of the column that asked for it, for the whole image.
+   Consequences: an object entering from the right appears as a sliver ~46px *inside* the
+   stage rather than at its edge, and `{0, 0}` does not fuse where the author put it. §10.3
+   noted that `linked` "symmetrises the loss rather than reducing it" (88 vs 92 columns
+   total); once margins exist, total loss is 0 for both and this registration error is the
+   remaining difference between them. Changing the default is a perceptual decision and is
+   not being made here, but the technical case has moved.
+
+4. **The committed-examples row probe needed a seed sweep, and without one it reports
+   false losses on real glyphs.** A control diff measures colour, and changing `sep` at one
+   column only swaps *which* of two random source pixels is copied — they agree half the
+   time — so a row holding k depth pixels is silent at any one seed with probability about
+   `2^-k` even when the encoder is correct. Measured: a 3px mid-frame feature spanning 200
+   rows goes silent in 16–31 of them depending on the seed, and in **0** of them across
+   seven seeds. Two rows of `scrolling-text.yaml` (3 depth pixels each, at x=686 and x=536,
+   nowhere near an edge) were being reported as lost content for exactly this reason.
+   Dead-zone silence is the opposite: it is *seed-independent* by construction, because the
+   unsourced columns are `noiseAt(seed, x, y)` and therefore bit-identical in subject and
+   control at every seed. So the seed sweep removes the statistical false positives and
+   cannot mask a real dead zone.
+
+5. **The `shift` right margin is unfalsifiable by anything measurable here.** `shift`'s
+   pairs are `(x - sep, x)`, so no depth at the right-hand edge is ever dropped: a slab
+   flush against the stage's right edge is fully encoded with a right margin of **0**.
+   Mutating `ceil(sepFar/2)` to 0 for `shift` turns no behavioural test red — only the
+   arithmetic and reporting ones. It is kept because §10.3 specifies it and the fusion
+   fringe it covers is perceptual, but it is 55 emitted columns resting entirely on
+   argument. `linked` genuinely needs it: with a right margin of 0 it encodes 74 of 120
+   right-edge columns.

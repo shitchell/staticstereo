@@ -18,9 +18,12 @@ layers:
   - type: shape
     shape: circle
     r: 46
-    # `at` for a circle is its CENTRE. Kept well clear of the left edge: the
-    # leftmost sepFar columns cannot encode depth, so an object there is
-    # clipped (design 10.3). Until the plate/stage split lands, mind the margin.
+    # `at` for a circle is its CENTRE, in STAGE coordinates (design 10): the
+    # stage is the region that survives fusion, and `size:` above is the stage.
+    # The dead columns the encoder cannot express now live OUTSIDE the stage, in
+    # the plate's margins, so x=140 is no longer load-bearing -- x=0 would be
+    # encoded too. The emitted PNG is wider than 800px by design; `stst` prints
+    # `stage 800x300 -> plate 965x300` so the difference is not a surprise.
     at: [140, 190]
     depth: 1.0
     anim:

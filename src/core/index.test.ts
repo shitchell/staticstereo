@@ -38,6 +38,11 @@ describe('public surface', () => {
       'compilePreset',
       'composeAnim',
       'evalTrack',
+      'marginsFor',
+      'padDepth',
+      'plateLayoutOf',
+      'scaleRect',
+      'sceneMargins',
     ] as const) {
       expect(typeof core[name], name).toBe('function')
     }
@@ -58,16 +63,16 @@ describe('public surface', () => {
 
   it('renders end to end through the public entry point alone', async () => {
     const { fakeCanvas } = await import('./testing/fakeCanvas.js')
-    const frame = await core.renderFrame(
-      {
-        size: [120, 8],
-        stereo: { sepFar: 30, sepNear: 20, noiseScale: 2, seed: 1 },
-        layers: [{ type: 'shape', shape: 'rect', at: [0, 0], w: 120, h: 8, depth: 1 }],
-      },
-      core.stillTime({ size: [120, 8], layers: [] }),
-      fakeCanvas(),
-    )
-    expect(frame.width).toBe(240)
+    const scene: core.Scene = {
+      size: [120, 8],
+      stereo: { sepFar: 30, sepNear: 20, noiseScale: 2, seed: 1 },
+      layers: [{ type: 'shape', shape: 'rect', at: [0, 0], w: 120, h: 8, depth: 1 }],
+    }
+    const frame = await core.renderFrame(scene, core.stillTime(scene), fakeCanvas())
+    // The emitted grid is the PLATE: a 120px stage plus `shift`'s 30/15
+    // margins, at noiseScale 2 (design §10).
+    expect(frame.width).toBe((30 + 120 + 15) * 2)
+    expect(frame.stage).toEqual({ x: 60, y: 0, width: 240, height: 16 })
     const { period } = core.dominantPeriod(core.rowOf(frame.pixels, frame.width, 8), 4, 60)
     expect(period).toBe(40) // sepNear 20 x noiseScale 2
   })

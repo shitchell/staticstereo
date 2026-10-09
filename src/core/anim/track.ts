@@ -111,7 +111,8 @@ export function composeAnim(
       if (!ctx) {
         throw new Error(
           `composeAnim: preset "${item.kind}" needs a PresetCtx ` +
-          `({ sceneW, sceneH, contentW, contentH }) but none was passed.`,
+          `({ sceneW, sceneH, contentW, contentH, layerDepth, marginLeft, ` +
+          `marginRight }) but none was passed.`,
         )
       }
       tr = compile(item, ctx)

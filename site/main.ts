@@ -4,6 +4,7 @@ import {
   blurDepth,
   createRasterCache,
   frameTimes,
+  plateLayoutOf,
   rasterDepth,
   renderFrame,
   renderFrames,
@@ -11,7 +12,7 @@ import {
   sceneFps,
 } from '../src/core/index.js'
 import { gifBlob, pngBlob, webCanvas } from '../src/web/index.js'
-import type { Frame, RasterCache } from '../src/core/index.js'
+import type { PlateFrame, RasterCache } from '../src/core/index.js'
 import type { Layer, Preset, Scene, StereoOpts } from '../src/core/types.js'
 import {
   CUSTOM_TRACK,
@@ -30,6 +31,7 @@ import { describeReadout, expectedPeriods, periodWindow, readRow, readSegment } 
 import { DEFAULT_EXAMPLE, EXAMPLES } from './examples.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
 import { validateScene } from './scene.js'
+import { stageGuideLabel, stageGuideStyle } from './stageguide.js'
 
 /**
  * DOM wiring. Everything with behaviour worth asserting lives in the sibling
@@ -77,6 +79,9 @@ function collectElements() {
   return {
   error: el<HTMLParagraphElement>('error'),
   stereoCanvas: el<HTMLCanvasElement>('stereo-canvas'),
+  stageGuide: el<HTMLDivElement>('stage-guide'),
+  stageGuideToggle: el<HTMLInputElement>('stageGuide'),
+  guideNote: el<HTMLParagraphElement>('guide-note'),
   depthCanvas: el<HTMLCanvasElement>('depth-canvas'),
   depthView: el<HTMLSelectElement>('depth-view'),
   play: el<HTMLButtonElement>('play'),
@@ -171,7 +176,7 @@ function describeError(err: unknown): string {
 let stereoRgba = new Uint8ClampedArray(0)
 let depthRgba = new Uint8ClampedArray(0)
 
-function drawStereo(frame: Frame): void {
+function drawStereo(frame: PlateFrame): void {
   const { width, height, pixels } = frame
   if (ui.stereoCanvas.width !== width) ui.stereoCanvas.width = width
   if (ui.stereoCanvas.height !== height) ui.stereoCanvas.height = height
@@ -181,6 +186,31 @@ function drawStereo(frame: Frame): void {
   const ctx = ui.stereoCanvas.getContext('2d')
   if (!ctx) throw new Error('the stereogram canvas has no 2d context')
   ctx.putImageData(new ImageData(stereoRgba, width, height), 0, 0)
+  drawStageGuide(frame)
+}
+
+/**
+ * Mark the stage over the plate (design §10.5).
+ *
+ * The canvas now shows the **plate** — wider than `scene.size`, with dead
+ * strips either side that the encoder needs and nothing should be composed
+ * into. Without a guide that difference is invisible and an author will put a
+ * ball in the margin, see it, and then find it missing from the fused image:
+ * which is the exact bug report that produced the plate/stage split.
+ *
+ * Positioned as percentages of the canvas box, so it stays correct under the
+ * CSS scaling `canvas { width: 100% }` applies — the same reason the click
+ * handler maps through `getBoundingClientRect` rather than using `offsetX`.
+ */
+function drawStageGuide(frame: PlateFrame): void {
+  const show = ui.stageGuideToggle.checked
+  ui.stageGuide.hidden = !show
+  if (!show) return
+  const style = stageGuideStyle(frame)
+  ui.stageGuide.style.left = style.left
+  ui.stageGuide.style.width = style.width
+  ui.stageGuide.style.top = style.top
+  ui.stageGuide.style.height = style.height
 }
 
 function drawDepth(depth: Float32Array, width: number, height: number): void {
@@ -194,7 +224,7 @@ function drawDepth(depth: Float32Array, width: number, height: number): void {
   ctx.putImageData(new ImageData(depthRgba, width, height), 0, 0)
 }
 
-function updateDiagnostics(frame: Frame, stereo: StereoOpts): void {
+function updateDiagnostics(frame: PlateFrame, stereo: StereoOpts): void {
   const { near, far } = expectedPeriods(stereo)
   ui.diagExpected.textContent =
     `near ${near} px (sepNear ${stereo.sepNear} × ${stereo.noiseScale}) · ` +
@@ -385,6 +415,10 @@ function syncControls(): void {
   ui.freezeNoise.checked = scene.freezeNoise === true
   setValue(ui.depthView, state.depthView)
 
+  // Derived from the scene, not from the last frame: the note has to be right
+  // the moment someone types a new sepFar, before the repaint lands.
+  ui.guideNote.textContent = stageGuideLabel(plateLayoutOf(scene), stereo.noiseScale)
+
   ui.scrub.max = String(times.length - 1)
   ui.scrub.disabled = times.length <= 1
   if (document.activeElement !== ui.scrub) ui.scrub.value = String(index)
@@ -533,6 +567,13 @@ function wire(): void {
   })
   ui.freezeNoise.addEventListener('change', () => {
     dispatch({ type: 'freezeNoise', value: ui.freezeNoise.checked })
+  })
+
+  // Not a `dispatch`: the guide is a view concern, like the diagnostics band,
+  // so it stays out of the scene and out of the shared link. Toggling it also
+  // does not need a re-render — the pixels are untouched either way.
+  ui.stageGuideToggle.addEventListener('change', () => {
+    ui.stageGuide.hidden = !ui.stageGuideToggle.checked
   })
 
   ui.width.addEventListener('change', () => {
