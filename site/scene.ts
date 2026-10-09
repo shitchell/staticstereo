@@ -1,4 +1,4 @@
-import { PRESETS, EASINGS, resolveStereo } from '../src/core/index.js'
+import { PRESETS, EASINGS, resolveStereo, STEREO_KEYS } from '../src/core/index.js'
 import type { Anim, Easing, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
@@ -28,9 +28,6 @@ const MODES = ['silhouette', 'heightmap'] as const
 const LOOPS = ['loop', 'once', 'pingpong'] as const
 const REPEATS = ['once', 'loop', 'pingpong'] as const
 
-/** Keys `StereoOpts` actually has. A typo must be an error, not a no-op. */
-const STEREO_KEYS =
-  ['sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed', 'algorithm'] as const
 
 function fail(message: string): never {
   throw new Error(message)

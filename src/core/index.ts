@@ -29,7 +29,7 @@ export type { Frame, SequenceFrame } from './render.js'
 
 /* -------------------------------------------------------------- scene model */
 
-export { DEFAULT_STEREO, IDENTITY, SIRDS_ALGORITHMS } from './types.js'
+export { DEFAULT_STEREO, IDENTITY, SIRDS_ALGORITHMS, STEREO_KEYS } from './types.js'
 export type {
   Anim,
   Depth,

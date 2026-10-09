@@ -24,7 +24,7 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { EASINGS, PRESETS, compilePreset, resolveStereo } from '../core/index.js'
+import { EASINGS, PRESETS, compilePreset, resolveStereo, STEREO_KEYS } from '../core/index.js'
 import type { Layer, Scene } from '../core/index.js'
 import { UsageError } from './args.js'
 import type { CliArgs } from './args.js'
@@ -92,8 +92,6 @@ export async function loadScene(path: string): Promise<Scene> {
 /* --------------------------------------------------------------- validation */
 
 const SCENE_KEYS = ['size', 'fps', 'duration', 'stereo', 'freezeNoise', 'layers'] as const
-const STEREO_KEYS =
-  ['sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed', 'algorithm'] as const
 const LAYER_TYPES = ['text', 'image', 'gif', 'shape', 'draw'] as const
 const BASE_LAYER_KEYS = ['type', 'depth', 'at', 'anim'] as const
 const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {

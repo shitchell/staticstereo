@@ -134,6 +134,30 @@ export const DEFAULT_STEREO: StereoOpts = {
 }
 
 /**
+ * Every key `StereoOpts` has, as runtime data.
+ *
+ * One canonical list, because there were two: `src/cli/scene.ts` and
+ * `site/scene.ts` each carried their own copy to reject typo'd settings, and
+ * neither was derived from the type. Adding `algorithm` therefore needed three
+ * coordinated edits, and missing one is invisible — the CLI would accept a
+ * setting the browser rejects by name, or vice versa.
+ *
+ * The two `AssertNever` lines below are the point of the exercise: a field added
+ * to `StereoOpts` without being listed here, or listed here without existing on
+ * the type, is a COMPILE error rather than a validator that silently drifts.
+ */
+export const STEREO_KEYS = [
+  'sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed', 'algorithm',
+] as const
+
+export type StereoKey = typeof STEREO_KEYS[number]
+
+/** Errors unless its argument is `never`. */
+type AssertNever<T extends never> = T
+type _NoStereoKeyMissing = AssertNever<Exclude<keyof StereoOpts, StereoKey>>
+type _NoStereoKeyExtra = AssertNever<Exclude<StereoKey, keyof StereoOpts>>
+
+/**
  * What an animator can move. Deliberately has no `opacity`: there is no
  * meaningful transparency in depth space, so fading is expressed as motion in
  * `depth` (the `emerge` preset) instead.
