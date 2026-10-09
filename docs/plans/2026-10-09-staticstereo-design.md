@@ -279,7 +279,25 @@ v1 presets: `slide`, `slide-in`, `marquee`, `emerge`, `bounce`, `bob`. Registry-
 adding one later is a new file, not a refactor. `bounce` takes `height` (`h` accepted as
 an alias).
 
-### 4.1 Two timing consequences worth knowing up front
+### 4.1 Timing policy
+
+Neither this document nor the plan originally said what a scene naming only *one* of
+`fps`/`duration` means, and the two pointed opposite ways. Decided:
+
+| Scene names | Treated as |
+|---|---|
+| neither `fps` nor `duration` | a still |
+| `duration` only | animated at `DEFAULT_FPS` = 12 |
+| `fps` only | animated over the default 1 second |
+| both | as written |
+
+`fps: 0` and `duration: 0` are both rejected rather than honoured — accepting one while
+replacing the other would be two opposite readings of the same malformed input inside one
+function. `frameTimes` **excludes the endpoint**: the last frame is at `(n-1)/fps`, not at
+`duration`, because `t = duration` is the same pose as `t = 0` for anything looping and
+including it stutters every loop with a duplicated frame.
+
+#### Two consequences worth knowing up front
 
 **A still of an animated scene must not sample at t=0.** With no `duration`, a naive
 implementation gives every track a zero-width window and pins it at its t=0 pose — which
@@ -566,9 +584,15 @@ encoding bug.
      `repeat: 'once'`, where the clamp hid it.
   5. **A still of a `marquee` scene rendered completely empty** — zero duration pinned
      every track at its t=0 pose, which is off-screen. See §4.1.
-  6. **`sirdsFromDepth` silently ignored `noiseScale`.** Now unpassable: `SirdsOpts` is a
-     narrower type than `StereoOpts`, so the compiler rejects it. A forgotten or doubled
-     upscale would otherwise halve or double every measured period.
+  6. **`sirdsFromDepth` silently ignored `noiseScale`.** `SirdsOpts` was introduced as a
+     narrower type so the mistake could not be made. **That guarantee was overstated and
+     is recorded here as such.** Excess-property checking fires only on fresh object
+     literals, and because `StereoOpts extends SirdsOpts` a `StereoOpts` *variable* is
+     assignable to the parameter — verified: `sirdsFromDepth(d, w, h, stereo)` compiles
+     clean and silently drops `noiseScale` and `depthBlur`, which is the exact bug the
+     type existed to prevent, via the most natural call shape. See §9 item 8 for the
+     pending fix. The pipeline avoids it behaviourally by building an explicit
+     four-field literal, and the end-to-end period assertions cover it.
   7. `bounce` took `h` here and `height` in the plan. Canonical is `height`.
 
   Reported but **not** reproduced as described: the `dominantPeriod` defect was reported
@@ -610,7 +634,7 @@ encoding bug.
      GIFs are partial-frame; clearing renders them full of holes. The GIF disposal model is
      required instead.
   8. **The planned core-purity test was wrong twice over** — it grepped raw text, matching
-     four `@napi-rs` mentions that are all comments, while missing the one real leak
+     several `@napi-rs` mentions that are all comments, while missing the one real leak
      (`vitest`, because the build compiled tests into `dist` and `files: ["dist"]` would
      have published them).
   9. **`quantize(rgba, 2)` can return fewer than 2 colours** for low-colour input; measured
@@ -651,3 +675,17 @@ implementation; all are cheap to change.
    the presets, but it means a bare text layer renders in the corner.
 7. **Opaque GIFs now default to heightmap** rather than a flat silhouette. More consistent
    with still images, but it is a behaviour change for anyone who wanted the rectangle.
+8. **`SirdsOpts` does not actually prevent passing `noiseScale`** (see §8 round 2, item 6).
+   The fix is `noiseScale?: never; depthBlur?: never` on `SirdsOpts` plus
+   `StereoOpts extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur'>`, which also requires
+   updating `sirds.test.ts`'s call sites. Deferred only to avoid a type change landing
+   under a concurrently running task.
+9. **`DEFAULT_FPS = 12` is invented.** It matches the design's example scene and the POC
+   default, but nothing chose it deliberately.
+10. **`depthBlur` is the one stage no automated test in this repo can validate for its
+    actual purpose.** Its tests prove it is wired in and that it does not disturb the
+    measured period — but the artifact it exists to suppress is the perceptual ghost echo,
+    and §2.2 already explains why no period-measurement test can see that. Combined with
+    open question 1 (the 1.0 default was "visually validated" on a single sphere), this
+    whole stage rests on one person's glance at one image. It wants a real look at a real
+    animation.

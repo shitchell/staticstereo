@@ -989,10 +989,12 @@ clean, so it needs a test.
 
 **The purity test must parse import specifiers, not grep raw text.** An earlier revision
 of this plan said to grep `dist/core` for `@napi-rs`. That was wrong twice over, both
-verified by building: `dist/core` contains four `@napi-rs` hits that are all *comments* in
+verified by building: `dist/core` contains `@napi-rs` hits that are all *comments* in
 docblocks, so the grep would fail on correct code; and the one genuine non-relative import
 leaking in was `vitest`, which the grep would never have found. Assert instead that every
-import specifier under `dist/core` begins with `.`.
+import specifier under `dist/core` begins with `.` **and that each relative target
+resolves inside `dist/core`** — "begins with a dot" alone permits `../shared/`, which now
+exists, so `core → shared → node` would slip through.
 
 (`tsconfig.json` now excludes `**/*.test.ts` from the build, with typecheck moved to
 `tsconfig.typecheck.json`, which includes them. Before that split all nine test files
