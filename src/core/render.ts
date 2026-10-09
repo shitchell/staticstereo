@@ -25,7 +25,7 @@ import { blurDepth } from './blur.js'
 import { createRasterCache, rasterDepth, sceneDurationOf } from './raster.js'
 import type { RasterCache } from './raster.js'
 import { sirdsFromDepth, upscale } from './sirds.js'
-import { DEFAULT_STEREO } from './types.js'
+import { DEFAULT_STEREO, SIRDS_ALGORITHMS } from './types.js'
 import type { CanvasLike } from './canvaslike.js'
 import type { Scene, SirdsOpts, StereoOpts } from './types.js'
 
@@ -92,6 +92,17 @@ export function resolveStereo(scene: Scene): StereoOpts {
   if (!Number.isFinite(o.seed)) {
     throw new Error(`stereo.seed must be a finite number, got ${JSON.stringify(o.seed)}`)
   }
+  // Checked here and not only in the two scene validators: this is the one
+  // function every entry point goes through, and an unknown algorithm name
+  // would otherwise fall through `sirdsFromDepth`'s `=== 'linked'` test and
+  // silently render the default — i.e. `algorithm: 'thimbleby'` would look
+  // like it worked while doing nothing.
+  if (!SIRDS_ALGORITHMS.includes(o.algorithm)) {
+    throw new Error(
+      `stereo.algorithm must be one of: ${SIRDS_ALGORITHMS.join(', ')} — got ` +
+      `${JSON.stringify(o.algorithm)}`,
+    )
+  }
   return o
 }
 
@@ -138,12 +149,17 @@ export async function renderFrame(
 
   // §2.2: soften the depth step so the encoder stops copying from source
   // content of a different period, which shows up as a ghost of the shape
-  // echoed up to sepFar px to its right. No period measurement catches that
+  // echoed up to sepFar px to its right. No *period* measurement catches that
   // artifact, which is why this stage is wired in by construction here rather
-  // than being left to the caller.
+  // than being left to the caller. (A correlation measurement does catch it —
+  // `sirds.linked.test.ts` finds 0.587 agreement at the sepNear offset in the
+  // whole band downstream of a near shape, against 0.500 for chance. §2.3's
+  // "no measurement in this repo can see it" is therefore too strong. The
+  // 'linked' algorithm removes the artifact at the source instead of blurring
+  // the input that provokes it.)
   const smoothed = blurDepth(depth, w, h, o.depthBlur)
 
-  // The four fields the encoder actually consumes, spelled out rather than
+  // The five fields the encoder actually consumes, spelled out rather than
   // passing `o`. `StereoOpts` is assignable to `SirdsOpts`, so handing the
   // whole object over compiles and silently ignores noiseScale/depthBlur; an
   // explicit literal makes the seam visible at the one place it matters.
@@ -152,6 +168,7 @@ export async function renderFrame(
     sepNear: o.sepNear,
     cross: o.cross,
     seed: frameSeed(o.seed, seconds, scene.freezeNoise === true),
+    algorithm: o.algorithm,
   }
   const grey = sirdsFromDepth(smoothed, w, h, enc)
 

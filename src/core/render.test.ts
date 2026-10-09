@@ -151,6 +151,7 @@ describe('resolveStereo', () => {
     expect(o.depthBlur).toBe(0)   // off by default; see types.ts for why
     expect(o.cross).toBe(false)
     expect(o.seed).toBe(0)
+    expect(o.algorithm).toBe('shift')   // the new encoder is opt-in
   })
 
   it('lets the scene override individual fields', () => {
@@ -173,9 +174,33 @@ describe('resolveStereo', () => {
   it('rejects a negative depthBlur', () => {
     expect(() => resolveStereo(slabScene({}, { depthBlur: -1 }))).toThrow(/depthBlur/)
   })
+
+  it('accepts a known algorithm and rejects an unknown one', () => {
+    expect(resolveStereo(slabScene({}, { algorithm: 'linked' })).algorithm).toBe('linked')
+    // Cast: the point of the check is the value arriving from a scene file,
+    // which TypeScript never saw.
+    expect(() => resolveStereo(
+      slabScene({}, { algorithm: 'thimbleby' as 'linked' }),
+    )).toThrow(/algorithm/)
+  })
 })
 
 describe('renderFrame', () => {
+  // The pipeline hands the encoder an explicit five-field literal, so a new
+  // encoder option is exactly the kind of thing that compiles while being
+  // dropped. Measured end to end instead: the two encoders must produce
+  // different frames, and both must still encode the depth.
+  it('threads stereo.algorithm through to the encoder', async () => {
+    const shift = await renderFrame(slabScene({}, { algorithm: 'shift' }), 0, fakeCanvas())
+    const linked = await renderFrame(slabScene({}, { algorithm: 'linked' }), 0, fakeCanvas())
+    expect(Array.from(linked.pixels)).not.toEqual(Array.from(shift.pixels))
+
+    for (const frame of [shift, linked]) {
+      expect(periodIn(frame, 1, SLAB).period).toBe(SEP.sepNear)
+      expect(periodIn(frame, 1, BG).period).toBe(SEP.sepFar)
+    }
+  })
+
   /**
    * THE END-TO-END CHECK.
    *

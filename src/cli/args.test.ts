@@ -206,6 +206,22 @@ describe('parseArgs — stereo overrides', () => {
   it('names the option when its value is missing', () => {
     expect(reject(`${RENDER} --seed`)).toMatch(/--seed.*value/)
   })
+
+  it('parses --algorithm, and leaves it absent when not given', () => {
+    expect(parse(`${RENDER} --algorithm linked`).stereo.algorithm).toBe('linked')
+    expect(parse(`${RENDER} --algorithm shift`).stereo.algorithm).toBe('shift')
+    expect(parse(RENDER).stereo.algorithm).toBeUndefined()
+  })
+
+  // A mistyped encoder name has to be a usage error (exit 2) with the valid
+  // names listed. Accepting it and falling back to the default is how a user
+  // concludes the second encoder does nothing.
+  it('rejects an unknown algorithm by name, listing the valid ones', () => {
+    const msg = reject(`${RENDER} --algorithm linkd`)
+    expect(msg).toMatch(/--algorithm/)
+    expect(msg).toMatch(/"linkd"/)
+    expect(msg).toMatch(/shift, linked/)
+  })
 })
 
 describe('parseArgs — placement and timing', () => {

@@ -10,6 +10,26 @@
 export type Depth = number
 
 /**
+ * Which encoder turns a depth map into dots.
+ *
+ * - `'shift'` — `out[x] = out[x - sep(x)]`, one leftward copy per pixel. The
+ *   original, and still the default. Cheap and exact over flat depth, but
+ *   content propagates rightward **without bound**: a near object rewrites
+ *   every pixel downstream of itself and its ghost repeats every `sepFar` px to
+ *   the right edge.
+ * - `'linked'` — Thimbleby–Inglis–Witten. Constrains the *symmetric* pair
+ *   `(x - sep/2, x + sep/2)` around each column, resolves the resulting
+ *   equivalence classes, and removes links a nearer surface occludes. Content
+ *   then stops at the object instead of smearing.
+ *
+ * Kept selectable rather than swapped in: the two are visibly different images
+ * and which one fuses better is a perceptual judgement, not a correctness one.
+ */
+export type SirdsAlgorithm = 'shift' | 'linked'
+
+export const SIRDS_ALGORITHMS: readonly SirdsAlgorithm[] = ['shift', 'linked']
+
+/**
  * What the SIRDS encoder itself consumes.
  *
  * Deliberately narrower than {@link StereoOpts}: `noiseScale` and `depthBlur`
@@ -36,15 +56,29 @@ export interface SirdsOpts {
   /** Invert depth for cross-eyed viewers. */
   cross: boolean
   seed: number
+  /**
+   * Which encoder to use. **Absent means `'shift'`**, the original behaviour,
+   * so every existing caller and scene renders exactly as before.
+   */
+  algorithm?: SirdsAlgorithm
   /** Not an encoder parameter — applied by the pipeline via `upscale`. */
   noiseScale?: never
   /** Not an encoder parameter — applied by the pipeline via `blurDepth`. */
   depthBlur?: never
 }
 
-export interface StereoOpts extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur'> {
+export interface StereoOpts
+  extends Omit<SirdsOpts, 'noiseScale' | 'depthBlur' | 'algorithm'> {
   /** Nearest-neighbour upscale of noise pixels. 2 fuses more easily than 1. */
   noiseScale: number
+  /**
+   * Which encoder to use. Required here and optional on {@link SirdsOpts}: a
+   * resolved {@link StereoOpts} is the pipeline's single source of truth, and
+   * `resolveStereo` is the one place allowed to apply the `'shift'` default.
+   * A scene's own `stereo.algorithm` is still optional — `Scene['stereo']` is a
+   * `Partial` of this.
+   */
+  algorithm: SirdsAlgorithm
   /**
    * Gaussian blur radius in px applied to the depth map *after* compositing
    * and *before* encoding. **Defaults to 0 — off.**
@@ -96,6 +130,7 @@ export const DEFAULT_STEREO: StereoOpts = {
   depthBlur: 0,
   cross: false,
   seed: 0,
+  algorithm: 'shift',
 }
 
 /**

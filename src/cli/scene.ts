@@ -92,7 +92,8 @@ export async function loadScene(path: string): Promise<Scene> {
 /* --------------------------------------------------------------- validation */
 
 const SCENE_KEYS = ['size', 'fps', 'duration', 'stereo', 'freezeNoise', 'layers'] as const
-const STEREO_KEYS = ['sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed'] as const
+const STEREO_KEYS =
+  ['sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed', 'algorithm'] as const
 const LAYER_TYPES = ['text', 'image', 'gif', 'shape', 'draw'] as const
 const BASE_LAYER_KEYS = ['type', 'depth', 'at', 'anim'] as const
 const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {
@@ -167,6 +168,12 @@ export function validateScene(value: unknown, label: string): Scene {
       if (v === undefined) continue
       if (k === 'cross') {
         if (typeof v !== 'boolean') fail(`stereo.cross must be a boolean, got ${describe(v)}`)
+      } else if (k === 'algorithm') {
+        // The *value* check is delegated to `resolveStereo` below, which owns
+        // the list; only the type is wrong-shaped enough to catch here.
+        if (typeof v !== 'string') {
+          fail(`stereo.algorithm must be a string naming an encoder, got ${describe(v)}`)
+        }
       } else if (typeof v !== 'number' || !Number.isFinite(v)) {
         fail(`stereo.${k} must be a finite number, got ${describe(v)}`)
       }

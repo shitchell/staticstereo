@@ -29,7 +29,8 @@ const LOOPS = ['loop', 'once', 'pingpong'] as const
 const REPEATS = ['once', 'loop', 'pingpong'] as const
 
 /** Keys `StereoOpts` actually has. A typo must be an error, not a no-op. */
-const STEREO_KEYS = ['sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed'] as const
+const STEREO_KEYS =
+  ['sepFar', 'sepNear', 'noiseScale', 'depthBlur', 'cross', 'seed', 'algorithm'] as const
 
 function fail(message: string): never {
   throw new Error(message)
@@ -107,6 +108,12 @@ function validateStereo(v: unknown): Partial<StereoOpts> {
     const value = v[key]
     if (key === 'cross') {
       if (typeof value !== 'boolean') fail(`scene.stereo.cross must be true or false`)
+    } else if (key === 'algorithm') {
+      // Which names are valid is `resolveStereo`'s to say — it is called at
+      // the end of validation, so a bad name is still rejected by load time.
+      if (typeof value !== 'string') {
+        fail(`scene.stereo.algorithm must be an encoder name, got ${JSON.stringify(value)}`)
+      }
     } else {
       requireFinite(value, `scene.stereo.${key}`)
     }

@@ -71,6 +71,118 @@ describe('sirdsFromDepth', () => {
   })
 })
 
+/**
+ * The same period invariants, for the linked-pair encoder — **in the same
+ * measurement windows**, which is worth saying because the brief predicted they
+ * would have to move.
+ *
+ * `'linked'` constrains `(x - sep/2, x + sep/2)`, so a near slab spanning
+ * `[300, 500)` makes the `sepNear` equality hold on columns `[300-46, 500-46)`
+ * = `[254, 454)` — shifted *left* of the depth span by `sep/2`, not right. The
+ * window `[300, 500)` the shift tests use lies inside that, so it measures 92
+ * at score 1.0 unchanged. Measured, both encoders, slab `[300,500)`,
+ * `dominantPeriod(row, 80, 140)`:
+ *
+ *     window      shift          linked
+ *     0..250      110 @ 1.000    110 @ 1.000
+ *     254..454     92 @ 1.000     92 @ 1.000
+ *     300..500     92 @ 1.000     92 @ 1.000
+ *     320..520     92 @ 0.917     92 @ 1.000
+ *     346..546    110 @ 0.811     92 @ 1.000
+ *
+ * So no assertion is loosened and no window is moved. (`'shift'` is the fussier
+ * of the two about windows: past the slab's trailing edge its score decays as
+ * the window fills with ghost, and by `346..546` it measures the wrong period
+ * outright.)
+ */
+describe('sirdsFromDepth (linked)', () => {
+  const o: SirdsOpts = {
+    sepFar: DEFAULT_STEREO.sepFar,
+    sepNear: DEFAULT_STEREO.sepNear,
+    cross: false,
+    seed: 7,
+    algorithm: 'linked',
+  }
+
+  it('encodes background depth as the sepFar repeat period', () => {
+    const img = sirdsFromDepth(slab(), W, H, o)
+    const row = rowOf(img, W, H / 2).slice(0, 250) // entirely background
+    const { period, score } = dominantPeriod(row, 80, 140)
+    expect(period).toBe(o.sepFar)
+    expect(score).toBe(1)
+  })
+
+  it('encodes near depth as the sepNear repeat period', () => {
+    const img = sirdsFromDepth(slab(), W, H, o)
+    const row = rowOf(img, W, H / 2).slice(300, 500)
+    const { period, score } = dominantPeriod(row, 80, 140)
+    expect(period).toBe(o.sepNear)
+    expect(score).toBe(1)
+  })
+
+  it('produces a different period inside the object than outside', () => {
+    const img = sirdsFromDepth(slab(), W, H, o)
+    const bg = dominantPeriod(rowOf(img, W, H / 2).slice(0, 250), 80, 140).period
+    const fg = dominantPeriod(rowOf(img, W, H / 2).slice(300, 500), 80, 140).period
+    expect(fg).toBeLessThan(bg)
+  })
+
+  it('is deterministic for a fixed seed', () => {
+    const a = sirdsFromDepth(slab(), W, H, o)
+    const b = sirdsFromDepth(slab(), W, H, o)
+    expect(Array.from(a)).toEqual(Array.from(b))
+  })
+
+  it('changes with the seed', () => {
+    const a = sirdsFromDepth(slab(), W, H, { ...o, seed: 1 })
+    const b = sirdsFromDepth(slab(), W, H, { ...o, seed: 2 })
+    expect(Array.from(a)).not.toEqual(Array.from(b))
+  })
+
+  it('emits only two pixel values', () => {
+    const img = sirdsFromDepth(slab(), W, H, o)
+    expect([...new Set(img)].sort((p, q) => p - q)).toEqual([0, 255])
+  })
+
+  it('cross mode inverts which region is nearer', () => {
+    const img = sirdsFromDepth(slab(), W, H, { ...o, cross: true })
+    const bg = dominantPeriod(rowOf(img, W, H / 2).slice(0, 250), 80, 140).period
+    const fg = dominantPeriod(rowOf(img, W, H / 2).slice(300, 500), 80, 140).period
+    expect(fg).toBeGreaterThan(bg)
+  })
+
+  it('is a different image from the shift encoder on the same input', () => {
+    const shift = sirdsFromDepth(slab(), W, H, { ...o, algorithm: 'shift' })
+    const linked = sirdsFromDepth(slab(), W, H, o)
+    expect(Array.from(linked)).not.toEqual(Array.from(shift))
+  })
+
+  // A NaN depth sample has no separation and no sightline, so it is treated as
+  // background. Worth a test because the failure was silent and specific: a
+  // NaN endpoint survives the range guard (`NaN >> 1` is 0, and every
+  // comparison against a bound is false) and then stores 0 into the Int32Array
+  // of class pointers, aliasing the column to column 0 — which the right-to-
+  // left colouring pass has not reached yet, so the pixel reads 0 and the
+  // "only two values" invariant holds while the image is wrong.
+  it('treats a non-finite depth sample as background', () => {
+    const withNaN = slab()
+    for (let y = 0; y < H; y++) withNaN[y * W + 600] = Number.NaN
+    // The statement in full: NaN *is* background, byte for byte. Weaker
+    // probes pass with the bug in place — "only two pixel values" does, and
+    // so does "the sepFar pair across column 600 still matches", because the
+    // broken chain sets both of its members to 0 and 0 === 0.
+    expect(Array.from(sirdsFromDepth(withNaN, W, H, o)))
+      .toEqual(Array.from(sirdsFromDepth(slab(), W, H, o)))
+  })
+
+  it('defaults to shift when no algorithm is named', () => {
+    const { algorithm: _drop, ...noAlgorithm } = o
+    const a = sirdsFromDepth(slab(), W, H, noAlgorithm)
+    const b = sirdsFromDepth(slab(), W, H, { ...o, algorithm: 'shift' })
+    expect(Array.from(a)).toEqual(Array.from(b))
+  })
+})
+
 describe('upscale', () => {
   it('scales both axes by nearest neighbour', () => {
     const src = new Uint8Array([0, 255, 255, 0]) // 2x2
@@ -95,8 +207,8 @@ describe('upscale', () => {
   })
 })
 
-describe('row independence', () => {
-  const o: SirdsOpts = { sepFar: 110, sepNear: 92, cross: false, seed: 7 }
+describe.each(['shift', 'linked'] as const)('row independence (%s)', algorithm => {
+  const o: SirdsOpts = { sepFar: 110, sepNear: 92, cross: false, seed: 7, algorithm }
 
   /** Two rows. Row 0's depth is the variable; row 1 is identical in both. */
   function twoRows(topDepth: number): Float32Array {

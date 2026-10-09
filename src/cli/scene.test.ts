@@ -155,6 +155,26 @@ describe('validateScene — scene fields', () => {
     expect(msg).toMatch(/integer/)
   })
 
+  // The allowlist is per-key, so a key the encoder genuinely supports is
+  // rejected by name until it is added to it — i.e. a valid scene fails to
+  // load. Both halves are pinned: the name is accepted, a typo is not.
+  it('accepts stereo.algorithm in a scene file', () => {
+    expect(validateScene(
+      { size: [40, 20], layers: [], stereo: { algorithm: 'linked' } }, 's',
+    ).stereo).toEqual({ algorithm: 'linked' })
+  })
+
+  it('propagates resolveStereo for an unknown algorithm name', () => {
+    const msg = checkFails('size: [40, 20]\nlayers: []\nstereo: {algorithm: linkd}\n')
+    expect(msg).toMatch(/algorithm/)
+    expect(msg).toMatch(/shift, linked/)
+  })
+
+  it('rejects a non-string algorithm', () => {
+    expect(checkFails('size: [40, 20]\nlayers: []\nstereo: {algorithm: 3}\n'))
+      .toMatch(/algorithm.*string/)
+  })
+
   it('rejects freezeNoise that is not a boolean', () => {
     expect(checkFails('size: [40, 20]\nlayers: []\nfreezeNoise: yes please\n'))
       .toMatch(/freezeNoise.*boolean/)

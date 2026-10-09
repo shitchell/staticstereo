@@ -311,7 +311,7 @@ async function previewReport(
 function stereoLine(o: StereoOpts): string {
   return (
     `sepFar ${o.sepFar}, sepNear ${o.sepNear}, depthBlur ${o.depthBlur}, ` +
-    `seed ${o.seed}, cross ${o.cross ? 'on' : 'off'}`
+    `seed ${o.seed}, cross ${o.cross ? 'on' : 'off'}, algorithm ${o.algorithm}`
   )
 }
 

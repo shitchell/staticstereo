@@ -13,7 +13,8 @@
  *   command cannot honour, and silently dropping it is how a user concludes the
  *   generator is broken.
  */
-import type { StereoOpts } from '../core/index.js'
+import { SIRDS_ALGORITHMS } from '../core/index.js'
+import type { SirdsAlgorithm, StereoOpts } from '../core/index.js'
 
 /**
  * A mistake in the command line itself, as opposed to a bad scene or a failed
@@ -111,8 +112,13 @@ Stereo (override the scene file):
   --sep-far <px>           background repeat period (default 110)
   --sep-near <px>          nearest-surface repeat period (default 92)
   --noise-scale <n>        nearest-neighbour dot size (default 2)
-  --depth-blur <px>        depth-edge softening (default 1)
+  --depth-blur <px>        depth-edge softening (default 0, i.e. off)
   --seed <n>               dot-field seed
+  --algorithm <name>       encoder: shift (default) or linked. shift copies
+                           each pixel from sep px back, which smears a near
+                           object's content to the right edge; linked is
+                           Thimbleby-Inglis-Witten constrained pairs with
+                           hidden-surface removal, which does not
   --cross / --no-cross     invert depth for cross-eyed viewing
   --freeze-noise           reuse one dot field for every frame
   --no-freeze-noise        re-randomise every frame (the default)
@@ -160,6 +166,7 @@ const VALUED = new Set([
   '-o', '--output', '--text', '--depth-map', '--size', '--font-size', '--depth',
   '--at', '--at-time', '--fps', '--duration',
   '--sep-far', '--sep-near', '--noise-scale', '--depth-blur', '--seed',
+  '--algorithm',
   '--qp', '--crf', '--pix-fmt', '--ffmpeg',
 ])
 
@@ -169,6 +176,20 @@ function num(flag: string, raw: string): number {
     throw new UsageError(`option "${flag}" expects a number, got "${raw}"`)
   }
   return v
+}
+
+/**
+ * Parse an encoder name.
+ *
+ * Rejected here rather than left to `resolveStereo`, because a mistyped
+ * `--algorithm linkd` is a command-line mistake and should exit 2 with the
+ * valid names listed, not surface as a scene error.
+ */
+function algorithm(flag: string, raw: string): SirdsAlgorithm {
+  if ((SIRDS_ALGORITHMS as readonly string[]).includes(raw)) return raw as SirdsAlgorithm
+  throw new UsageError(
+    `option "${flag}" expects one of: ${SIRDS_ALGORITHMS.join(', ')} — got "${raw}"`,
+  )
 }
 
 /** Parse an `x,y` or `WxH` pair. */
@@ -267,6 +288,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '--noise-scale': args.stereo.noiseScale = num(flag, value); break
       case '--depth-blur': args.stereo.depthBlur = num(flag, value); break
       case '--seed': args.stereo.seed = num(flag, value); break
+      case '--algorithm': args.stereo.algorithm = algorithm(flag, value); break
       case '--qp': args.mp4.qp = num(flag, value); break
       case '--crf': args.mp4.crf = num(flag, value); break
       case '--pix-fmt': args.mp4.pixFmt = value; break

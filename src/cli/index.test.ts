@@ -253,6 +253,27 @@ describe('stst render', () => {
     expect(periodIn(row, BG, 1).period).toBe(SEP.sepFar)
   })
 
+  // The flag exists so Shaun can render both and compare before the default
+  // changes, so it has to reach the encoder *and* still encode the depth.
+  it('--algorithm linked renders a different image that still encodes the depth', async () => {
+    const { dir: d, path } = await scene(SLAB_SCENE)
+    const shiftOut = join(d, 'shift.gif')
+    const linkedOut = join(d, 'linked.gif')
+    expect((await cli(['render', path, '-o', shiftOut, '--noise-scale', '1'])).code).toBe(0)
+    expect((await cli([
+      'render', path, '-o', linkedOut, '--noise-scale', '1', '--algorithm', 'linked',
+    ])).code).toBe(0)
+
+    const shift = decodeGif(await readFile(shiftOut), 'shift.gif')
+    const linked = decodeGif(await readFile(linkedOut), 'linked.gif')
+    const shiftRow = rgbaRow(shift.frames[0]!.rgba, shift.width, Math.floor(H / 2))
+    const linkedRow = rgbaRow(linked.frames[0]!.rgba, linked.width, Math.floor(H / 2))
+    expect(linkedRow).not.toEqual(shiftRow)
+
+    expect(periodIn(linkedRow, SLAB, 1).period).toBe(SEP.sepNear)
+    expect(periodIn(linkedRow, BG, 1).period).toBe(SEP.sepFar)
+  })
+
   it('--cross inverts which region reads as nearer', async () => {
     const { dir: d, path } = await scene(SLAB_SCENE)
     const out = join(d, 'cross.gif')
@@ -341,6 +362,7 @@ describe('stst preview', () => {
     expect(r.out).toMatch(/12 frames/)
     expect(r.out).toMatch(/sepFar 30/)
     expect(r.out).toMatch(/sepNear 20/)
+    expect(r.out).toMatch(/algorithm shift/)
     // The measurement is the point: a stereogram cannot be checked by eye.
     expect(r.out).toMatch(/period/)
     const match = /(\S+\.gif)/.exec(r.out)

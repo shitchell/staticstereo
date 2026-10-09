@@ -17,6 +17,7 @@ import type { StereoOpts } from '../src/core/types.js'
 
 const STEREO: StereoOpts = {
   sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 0,
+  algorithm: 'shift',
 }
 
 /**

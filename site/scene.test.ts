@@ -173,6 +173,17 @@ describe('validateScene', () => {
     expect(() => validateScene({ ...MIN, stereo: { sepfar: 120 } })).toThrowError(/sepfar/)
   })
 
+  // A URL-shared scene goes through this validator, so an encoder the core
+  // supports has to survive the trip — and a misspelled one must not.
+  it('accepts stereo.algorithm and delegates its spelling to core', () => {
+    expect(validateScene({ ...MIN, stereo: { algorithm: 'linked' } }).stereo)
+      .toEqual({ algorithm: 'linked' })
+    expect(() => validateScene({ ...MIN, stereo: { algorithm: 'linkd' } }))
+      .toThrowError(/algorithm/)
+    expect(() => validateScene({ ...MIN, stereo: { algorithm: 2 } }))
+      .toThrowError(/algorithm/)
+  })
+
   it('rejects a non-numeric at pair and a non-numeric depth', () => {
     expect(() => validateScene({ size: [8, 8], layers: [{ type: 'text', text: 'A', at: [0] }] }))
       .toThrowError(/layers\[0\]\.at/)
