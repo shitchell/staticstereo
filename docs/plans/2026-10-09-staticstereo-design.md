@@ -644,6 +644,64 @@ encoding bug.
 
 ---
 
+### Plate/stage coordinate split
+
+- **Status**: Accepted (design); implementation deferred behind the encoder work
+- **Context**: Shaun hand-edited a scene in the web UI to place a ball at `x: 80` and
+  could not find it in the fused view. Measurement showed it was clipped to a ~48px
+  crescent — the left `sepFar` columns cannot encode depth. He then raised the coordinate
+  question directly.
+- **Rationale**: Shaun:
+
+  > "yeah, i think a narrower output is what i was thinking? leave the spaces to the left
+  > and right as considered \"dead\" space, with the content area only ever considered as
+  > the stereoscopic area post-fusion. if i say the ball should appear at x=0/y=0, i would
+  > probably intuitively expect it to be in the lower left corner of the fused area, not
+  > the area that only my left eye sees without right-eye-overlap. that said, if there's
+  > some reason we might want to keep the {0,0} coordinate as full left, then i'm open to
+  > that and having 2 types of coordinates for pre-fusion and post-fusion. might also help
+  > to come up with consistent terms for the full area (pre-fusion/non-fused) and the more
+  > narrow post-fusion area"
+
+  On margins being x-only:
+
+  > "i dig the terms :) and yeah, i see no reason for y to differ across the plate and
+  > stage, only the x dimension."
+
+  On the y direction, after being asked whether "lower left" was deliberate:
+
+  > "oh! idc haha, i was thinking y=0 == bottom i'm guessing because that's how we tend to
+  > portray graphs. {0,0} is usually the bottom left, and increasing x/y values extend to
+  > the right and up from there. but i'm not married to it"
+
+  Resolved as y-down. The deciding argument is not convention for its own sake: y-up would
+  desync scene coordinates from the depth-map panel, and that panel is the only instrument
+  that shows what a stereogram is actually encoding. A debugging view that disagrees with
+  the authoring space is worse than an unfamiliar axis direction.
+
+### Automated detection of perceptual defects
+
+- **Status**: In progress
+- **Context**: Five defects were found by Shaun looking at rendered output; none were
+  caught by the 491-test suite, because all five are perceptual or spatial.
+- **Rationale**: Shaun:
+
+  > "i'd be curious to see if we could actually detect those findings in an automated
+  > fashion. might help longterm. would you mind delegating the task of setting up
+  > regression tests to a subagent or two to accurately reproduce those findings? and/or
+  > some way to predict it by looking at the code itself in some way?"
+
+  and, on generalising rather than writing five bespoke tests:
+
+  > "if we can manage to produce such regression tests, it would probably be good to do a
+  > sort of retrospective afterwards to see if we can't extrapolate more generic/common
+  > ways of testing to help catch other oddities that might show up. exactly what you're
+  > talking about :)"
+
+  Approach: metamorphic properties rather than per-defect tests — locality, completeness,
+  row independence, feature-size floor, purity — on the hypothesis that one property
+  (bounded, order-independent dataflow) accounts for three of the five findings at once.
+
 ### Corrections from implementation review, round 2 (2026-10-09)
 
 - **Status**: Accepted
@@ -724,18 +782,6 @@ implementation; all are cheap to change.
     turns it on at a wide depth budget, the only available verification is a person's
     eyes. A blinded, randomised A/B with replicates is the right instrument, and one is
     in flight.
-13. **`MIN_CREDIBLE_SCORE`, `WEAK_SAMPLES` and `FAIR_SAMPLES` in `site/diagnostics.ts` are
-    invented numbers**, same category as `DEFAULT_FPS` (item 9). The file says so
-    honestly, and they are chosen so a full-width row grades `strong` while a thin
-    user-dragged band cannot. But the confidence grade is exactly what the diagnostics
-    panel asks you to trust, so the thresholds deserve a deliberate choice.
-14. **The site cannot load any example with an `image` or `gif` layer.** `examples.ts` is
-    text and shapes only, on purpose: a bundled `/dot.png` would work on localhost and 404
-    under `/staticstereo/`. The consequence is that the image→depth path — four
-    auto-detect rules and per-frame alpha detection, the most error-prone corner of the
-    scene model — is reachable on the site only by hand-typing a URL or a `data:` URI.
-    Given the depth panel exists to debug exactly that, a tiny inline `data:` URI example
-    would make it one click away.
 11. **`CanvasLike` has no teardown hook, and the browser will eventually need one.**
     `createImageBitmap` returns a resource with `close()` and `DecodedImage` has nowhere to
     put it. Harmless today — one decode per render, held by `RasterCache` — but a page that
@@ -748,3 +794,79 @@ implementation; all are cheap to change.
     `@napi-rs/canvas` imitates. `webCanvas().make()`, `loadImage()` (hence the browser's
     `hasAlpha`/mode decision), and `pngBlob()` are unverified. The highest-value browser
     test to add later is that same member-by-member sweep.
+13. **`MIN_CREDIBLE_SCORE`, `WEAK_SAMPLES` and `FAIR_SAMPLES` in `site/diagnostics.ts` are
+    invented numbers**, same category as `DEFAULT_FPS` (item 9). The file says so
+    honestly, and they are chosen so a full-width row grades `strong` while a thin
+    user-dragged band cannot. But the confidence grade is exactly what the diagnostics
+    panel asks you to trust, so the thresholds deserve a deliberate choice.
+14. **The site cannot load any example with an `image` or `gif` layer.** `examples.ts` is
+    text and shapes only, on purpose: a bundled `/dot.png` would work on localhost and 404
+    under `/staticstereo/`. The consequence is that the image→depth path — four
+    auto-detect rules and per-frame alpha detection, the most error-prone corner of the
+    scene model — is reachable on the site only by hand-typing a URL or a `data:` URI.
+    Given the depth panel exists to debug exactly that, a tiny inline `data:` URI example
+    would make it one click away.
+
+---
+
+## 10. Plate, stage, and margins
+
+**Status: specified, not yet implemented.** Queued behind the encoder work, because it
+lives in `render.ts`.
+
+### 10.1 Terms
+
+| term | meaning |
+|---|---|
+| **plate** | the full emitted pixel grid — what is written to PNG, what one eye sees |
+| **stage** | the region that survives fusion; the authoring space where layers live |
+| **margin** | the dead strips between stage and plate edge |
+
+`plate = stage + leftMargin + rightMargin`. "Plate" comes from stereo photography and is
+not overloaded the way *canvas* (Canvas 2D) and *viewport* (web) already are in this
+codebase.
+
+**`scene.size` means the stage.** An author composes the picture they want fused; the CLI
+reports the plate it actually emitted.
+
+### 10.2 Margins are x-only
+
+The encoder works row by row, so nothing is lost vertically:
+`plate.height === stage.height`. Only x gets margins.
+
+### 10.3 Why margins are needed, and how wide
+
+Two *different* losses, which were conflated at first:
+
+- **Encoding dead zone.** Where depth physically cannot be encoded. For the shift
+  encoder, `x < sep` has no source column, so `depth[x]` is computed and discarded —
+  `sepFar` on the left, nothing on the right. Measured: a ball of r=60 centred at x=80
+  (spanning 20..140) had its encoded footprint start at **92**, losing the left 72px;
+  the same ball at x=560 lost nothing. The asymmetry is an artifact of scanning
+  left-to-right, not geometry. The linked-pair encoder centres its pairs, so its dead
+  zones are symmetric at roughly `sepFar/2` per side.
+- **Fusion fringe.** A perceptual loss, and symmetric for *any* algorithm. Fusion forms
+  one percept per pair `(P, P+sep)`, so there are `W - sep` percepts, each appearing
+  centred at `P + sep/2`. The percept therefore occupies the middle `W - sep` columns,
+  leaving **`sep/2` dead at each end**.
+
+The union is `sepFar` left and `sepFar/2` right. **Use `sepFar` on both sides anyway.**
+It is symmetric, it covers either encoder, and it is **`cross`-safe**: cross-eyed viewing
+flips which side the fringe falls on, so asymmetric margins would be wrong for half of
+viewers. The cost is ~34% extra plate width at `sepFar: 110`, which is cheap next to a
+correctness caveat.
+
+### 10.4 Margins stay visible
+
+They are emitted, not cropped. Fusion *needs* those partner pixels — cropping them would
+destroy the stereo signal at the stage edges, which is the trap this design nearly walked
+into. They are "dead" in the sense that nothing should be composed there, not in the sense
+that they can be removed.
+
+### 10.5 Consequences
+
+- **Presets must be margin-aware.** A `marquee` travelling to `stageW` would pop in at the
+  stage edge rather than slide in from off-plate.
+- **The site should draw a stage guide** over the preview. Otherwise the dead space is
+  invisible and authors will compose into it.
+- **`y` stays top-down**, so `{0, 0}` is the stage's top-left.
