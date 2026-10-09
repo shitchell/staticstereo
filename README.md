@@ -96,8 +96,9 @@ widths in the stock sans:
 | bold | 240px | 57px | yes |
 | bold | 360px | 84px | comfortably |
 
-So **text wants bold and 240px or more.** Weight saturates — `900` renders identically to
-`bold` — so past that only size helps. Alternatively raise `sepNear` to shrink the budget,
+So **text wants bold and 240px or more.** Past bold, whether a heavier weight helps
+depends on your installed fonts: `900` is identical to `bold` on a stack with no 900 face
+and ~15% wider on one that has it. Size is the lever that always works. Alternatively raise `sepNear` to shrink the budget,
 buying legibility at the cost of depth range; for text, which wants one flat plane anyway,
 that is usually the right trade.
 

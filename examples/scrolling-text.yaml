@@ -15,9 +15,10 @@
 #     bold   240px ->  57px stroke   readable
 #     bold   360px ->  84px stroke   comfortable
 #
-# Weight saturates: `900` renders identically to `bold` here. Past that, only
-# size helps -- or widen sepNear to shrink the budget and buy legibility at the
-# cost of depth range.
+# Past bold, a heavier weight helps only if your font stack actually has a 900
+# face -- it is identical to bold without one and ~15% wider with one, so it is
+# fontconfig's call, not the renderer's. Size always works. Alternatively widen
+# sepNear to shrink the budget, buying legibility at the cost of depth range.
 
 size: [800, 300]
 fps: 12

@@ -119,14 +119,29 @@ describe('feature size on real glyphs', () => {
   // "buys essentially nothing" rather than "is byte-identical", because whether
   // a 900 face exists is a property of the host's font stack and not of this
   // codebase. On this machine the two depth maps are identical to the pixel.
-  it('a weight heavier than bold buys no extra stroke width', async () => {
+  // This asserts MONOTONICITY, not saturation, and the distinction is the whole
+  // point. An earlier version asserted that 900 buys at most 5% over bold —
+  // which passed here and FAILED in CI, because GitHub's runner ships a real
+  // 900 face (53px vs bold's 46px, +15%) and this machine does not. That test
+  // was measuring the font stack, not the code: whether a heavier face exists
+  // is fontconfig's business.
+  //
+  // What is true everywhere is that asking for more weight must never give you
+  // LESS stroke. That holds whether the request saturates onto bold or resolves
+  // to a distinct face, so it is a property of the pipeline rather than of the
+  // machine it runs on.
+  it('a weight heavier than bold never reduces stroke width', async () => {
     const pairs = await Promise.all([240, 360].map(async size => {
       const bold = await strokeMedian('STATIC', size, 'bold')
       const nine = await strokeMedian('STATIC', size, '900')
       return { size, bold, nine }
     }))
-    report('bold vs 900 stroke median', pairs.map(p => `${p.size}: ${p.bold}/${p.nine}`).join(' '))
-    for (const p of pairs) expect(p.nine).toBeLessThanOrEqual(p.bold * 1.05)
+    report(
+      'bold vs 900 stroke median',
+      pairs.map(p => `${p.size}: ${p.bold}/${p.nine}` +
+        (p.nine === p.bold ? ' (saturated)' : ' (distinct face)')).join(' '),
+    )
+    for (const p of pairs) expect(p.nine).toBeGreaterThanOrEqual(p.bold)
   })
 
   // The usable form of the rule: a verdict, derived from the depth map alone,
