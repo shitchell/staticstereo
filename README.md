@@ -46,4 +46,4 @@ stst preview scene.yaml
 
 ## License
 
-TBD.
+[WTFPL](LICENSE) — do what the fuck you want to.

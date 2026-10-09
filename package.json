@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "description": "Static on the Stereo \u2014 animated autostereogram generator",
   "type": "module",
-  "license": "MIT",
+  "license": "WTFPL",
   "bin": {
     "stst": "./dist/cli/index.js"
   },
@@ -17,6 +17,8 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "build:site": "vite build --config vite.site.config.ts",
+    "dev:site": "vite --config vite.site.config.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.typecheck.json"
@@ -24,11 +26,13 @@
   "dependencies": {
     "@napi-rs/canvas": "^0.1",
     "gifenc": "^1",
-    "omggif": "^1"
+    "omggif": "^1",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@types/node": "^22",
     "typescript": "^5",
+    "vite": "^5.4.21",
     "vitest": "^2"
   }
 }
