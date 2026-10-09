@@ -1,4 +1,4 @@
-import { makeRng } from './rng.js'
+import { noiseAt } from './rng.js'
 import type { SirdsOpts } from './types.js'
 
 /**
@@ -21,7 +21,6 @@ export function sirdsFromDepth(
   h: number,
   o: SirdsOpts,
 ): Uint8Array {
-  const rnd = makeRng(o.seed)
   const out = new Uint8Array(w * h)
   const range = o.sepFar - o.sepNear
   const maxSep = w - 1
@@ -40,7 +39,7 @@ export function sirdsFromDepth(
       else if (sep > maxSep) sep = maxSep
 
       const src = x - sep
-      out[i] = src >= 0 ? out[base + src]! : rnd() < 0.5 ? 0 : 255
+      out[i] = src >= 0 ? out[base + src]! : noiseAt(o.seed, x, y) < 0.5 ? 0 : 255
     }
   }
   return out

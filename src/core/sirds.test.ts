@@ -94,3 +94,47 @@ describe('upscale', () => {
     expect(dominantPeriod(row, 180, 260).period).toBe(o.sepFar * scale)
   })
 })
+
+describe('row independence', () => {
+  const o: SirdsOpts = { sepFar: 110, sepNear: 92, cross: false, seed: 7 }
+
+  /** Two rows. Row 0's depth is the variable; row 1 is identical in both. */
+  function twoRows(topDepth: number): Float32Array {
+    const w = 300
+    const d = new Float32Array(w * 2)
+    for (let x = 0; x < w; x++) d[x] = topDepth          // row 0: varies
+    for (let x = 50; x < 100; x++) d[w + x] = 1          // row 1: fixed
+    return d
+  }
+
+  // REGRESSION. The encoder used ONE sequential PRNG stream for the whole
+  // image, drawn from only where x < sep. A row therefore consumed exactly
+  // `sep` numbers, and `sep` depends on that row's own depth — so changing any
+  // row re-phased the stream for every row BELOW it.
+  //
+  // Shaun hit this in the browser: with freezeNoise on, a marquee's background
+  // sat still until the text reached the left edge, then "the entire bottom
+  // half of the screen started moving". Measured on the real scene: zero rows
+  // below the text band changed at frame 40 (text x = 107) and 259 changed at
+  // frame 41 (text x = 93) — the instant the text entered the sepFar=110 seed
+  // strip and that row's draw count dropped from 110 to ~97.
+  it('a row is unaffected by the depth of the row above it', () => {
+    const w = 300
+    const flat = sirdsFromDepth(twoRows(0), w, 2, o)
+    const near = sirdsFromDepth(twoRows(1), w, 2, o)
+    expect(Array.from(near.slice(w, 2 * w))).toEqual(Array.from(flat.slice(w, 2 * w)))
+  })
+
+  it('a row is unaffected by image height', () => {
+    // Same consequence, simpler probe: rendering more rows must not change
+    // the ones already there.
+    const w = 200
+    const mk = (h: number) => {
+      const d = new Float32Array(w * h)
+      for (let y = 0; y < h; y++) for (let x = 40; x < 90; x++) d[y * w + x] = 1
+      return sirdsFromDepth(d, w, h, o)
+    }
+    const short = mk(2), tall = mk(6)
+    expect(Array.from(tall.slice(0, 2 * w))).toEqual(Array.from(short.slice(0, 2 * w)))
+  })
+})
