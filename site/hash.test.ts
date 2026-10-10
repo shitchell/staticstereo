@@ -6,6 +6,8 @@ import {
   encodeSceneHash,
   parseSceneHash,
 } from './hash.js'
+import { initialState, reduce } from './controls.js'
+import { validateScene } from './scene.js'
 import type { Scene } from '../src/core/types.js'
 
 const SCENE: Scene = {
@@ -101,5 +103,32 @@ describe('encodeSceneHash / parseSceneHash', () => {
     const once = encodeSceneHash(SCENE)
     const twice = encodeSceneHash(parseSceneHash(once) as Scene)
     expect(twice).toBe(once)
+  })
+
+  it('carries a font size and weight edited in the controls, through the validator', () => {
+    // The type controls are only shareable if the whole path holds: reducer →
+    // hash → decode → `validateScene`. The validator builds layers field by
+    // field, so a field it does not know about is DROPPED rather than
+    // rejected — a share link that silently lost the weight would look like
+    // the control not working for the recipient only.
+    const edited = reduce(
+      initialState({ size: [320, 180], layers: [{ type: 'text', text: 'HELLO' }] }),
+      { type: 'layerText', index: 0, patch: { size: 132, weight: '900' } },
+    )
+    const back = validateScene(parseSceneHash(encodeSceneHash(edited.scene)))
+    expect(back.layers[0]).toMatchObject({ type: 'text', size: 132, weight: '900' })
+  })
+
+  it('carries the absence of a weight, so clearing it survives the link too', () => {
+    const cleared = reduce(
+      reduce(
+        initialState({ size: [320, 180], layers: [{ type: 'text', text: 'HELLO', weight: 'bold' }] }),
+        { type: 'layerText', index: 0, patch: { size: 60 } },
+      ),
+      { type: 'layerText', index: 0, patch: { weight: undefined } },
+    )
+    const back = validateScene(parseSceneHash(encodeSceneHash(cleared.scene)))
+    expect('weight' in back.layers[0]!).toBe(false)
+    expect(back.layers[0]).toMatchObject({ size: 60 })
   })
 })

@@ -153,6 +153,125 @@ describe('reduce', () => {
       .toThrowError(/layer 4/)
   })
 
+  describe('layerText', () => {
+    /**
+     * Built fresh per call, never shared.
+     *
+     * A module-level const here was a real hazard rather than a style point:
+     * `initialState` spreads the scene shallowly, so every test would hold the
+     * *same* layer objects. A reducer that patched a layer in place would then
+     * leave the mutation visible to later tests — and in particular would make
+     * the "never mutates" test below pass, because by the time it ran the
+     * field it sets would already have the value it sets. Mutation testing
+     * caught exactly that.
+     */
+    const mixed = (): Scene => ({
+      size: [64, 32],
+      layers: [
+        { type: 'text', text: 'A' },
+        { type: 'shape', shape: 'rect', w: 4, h: 4 },
+      ],
+    })
+
+    it('sets a size and a weight on the addressed text layer', () => {
+      let s = reduce(initialState(mixed()), { type: 'layerText', index: 0, patch: { size: 120 } })
+      expect(s.scene.layers[0]).toMatchObject({ type: 'text', text: 'A', size: 120 })
+      s = reduce(s, { type: 'layerText', index: 0, patch: { weight: 'bold' } })
+      expect(s.scene.layers[0]).toMatchObject({ size: 120, weight: 'bold' })
+    })
+
+    it('patches only the named fields, leaving the rest of the layer alone', () => {
+      const s = reduce(
+        initialState({ ...mixed(), layers: [{ type: 'text', text: 'A', size: 90, weight: 'bold', anim: { kind: 'bob' } }] }),
+        { type: 'layerText', index: 0, patch: { size: 48 } },
+      )
+      expect(s.scene.layers[0]).toEqual({
+        type: 'text', text: 'A', size: 48, weight: 'bold', anim: { kind: 'bob' },
+      })
+    })
+
+    it('removes a field set to undefined rather than storing the key', () => {
+      // Same rule as fps/duration and layerAnim: `{weight: undefined}`
+      // serialises to a hash with no key, so keeping it in memory would make
+      // the state and the share link disagree.
+      //
+      // BOTH fields are checked, and separately. The obvious implementation
+      // slip is `patch.size !== undefined` in place of `'size' in patch`,
+      // which silently turns a removal into a no-op — and a test that only
+      // cleared the weight did not notice it.
+      const sized = reduce(initialState(mixed()), { type: 'layerText', index: 0, patch: { size: 120, weight: '900' } })
+
+      const noWeight = reduce(sized, { type: 'layerText', index: 0, patch: { weight: undefined } })
+      expect('weight' in noWeight.scene.layers[0]!).toBe(false)
+      expect(noWeight.scene.layers[0]).toMatchObject({ size: 120 })
+
+      const noSize = reduce(sized, { type: 'layerText', index: 0, patch: { size: undefined } })
+      expect('size' in noSize.scene.layers[0]!).toBe(false)
+      expect(noSize.scene.layers[0]).toMatchObject({ weight: '900' })
+
+      const neither = reduce(noWeight, { type: 'layerText', index: 0, patch: { size: undefined } })
+      expect(neither.scene.layers[0]).toEqual({ type: 'text', text: 'A' })
+    })
+
+    it('distinguishes an absent key from an explicit undefined', () => {
+      const sized = reduce(initialState(mixed()), { type: 'layerText', index: 0, patch: { size: 120, weight: 'bold' } })
+      // `{size: 48}` must not clear the weight it never mentioned.
+      const resized = reduce(sized, { type: 'layerText', index: 0, patch: { size: 48 } })
+      expect(resized.scene.layers[0]).toMatchObject({ size: 48, weight: 'bold' })
+    })
+
+    it('refuses a layer index that does not exist', () => {
+      expect(() => reduce(initialState(mixed()), { type: 'layerText', index: 7, patch: { size: 10 } }))
+        .toThrowError(/layer 7/)
+    })
+
+    it('refuses a layer that is not text, naming what it actually is', () => {
+      // The controls are disabled for a non-text layer, but a hash-loaded
+      // scene can change the layer under a stale selection. A silent no-op
+      // would look exactly like a broken field.
+      expect(() => reduce(initialState(mixed()), { type: 'layerText', index: 1, patch: { size: 10 } }))
+        .toThrowError(/layer 1.*shape/)
+    })
+
+    it('rejects a size that is not a positive finite number, since the validator would', () => {
+      // `sceneError` delegates to `validateScene`, which calls `size` positive.
+      // Letting 0 through here would put the page in a state its own share
+      // link refuses to load.
+      for (const bad of [0, -5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        expect(() => reduce(initialState(mixed()), { type: 'layerText', index: 0, patch: { size: bad } }))
+          .toThrowError(/size/)
+      }
+    })
+
+    it('rejects an empty weight, since the validator requires a non-empty string', () => {
+      expect(() => reduce(initialState(mixed()), { type: 'layerText', index: 0, patch: { weight: '' } }))
+        .toThrowError(/weight/)
+    })
+
+    it('leaves a scene it produced loadable from its own share link', () => {
+      const s = reduce(initialState(mixed()), { type: 'layerText', index: 0, patch: { size: 120, weight: '900' } })
+      expect(sceneError(s.scene)).toBeUndefined()
+    })
+
+    it('never mutates the state or the layer it was given', () => {
+      const before = initialState(mixed())
+      const snapshot = JSON.stringify(before)
+      const after = reduce(before, { type: 'layerText', index: 0, patch: { size: 120 } })
+      expect(JSON.stringify(before)).toBe(snapshot)
+      // Identity, not only value. A patch applied in place would leave these
+      // the same object, and then the snapshot above passes whenever the field
+      // happens already to hold the value being set — which is how an
+      // in-place mutation survived the first version of this test.
+      expect(after.scene.layers[0]).not.toBe(before.scene.layers[0])
+    })
+
+    it('leaves the untouched layers identical, not merely equal', () => {
+      const before = initialState(mixed())
+      const after = reduce(before, { type: 'layerText', index: 0, patch: { size: 120 } })
+      expect(after.scene.layers[1]).toBe(before.scene.layers[1])
+    })
+  })
+
   it('replaces the scene and re-clamps the time onto the new grid', () => {
     const at = reduce(initialState(ANIM), { type: 'time', seconds: 1.9 })
     const next = reduce(at, { type: 'scene', scene: STILL })

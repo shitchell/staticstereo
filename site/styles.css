@@ -35,6 +35,15 @@ h2 {
   color: var(--accent);
 }
 
+/* A sub-heading inside a panel, for a second group of controls under one h2. */
+h3 {
+  margin: 1rem 0 0.5rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+
 .masthead {
   max-width: 68ch;
 }
@@ -237,6 +246,18 @@ button {
 
 button:hover {
   border-color: var(--accent);
+}
+
+/*
+ * A control that does not apply to the current selection is disabled, not
+ * hidden: hiding it would reflow the panel on every change of the layer
+ * dropdown and move the neighbouring controls out from under the pointer.
+ * It has to *look* unavailable for that to read as deliberate.
+ */
+input:disabled,
+select:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 button:disabled {

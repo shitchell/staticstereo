@@ -28,6 +28,7 @@ import {
 import type { Action, UiState } from './controls.js'
 import { depthToRgba, greyToRgba } from './depthmap.js'
 import { describeReadout, expectedPeriods, periodWindow, readRow, readSegment } from './diagnostics.js'
+import { describeLegibility, measureInk, soloLayerScene } from './legibility.js'
 import { DEFAULT_EXAMPLE, EXAMPLES } from './examples.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
 import { validateScene } from './scene.js'
@@ -103,6 +104,10 @@ function collectElements() {
   layer: el<HTMLSelectElement>('layer'),
   preset: el<HTMLSelectElement>('preset'),
   presetNote: el<HTMLParagraphElement>('preset-note'),
+  textSize: el<HTMLInputElement>('text-size'),
+  textWeight: el<HTMLSelectElement>('text-weight'),
+  textNote: el<HTMLParagraphElement>('text-note'),
+  legibility: el<HTMLElement>('legibility'),
   diagExpected: el<HTMLElement>('diag-expected'),
   diagSelected: el<HTMLElement>('diag-selected'),
   diagFullRow: el<HTMLElement>('diag-fullrow'),
@@ -256,6 +261,50 @@ function updateDiagnostics(frame: PlateFrame, stereo: StereoOpts): void {
   ui.diagTop.textContent = describeReadout(readRow(frame, 0, lo, hi))
 }
 
+/**
+ * Measure the selected text layer's strokes against the live depth budget.
+ *
+ * **Measured on a scene reduced to that one layer, not on the composited depth
+ * map.** The composite contains every layer's ink, so on any scene with a
+ * background shape the median run would be the shape's — a number that has
+ * nothing to do with the type and would move when the type did not. When the
+ * scene has exactly one layer the two are the same array, and the second
+ * rasterisation is skipped.
+ *
+ * That makes a **third** rasterisation per paint for a multi-layer scene with a
+ * text layer selected, including once per frame during playback. It is paid
+ * deliberately: a scale animator changes the stroke width over the timeline, so
+ * a measurement taken once at authoring time would be wrong for most of the
+ * scene. Rasterising a depth map is the cheap end of the pipeline — the encoder
+ * dominates — and the saving on a single-layer scene is the common case.
+ *
+ * Everything with an assertable answer — the run statistics, the budget, the
+ * grade and the wording — is in `legibility.ts` and unit-tested on hand-built
+ * depth maps. What is left here is "which layer, and where does the depth map
+ * come from", which needs a canvas.
+ */
+async function updateLegibility(
+  scene: Scene, seconds: number, composited: Float32Array, stereo: StereoOpts,
+): Promise<void> {
+  const index = selectedLayerIndex()
+  const layer = scene.layers[index]
+  if (layer === undefined) {
+    ui.legibility.textContent = 'this scene has no layers to measure.'
+    return
+  }
+  if (layer.type !== 'text') {
+    ui.legibility.textContent =
+      `layer ${index} is a ${layer.type} layer — this measurement is about type, ` +
+      `so select a text layer.`
+    return
+  }
+  const [w, h] = scene.size
+  const depth = scene.layers.length === 1
+    ? composited
+    : await rasterDepth(soloLayerScene(scene, index), seconds, surface, cache)
+  ui.legibility.textContent = describeLegibility(measureInk(depth, w, h), stereo)
+}
+
 /* ----------------------------------------------------------------- render */
 
 /**
@@ -302,6 +351,7 @@ async function paint(): Promise<void> {
     const frame = await renderFrame(scene, seconds, surface, cache)
     drawStereo(frame)
     updateDiagnostics(frame, stereo)
+    await updateLegibility(scene, seconds, depth, stereo)
     showError(undefined)
   } catch (err) {
     showError(describeError(err))
@@ -387,6 +437,36 @@ function layerLabel(layer: Layer, index: number): string {
   return `${index}: ${layer.type}${detail}`
 }
 
+/**
+ * The layer the per-layer controls address.
+ *
+ * Read off the `<select>` rather than held in a variable: `syncControls`
+ * rebuilds the options on every scene change, and a remembered index would
+ * outlive the layer it named.
+ */
+function selectedLayerIndex(): number {
+  return Number(ui.layer.value) || 0
+}
+
+/**
+ * The weights the dropdown offers.
+ *
+ * `''` is "don't say" — which is not the same as `normal`: a family with a Book
+ * or a Light face resolves an unspecified weight differently from an explicit
+ * `normal`, and the scene should carry the distinction the author made.
+ *
+ * Three entries, not a slider over 100..900, because this control cannot keep a
+ * promise about any of them: what the viewer gets depends on which faces their
+ * font stack has and whether their browser synthesises the rest. Offering nine
+ * numbered steps would imply nine distinguishable results.
+ */
+const WEIGHTS: ReadonlyArray<[value: string, label: string]> = [
+  ['', 'default (unspecified)'],
+  ['normal', 'normal'],
+  ['bold', 'bold'],
+  ['900', '900 (if the font has it)'],
+]
+
 function currentPresetKind(layer: Layer | undefined): string {
   const anim = layer?.anim
   if (anim === undefined) return ''
@@ -431,7 +511,7 @@ function syncControls(): void {
 
   // Rebuilt rather than patched: a scene swap can change the layer count, and a
   // stale option would dispatch an animator onto a layer that no longer exists.
-  const selectedLayer = Math.min(Number(ui.layer.value) || 0, Math.max(0, scene.layers.length - 1))
+  const selectedLayer = Math.min(selectedLayerIndex(), Math.max(0, scene.layers.length - 1))
   ui.layer.replaceChildren(
     ...scene.layers.map((layer, i) => {
       const opt = document.createElement('option')
@@ -457,7 +537,46 @@ function syncControls(): void {
   setValue(ui.preset, kind)
   ui.preset.disabled = scene.layers.length === 0
 
+  syncTextControls(layer, selectedLayer)
+
   setValue(ui.sceneJson, JSON.stringify(scene, null, 2))
+}
+
+/**
+ * The type controls for the selected layer.
+ *
+ * Disabled, never hidden, for a layer that is not text: two controls appearing
+ * and disappearing reflows the panel on every change of the layer dropdown and
+ * moves the Preset control out from under the pointer.
+ */
+function syncTextControls(layer: Layer | undefined, index: number): void {
+  const text = layer?.type === 'text' ? layer : undefined
+  ui.textSize.disabled = text === undefined
+  ui.textWeight.disabled = text === undefined
+
+  // An empty size field means "unspecified", exactly as it does for fps: the
+  // renderer's own default applies and the scene carries no `size` key.
+  setValue(ui.textSize, text?.size === undefined ? '' : String(text.size))
+
+  const weight = text?.weight ?? ''
+  if (weight !== '' && !Array.from(ui.textWeight.options).some(o => o.value === weight)) {
+    // A weight the dropdown cannot represent — `300` typed into the scene JSON.
+    // Same reasoning as the custom keyframe track: showing the blank option
+    // would invite one click that silently discards it.
+    const opt = document.createElement('option')
+    opt.value = weight
+    opt.textContent = `${weight} (from the scene)`
+    ui.textWeight.append(opt)
+  }
+  setValue(ui.textWeight, weight)
+
+  ui.textNote.textContent =
+    layer === undefined
+      ? 'This scene has no layers.'
+      : text === undefined
+        ? `Layer ${index} is a ${layer.type} layer. Size and weight apply to text ` +
+          `layers only, so they are disabled rather than moved — the panel stays put.`
+        : `Editing layer ${index}: ${JSON.stringify(text.text)}.`
 }
 
 /* ----------------------------------------------------------------- export */
@@ -649,17 +768,59 @@ function wire(): void {
     if (playing) void playLoop()
   })
 
+  for (const [value, label] of WEIGHTS) {
+    const opt = document.createElement('option')
+    opt.value = value
+    opt.textContent = label
+    ui.textWeight.append(opt)
+  }
+
   ui.preset.addEventListener('change', () => {
-    const index = Number(ui.layer.value) || 0
     const kind = ui.preset.value
     if (kind === CUSTOM_TRACK) return
     dispatch({
       type: 'layerAnim',
-      index,
+      index: selectedLayerIndex(),
       anim: kind === '' ? undefined : ({ kind } as Preset),
     })
   })
-  ui.layer.addEventListener('change', syncControls)
+
+  // 'change', not 'input', matching width/height: a size edit re-rasterises
+  // every layer, and an empty field has to mean "unspecified" rather than
+  // "zero", which it only does once the user has finished typing.
+  ui.textSize.addEventListener('change', () => {
+    const raw = ui.textSize.value.trim()
+    dispatch({
+      type: 'layerText',
+      index: selectedLayerIndex(),
+      // `{size: undefined}` is a removal, which is why the key is always
+      // present: `{}` would mean "change nothing" and the field would not clear.
+      //
+      // The fallback is 0 rather than the current size — the one place in this
+      // file that does not fall back to "no change". A `number` input reports
+      // '' for anything it cannot parse, which is already handled above, so the
+      // fallback is only reached for a value that is numeric and unusable; the
+      // reducer then names the field ("size must be a positive number of
+      // pixels, got 0") instead of silently discarding what was typed.
+      patch: { size: raw === '' ? undefined : coerceNumber(raw, 0) },
+    })
+  })
+  ui.textWeight.addEventListener('change', () => {
+    const raw = ui.textWeight.value
+    dispatch({
+      type: 'layerText',
+      index: selectedLayerIndex(),
+      patch: { weight: raw === '' ? undefined : raw },
+    })
+  })
+
+  // Re-renders as well as re-syncing, unlike before: the legibility panel
+  // measures the *selected* layer, so changing the selection changes a readout
+  // even though it changes no pixel.
+  ui.layer.addEventListener('change', () => {
+    syncControls()
+    void render()
+  })
 
   ui.applyJson.addEventListener('click', () => {
     let parsed: unknown

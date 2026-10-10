@@ -152,7 +152,7 @@
         </section>
 
         <section class="panel">
-          <h2>Layer animation</h2>
+          <h2>Layer</h2>
           <div class="grid">
             <label>
               Layer
@@ -164,6 +164,64 @@
             </label>
           </div>
           <p class="note" id="preset-note"></p>
+
+          <h3>Type</h3>
+          <!--
+            Disabled rather than hidden for a non-text layer: hiding two
+            controls reflows the panel every time the layer dropdown changes,
+            which moves the Preset control out from under the pointer.
+          -->
+          <div class="grid">
+            <label>
+              Text size (px)
+              <input id="text-size" type="number" min="1" step="1" placeholder="default" />
+            </label>
+            <label>
+              Weight
+              <select id="text-weight"></select>
+            </label>
+          </div>
+          <p class="note" id="text-note"></p>
+          <p class="note">
+            Leave <strong>size</strong> empty for the renderer's own default.
+            <strong>Weight</strong> is a request, not a guarantee: whether
+            <code>900</code> is heavier than <code>bold</code> depends on the faces in
+            the viewer's font stack and on whether their browser synthesises the
+            difference. Measured on two families that ship only a regular and a bold,
+            <code>900</code> came out 17% and 21% wider than <code>bold</code> — but on
+            a stack that simply saturates at bold it buys nothing at all. The
+            legibility panel measures what you actually got.
+          </p>
+        </section>
+
+        <!--
+          Its own panel, and deliberately detachable: the type controls above are
+          the feature, and this measurement is an addition. Deleting this section
+          plus `site/legibility.ts` and its lookups leaves the rest intact.
+        -->
+        <section class="panel">
+          <h2>Legibility</h2>
+          <p class="note">
+            <strong>A feature narrower than the depth budget cannot be fused.</strong>
+            <code>sepFar − sepNear</code> is the whole disparity range, so a stroke
+            thinner than that gap has no room to carry an unambiguous shift, and no
+            amount of staring will resolve it. Text is where this bites: at 90px a
+            regular sans stem measures about half the default 18px budget.
+          </p>
+          <dl class="readout">
+            <dt>Selected text layer</dt>
+            <dd id="legibility">—</dd>
+          </dl>
+          <p class="note">
+            Measured on the <em>depth map</em>, not on the stereogram. The encoder
+            does not lose a thin feature — a 1px depth feature encodes to exactly 1px
+            and stays perfectly coherent — so there is nothing wrong in the output to
+            find. It is the viewer who cannot recover it, and the depth map is the
+            only place the feature's width still exists as a width. The number is the
+            median width of the layer's horizontal ink runs, which is a statistic over
+            a mask rather than a physical measurement of a glyph; it is lined up
+            against the budget by calibration, so read the margin, not the verdict.
+          </p>
         </section>
 
         <section class="panel">

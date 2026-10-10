@@ -45,6 +45,31 @@ export type Action =
   | { type: 'frame'; index: number }
   | { type: 'depthView'; value: DepthView }
   | { type: 'layerAnim'; index: number; anim: Anim | undefined }
+  | { type: 'layerText'; index: number; patch: TextPatch }
+
+/**
+ * A typography edit to one `text` layer.
+ *
+ * **A key that is present with the value `undefined` means "remove it"**, and a
+ * key that is absent means "leave it alone". The two are different actions and
+ * the control panel issues both: changing the size must not clear a weight it
+ * never mentioned, and choosing the blank weight option must put the layer back
+ * to the font stack's own default rather than writing `"normal"` — those are
+ * not the same thing to a face that has a Book or a Light.
+ *
+ * `font` is deliberately absent. Size and weight degrade predictably when the
+ * viewer's font stack cannot honour them (a size always applies; a weight
+ * saturates at the heaviest face present), whereas a family name either exists
+ * on the viewer's machine or silently becomes something else entirely — and
+ * `scene.layers[n].font` is still there in the JSON editor for anyone who wants
+ * to take that risk knowingly.
+ */
+export interface TextPatch {
+  /** px. `undefined` removes it, restoring core's own default size. */
+  size?: number | undefined
+  /** A CSS font-weight. `undefined` removes it. */
+  weight?: string | undefined
+}
 
 /**
  * Read a control's value as a number, falling back rather than yielding NaN.
@@ -202,6 +227,72 @@ function withScene(state: UiState, scene: Scene): UiState {
   return { ...state, scene, time: snap(scene, state.time) }
 }
 
+/**
+ * The layer a per-layer action addresses, or a throw naming the mismatch.
+ *
+ * Every per-layer action needs this and the index is not trustworthy: the
+ * `<select>` is rebuilt on a scene swap, so a hash-loaded scene can shrink the
+ * layer list under a selection made against the previous one. Growing the array
+ * to fit would invent a layer.
+ */
+function requireLayer(scene: Scene, index: number, what: string): Layer {
+  if (!Number.isInteger(index) || index < 0 || index >= scene.layers.length) {
+    throw new Error(
+      `cannot ${what} on layer ${index}: the scene has ` +
+      `${scene.layers.length} layer(s)`,
+    )
+  }
+  return scene.layers[index]!
+}
+
+/**
+ * Apply a {@link TextPatch} to one layer object.
+ *
+ * The bounds are checked here rather than left to {@link sceneError} on purpose.
+ * `validateScene` would reject a `size` of 0 — so the page would show an error
+ * banner and refuse to render — but the *control* would still read back 0,
+ * leaving the user with a broken scene and no indication which field did it.
+ * Rejecting at the edit names the field, and the last good frame stays up.
+ */
+function patchText(layer: Layer, index: number, patch: TextPatch): Layer {
+  if (layer.type !== 'text') {
+    throw new Error(
+      `cannot set text properties on layer ${index}: it is a ${layer.type} ` +
+      `layer, not a text layer`,
+    )
+  }
+  // A record, because deleting an optional key off a `Layer` is not expressible
+  // in the type — same shape as the `layerAnim` removal below.
+  const next = { ...layer } as Record<string, unknown>
+
+  if ('size' in patch) {
+    const size = patch.size
+    if (size === undefined) delete next['size']
+    else if (!Number.isFinite(size) || size <= 0) {
+      throw new Error(
+        `layer ${index}: size must be a positive number of pixels, got ${size}`,
+      )
+    } else next['size'] = size
+  }
+
+  if ('weight' in patch) {
+    const weight = patch.weight
+    if (weight === undefined) delete next['weight']
+    else if (weight.trim() === '') {
+      // Rejected rather than treated as a removal: `undefined` already means
+      // "remove", and two spellings for one action is how a control ends up
+      // writing `weight: ""` into a share link that the validator then refuses
+      // to load. The DOM layer maps its blank option to `undefined`.
+      throw new Error(
+        `layer ${index}: weight must be a CSS font-weight such as normal, bold ` +
+        `or 900 — use undefined to remove it`,
+      )
+    } else next['weight'] = weight
+  }
+
+  return next as unknown as Layer
+}
+
 export function reduce(state: UiState, action: Action): UiState {
   switch (action.type) {
     case 'scene':
@@ -242,12 +333,7 @@ export function reduce(state: UiState, action: Action): UiState {
 
     case 'layerAnim': {
       const { index, anim } = action
-      if (!Number.isInteger(index) || index < 0 || index >= state.scene.layers.length) {
-        throw new Error(
-          `cannot set an animator on layer ${index}: the scene has ` +
-          `${state.scene.layers.length} layer(s)`,
-        )
-      }
+      requireLayer(state.scene, index, 'set an animator')
       const layers = state.scene.layers.map((layer, i): Layer => {
         if (i !== index) return layer
         if (anim === undefined) {
@@ -260,6 +346,15 @@ export function reduce(state: UiState, action: Action): UiState {
         }
         return { ...layer, anim }
       })
+      return withScene(state, { ...state.scene, layers })
+    }
+
+    case 'layerText': {
+      const { index, patch } = action
+      // Thrown before anything is built, so a rejected edit leaves the state
+      // untouched rather than half-applied.
+      const patched = patchText(requireLayer(state.scene, index, 'set text properties'), index, patch)
+      const layers = state.scene.layers.map((layer, i) => (i === index ? patched : layer))
       return withScene(state, { ...state.scene, layers })
     }
   }

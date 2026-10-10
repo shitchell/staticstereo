@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { validateScene } from './scene.js'
 
 /**
  * The `index.html` ⇄ `main.ts` element contract, checked as text.
@@ -10,7 +11,7 @@ import { fileURLToPath } from 'node:url'
  * `OffscreenCanvas` does not exist under node and jsdom does not rasterise
  * (design §9.12). But its single likeliest failure is not a drawing failure at
  * all — it is **drift between the markup and the code**, and that needs no DOM
- * to detect: `main.ts` resolves roughly forty ids through `el()`, which throws
+ * to detect: `main.ts` resolves four dozen ids through `el()`, which throws
  * `site/index.html is missing #x` and leaves the page as an error banner.
  * Renaming an id in one file and not the other is a one-character mistake that
  * breaks the entire page, and until this file existed nothing caught it.
@@ -47,9 +48,11 @@ const declared = new Set([...html.matchAll(/\bid="([^"]+)"/g)].map(m => m[1]!))
 describe('the markup and main.ts agree about element ids', () => {
   it('found enough of both to be a real check, not a vacuous one', () => {
     // Without this, a regex that silently stopped matching would turn both
-    // assertions below into `expect([]).toEqual([])`.
-    expect(referenced.size).toBeGreaterThan(30)
-    expect(declared.size).toBeGreaterThan(30)
+    // assertions below into `expect([]).toEqual([])`. The floor tracks the
+    // real count (46 as of the type controls) with slack to delete a panel
+    // without having to edit a test.
+    expect(referenced.size).toBeGreaterThan(40)
+    expect(declared.size).toBeGreaterThan(40)
   })
 
   it('declares every id main.ts resolves through el()', () => {
@@ -72,7 +75,71 @@ describe('the markup and main.ts agree about element ids', () => {
   })
 })
 
+/**
+ * The font-weight dropdown, which `main.ts` builds from a literal rather than
+ * from markup — so the id check above cannot see it at all.
+ *
+ * It is worth a check of its own because the two ends are in different files
+ * and only one of them is typed: every value the dropdown can produce is
+ * dispatched into a scene, and `validateScene` is the thing that has to accept
+ * it. An option whose value the validator rejects would produce a control that
+ * turns the page into an error banner when clicked.
+ */
+const weights = [...main.matchAll(/^\s*\['([^']*)',\s*'[^']*'\],$/gm)].map(m => m[1]!)
+
+describe('the font-weight options main.ts offers', () => {
+  it('found the list, rather than matching nothing and passing', () => {
+    expect(weights.length).toBeGreaterThanOrEqual(3)
+    expect(weights).toContain('')
+  })
+
+  it('offers exactly one way to say "unspecified"', () => {
+    // `''` is mapped to `undefined` by the change handler, which the reducer
+    // treats as a removal. A second blank-ish option (a literal "normal"
+    // masquerading as the default, say) would give two spellings for one state
+    // and the control would read back the wrong one.
+    expect(weights.filter(w => w.trim() === '')).toEqual([''])
+  })
+
+  it('offers only weights the scene validator accepts', () => {
+    for (const weight of weights) {
+      if (weight === '') continue
+      expect(() => validateScene({
+        size: [64, 32],
+        layers: [{ type: 'text', text: 'A', weight }],
+      }), `weight ${JSON.stringify(weight)}`).not.toThrow()
+    }
+  })
+
+  it('does not imply a heavier weight always helps', () => {
+    // Whether a 900 face exists is the viewer's font stack, not our code: the
+    // same assertion ("900 buys at most 5% over bold") passed on one machine
+    // and failed on GitHub's runner at +15%. So a numbered weight has to be
+    // labelled as conditional, and the page has to say so in prose too.
+    const nine = main.match(/^\s*\['900',\s*'([^']*)'\],$/m)
+    expect(nine?.[1], 'the 900 option needs a hedged label').toMatch(/if|may|might|when/i)
+    expect(html).toMatch(/is a request, not a guarantee/)
+  })
+})
+
 describe('the markup keeps the promises the page cannot test in node', () => {
+  it('disables the type controls for a non-text layer instead of hiding them', () => {
+    // The panel must not reflow as the layer dropdown changes, or the control
+    // under the pointer moves. Nothing else can check this: there is no DOM
+    // here, and the symptom is a layout jump rather than a wrong value.
+    expect(main).toMatch(/ui\.textSize\.disabled\s*=/)
+    expect(main).toMatch(/ui\.textWeight\.disabled\s*=/)
+    expect(main).not.toMatch(/ui\.text(Size|Weight)\.hidden/)
+  })
+
+  it('gives a disabled control a visible treatment, so "disabled" reads as deliberate', () => {
+    // Disabling without styling looks identical to a field that is simply
+    // ignoring input — which is the exact complaint the markup.test header
+    // records about a control wired to nothing.
+    const css = readFileSync(join(SITE, 'styles.css'), 'utf8')
+    expect(css).toMatch(/input:disabled[\s\S]{0,40}select:disabled\s*\{[^}]*opacity/)
+  })
+
   it('loads main.ts and styles.css by a relative path', () => {
     // The built output is checked by dist.test.ts; this is the source-side
     // guard, so `npm test` catches it without a build. A GitHub project Page is
