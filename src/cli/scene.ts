@@ -439,6 +439,13 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
  * rasteriser's default — the width measured here and the font the rasteriser
  * draws with have to be the same string, or the centring below is wrong by
  * whatever the two defaults differ by.
+ *
+ * It stays the CSS generic. `@napi-rs/canvas` maps no generic family and
+ * silently substitutes the first registered one, so `src/node/canvas.ts`
+ * resolves it to a concrete installed family on assignment — and because
+ * `measurer()` in `index.ts` measures through the same injected `CanvasLike`,
+ * both sides of the centring see the same resolution. Hardcoding a family here
+ * instead would be wrong on every host but one.
  */
 export const TEXT_FONT_FAMILY = 'sans-serif'
 /** Default canvas for `--text`, matching the design doc's example scene. */

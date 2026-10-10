@@ -459,12 +459,18 @@ function selectedLayerIndex(): number {
  * promise about any of them: what the viewer gets depends on which faces their
  * font stack has and whether their browser synthesises the rest. Offering nine
  * numbered steps would imply nine distinguishable results.
+ *
+ * `900`'s label hedges with "may be identical to bold" rather than "if the font
+ * has it", because measured, no installed family here *has* it — DejaVu Sans,
+ * Liberation Sans and Noto Sans declare only 400 and 700 — and Chromium renders
+ * `900` byte-identically to `bold` in all three. The honest caveat is about the
+ * rasteriser faking the weight, not about a face existing.
  */
 const WEIGHTS: ReadonlyArray<[value: string, label: string]> = [
   ['', 'default (unspecified)'],
   ['normal', 'normal'],
   ['bold', 'bold'],
-  ['900', '900 (if the font has it)'],
+  ['900', '900 (may be identical to bold)'],
 ]
 
 function currentPresetKind(layer: Layer | undefined): string {

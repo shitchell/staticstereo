@@ -101,10 +101,20 @@ measured on the committed examples, the widest contiguous solid-depth runs are 6
 (pacman's body), 92px (the bouncing ball), and for text it never clears the threshold at
 all.
 
-**And its failure mode is the dangerous one.** 150px bold text has a median stroke run of
-13px but a *maximum* of 114px — so the T crossbar and S terminals do clear the floor.
-Period analysis aimed at text therefore succeeds on ~1.7% of rows and returns `NaN` on the
-rest, which is worse than failing outright, because it looks like it worked.
+**And its failure mode is the dangerous one.** Period analysis aimed at text returns `NaN`
+rather than failing outright, which looks like it worked. Re-measured on DejaVu Sans,
+150px bold `STATIC` has a median stroke run of 29px against a 108px floor, with a maximum
+of 102px — so **nothing** it draws is measurable by autocorrelation, including the T
+crossbar and the S terminals.
+
+> **Corrected 2026-10-09.** This paragraph previously read "a median stroke run of 13px
+> but a *maximum* of 114px — so the T crossbar and S terminals do clear the floor. Period
+> analysis aimed at text therefore succeeds on ~1.7% of rows." Those three numbers are
+> exactly what the same probe returns against **URW Dingbats**, and that is what it was
+> measuring: `src/core/raster.ts` asked `@napi-rs/canvas` for `sans-serif`, which it maps
+> to nothing, so every "text" measurement in this project fell through to the first
+> registered family. See [`§9`](#9-every-absolute-text-number-here-was-measured-on-the-wrong-font).
+> The conclusion survives and gets stronger; the figures did not.
 
 ---
 
@@ -208,3 +218,65 @@ The blinded protocol worked well enough to recommend:
 6. When a measurement contradicts a claim in your own documentation, the measurement wins.
    Four claims in the design doc were retracted this way in one day — including two in the
    same section, and one that asserted a test which had never been committed.
+7. **Check what your instrument is pointed at.** Every text measurement in this project
+   was taken through a font nobody chose — see §9.
+
+---
+
+## 9. Every absolute text number here was measured on the wrong font
+
+A postscript, added the same day, and the most expensive single mistake in the project.
+
+`src/core/raster.ts` defaults a text layer to `sans-serif`. That is correct CSS and it
+works in a browser. `@napi-rs/canvas` maps **no** CSS generic family: `GlobalFonts.has
+('sans-serif')` is `false`, all 269 installed families on this machine are concrete names,
+and an unmatched family does not raise — it silently renders the **first registered
+family**, which on a stock Debian fontconfig is `D050000L`, the URW ZapfDingbats clone.
+`stst still --text HELLO`, the headline command in the README, drew five dingbats.
+
+**What it cost.** Every absolute figure about text in this repo's docs, comments and
+reported test output was a measurement of a dingbat font. Three concrete corrections, all
+re-measured on DejaVu Sans, which `src/node/canvas.ts` now resolves `sans-serif` to:
+
+| claim, as published | what it actually measured | re-measured |
+|---|---|---|
+| 150px bold: median 13px, max 114px, 1.7% above the floor | URW Dingbats, exactly | 29px, 102px, **0%** |
+| README stroke table 10 / 17 / 57 / 84 px | not reproducible on *any* font tested | 10 / 16 / 46 / 68 |
+| "900 saturates onto bold here, CI has a real 900 face" | dingbats render bold and 900 identically | synthesis: +15–25% on every real family |
+
+The second row deserves its own note, because the inference that was drawn from it was
+wrong too. A pair of columns, `5 / 7 / 21 / 30` and `10 / 17 / 57 / 84`, was recorded as
+"two defensible definitions of stroke width" — half-peak ink versus any ink. **It is not
+reproducible as a threshold choice.** Measured across both thresholds, three strings, four
+sizes and ten families, half-peak and any-ink differ by 0–20% and never by the ~2× the
+pair implies — the antialiasing fringe is about one pixel per side and cannot double a
+10px stem. What the first column *is*, exactly, is the dingbat measurement: `5 / 7 / 21 /
+30` is what the probe returns against the unresolved generic, and against `D050000L` named
+explicitly, to the pixel. The second column remains unexplained; nothing in a ten-family ×
+three-threshold × three-string sweep came within ±1 of it, and the honest statement is
+that the numbers in the table above are the ones that reproduce.
+
+**Three transferable lessons, in increasing order of generality.**
+
+1. **A silent substitution is worse than an error.** Three separate things measured this
+   font for a day and none of them noticed, because the substitute was a *font* — it had
+   metrics, it had coverage, it drew ink. The adapter now throws if a generic resolves to
+   nothing, naming the generic, the candidates tried, and the escape hatch. An unreadable
+   render and a stack trace are not close in value.
+2. **"Some ink was drawn" is not a text assertion.** `canvas.test.ts` already asserted
+   that `fillText` with `40px sans-serif` marks >50 pixels, and it passed throughout —
+   the dingbat fallback puts *more* ink on the canvas than DejaVu Sans does. The
+   discriminator that works is relative advance width: a substitute has advances
+   uncorrelated with Latin letter widths, so `WWW` came out **narrower** than `III`
+   (ratio 0.944) where any real sans is 2.9–4.3× wider. That is one cheap, scale-invariant
+   number, and it is now a test.
+3. **An environment-dependent test failure is evidence about the environment, not an
+   excuse.** The 900-vs-bold assertion passed locally and failed in CI, and the conclusion
+   drawn — "whether a heavier face exists is fontconfig's business" — was plausible,
+   repeated in four files, and wrong. The two runners were not disagreeing about a 900
+   face; they were disagreeing about *which font was being used at all*, because the
+   generic resolved to a different silent fallback on each. The CI figures 46px and 53px
+   are, to the pixel, DejaVu Sans bold and 900 at 240px. The divergence was pointing
+   straight at the bug and was read as noise instead. **When a test only fails on one
+   machine, the first hypothesis should be that the two machines are running different
+   code — including different data — not that the assertion was too strict.**

@@ -184,13 +184,15 @@
           <p class="note" id="text-note"></p>
           <p class="note">
             Leave <strong>size</strong> empty for the renderer's own default.
-            <strong>Weight</strong> is a request, not a guarantee: whether
-            <code>900</code> is heavier than <code>bold</code> depends on the faces in
-            the viewer's font stack and on whether their browser synthesises the
-            difference. Measured on two families that ship only a regular and a bold,
-            <code>900</code> came out 17% and 21% wider than <code>bold</code> — but on
-            a stack that simply saturates at bold it buys nothing at all. The
-            legibility panel measures what you actually got.
+            <strong>Weight</strong> is a request, not a guarantee, and the thing that
+            decides it is the <em>rasteriser</em> rather than the font stack. DejaVu
+            Sans, Liberation Sans and Noto Sans each ship only a regular and a bold
+            face; measured, Chromium renders <code>900</code> byte-identically to
+            <code>bold</code> in all three — same pixels — while the CLI's rasteriser
+            fakes the missing weight at 13–25% wider. So in this page
+            <code>900</code> most likely buys you nothing, and the same scene rendered
+            by <code>stst</code> may well differ. Size is the lever that always works,
+            and the legibility panel measures what you actually got.
           </p>
         </section>
 

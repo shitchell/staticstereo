@@ -20,7 +20,17 @@
  * between this machine and CI, so a pinned median stroke width would be a test
  * of the runner's fontconfig. What is asserted are the relations: the metric
  * responds monotonically to the knobs an author has, and asking for a weight
- * heavier than `bold` buys nothing.
+ * heavier than `bold` never gives you less stroke.
+ *
+ * That caveat used to be doing more work than it should have. Until
+ * `src/node/canvas.ts` learned to resolve CSS generic families, "real glyph
+ * outlines" was aspirational: `sans-serif` matched nothing in
+ * `@napi-rs/canvas`, fell through to whichever family fontconfig registered
+ * first, and on this machine that was a dingbat font. Every absolute number in
+ * this file was therefore a measurement of URW Dingbats, and two of the
+ * comments below record what it cost. The family is now deterministic
+ * (DejaVu Sans on a Debian stack), which is why the reported figures moved and
+ * why they are worth reading again.
  *
  * ## 2. Row locality, on the committed example scenes
  *
@@ -115,21 +125,35 @@ describe('feature size on real glyphs', () => {
     expect(thick).toBeGreaterThan(thin)
   })
 
-  // The authoring trap behind defect #4: the weight knob saturates. Asserted as
-  // "buys essentially nothing" rather than "is byte-identical", because whether
-  // a 900 face exists is a property of the host's font stack and not of this
-  // codebase. On this machine the two depth maps are identical to the pixel.
-  // This asserts MONOTONICITY, not saturation, and the distinction is the whole
-  // point. An earlier version asserted that 900 buys at most 5% over bold —
-  // which passed here and FAILED in CI, because GitHub's runner ships a real
-  // 900 face (53px vs bold's 46px, +15%) and this machine does not. That test
-  // was measuring the font stack, not the code: whether a heavier face exists
-  // is fontconfig's business.
+  // The authoring trap behind defect #4: whether the weight knob does anything
+  // past `bold` is the rasteriser's business, not this codebase's.
   //
-  // What is true everywhere is that asking for more weight must never give you
-  // LESS stroke. That holds whether the request saturates onto bold or resolves
-  // to a distinct face, so it is a property of the pipeline rather than of the
-  // machine it runs on.
+  // **The story originally recorded here was wrong in both halves, and the
+  // cause was the generic-family bug.** It said an earlier assertion ("900 buys
+  // at most 5% over bold") passed locally because this machine saturates and
+  // failed in CI because "GitHub's runner ships a real 900 face (53px vs bold's
+  // 46px, +15%)". Measured, after `src/node/canvas.ts` started resolving
+  // `sans-serif`:
+  //
+  //   - **There is no real 900 face.** DejaVu Sans, Liberation Sans and Noto
+  //     Sans each declare exactly two weights, 400 and 700, and Chromium
+  //     renders `900 240px <any of them>` byte-identically to `bold` — same ink
+  //     count, same pixel hash. What `@napi-rs/canvas` gives instead is
+  //     SYNTHESISED weight: +15.2% / +16.2% on DejaVu Sans and +22.9% / +21.2%
+  //     on Liberation Sans at 240 / 360px.
+  //   - **The local "saturation" was the bug.** Before the fix `sans-serif`
+  //     resolved to nothing and fell through to the first registered family,
+  //     `D050000L` (URW Dingbats), which renders `bold` and `900` identically
+  //     to the pixel. The depth maps matched because the glyphs were dingbats.
+  //   - **So CI was not special, it was just a different fallback.** The CI
+  //     numbers 46px and 53px are *exactly* DejaVu Sans bold and 900 at 240px
+  //     as measured here now. Its fontconfig put a real sans first; ours put a
+  //     dingbat font first. One unresolved generic, two silent substitutions.
+  //
+  // The assertion stays MONOTONICITY rather than a ratio, because the ratio is
+  // a property of the rasteriser (0% in Chromium, +15–25% here) even now that
+  // the family is deterministic. What is true everywhere is that asking for
+  // more weight must never give you LESS stroke.
   it('a weight heavier than bold never reduces stroke width', async () => {
     const pairs = await Promise.all([240, 360].map(async size => {
       const bold = await strokeMedian('STATIC', size, 'bold')
@@ -168,11 +192,17 @@ describe('feature size on real glyphs', () => {
     // `dominantPeriod` to see.
     //
     // Stated on the median rather than the maximum, because the maximum is a
-    // *horizontal* bar — the crossbar of a T, the top of an S — and those do
-    // clear the floor. Measured on 150px bold "STATIC": median 13px, max
-    // 114px, with only 1% of crossings at or above the floor. So a period
-    // measurement aimed at text can succeed on a handful of rows and report
-    // NaN on the other 99%, which is worse than failing outright.
+    // *horizontal* bar — the crossbar of a T, the top of an S — and those can
+    // clear the floor. Measured on 150px bold "STATIC", DejaVu Sans: median
+    // 29px, max 102px, floor 108px, so **no** crossing clears it.
+    //
+    // The figures here used to read "median 13px, max 114px, with only 1% of
+    // crossings at or above the floor", and that was the unresolved
+    // `sans-serif` generic being measured — the dingbat fallback, which returns
+    // exactly 13 / 114 / 1.74% on this probe. Real glyphs make the conclusion
+    // stronger, not weaker: nothing at all is measurable by autocorrelation,
+    // rather than a 1.7% sliver that would report a period for a handful of
+    // rows and NaN for the rest.
     const w = 1400, h = 300
     const scene: Scene = {
       size: [w, h], layers: [{ type: 'text', text: 'STATIC', size: 150, weight: 'bold', at: [40, 60] }],

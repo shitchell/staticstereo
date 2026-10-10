@@ -7,18 +7,25 @@
 #
 # The type is deliberately LARGE and BOLD, and that is not a style choice. A
 # feature narrower than the disparity budget (sepFar - sepNear = 18px) cannot
-# carry an unambiguous shift, so it will not fuse. Measured median stroke
-# widths in the stock sans:
+# carry an unambiguous shift, so it will not fuse. Median width of the
+# horizontal runs of depth-map samples at or above half the layer's peak depth,
+# measured on DejaVu Sans -- which is what the Node adapter resolves
+# `sans-serif` to:
 #
+#     normal  48px ->   6px stroke   will not fuse  (48px is the DEFAULT)
 #     normal  90px ->  10px stroke   will not fuse
-#     normal 150px ->  17px stroke   will not fuse
-#     bold   240px ->  57px stroke   readable
-#     bold   360px ->  84px stroke   comfortable
+#     normal 150px ->  16px stroke   will not fuse
+#     bold    90px ->  18px stroke   exactly the budget; hard work
+#     bold   150px ->  29px stroke   over the budget, under 2x it
+#     bold   240px ->  46px stroke   comfortable      <-- what this scene uses
+#     bold   360px ->  68px stroke   comfortable
 #
-# Past bold, a heavier weight helps only if your font stack actually has a 900
-# face -- it is identical to bold without one and ~15% wider with one, so it is
-# fontconfig's call, not the renderer's. Size always works. Alternatively widen
-# sepNear to shrink the budget, buying legibility at the cost of depth range.
+# Past bold, a heavier weight is synthesised rather than selected: DejaVu Sans
+# and Liberation Sans declare only 400 and 700 faces, Chromium renders `900`
+# byte-identically to `bold` in both, and @napi-rs/canvas fakes it at +13-25%.
+# So `900` is worth between nothing and a fifth depending on the rasteriser.
+# Size always works. Alternatively widen sepNear to shrink the budget, buying
+# legibility at the cost of depth range.
 
 size: [800, 300]
 fps: 12

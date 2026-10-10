@@ -43,15 +43,33 @@ import type { Scene, StereoOpts } from '../src/core/types.js'
  *
  * So at 90px regular a stroke is 9–10px against an 18px budget — a half, which
  * is the observation this check exists to surface, and it is why the shipped
- * examples (120px and 96px regular) trip it.
+ * examples (120px and 96px regular) trip it. **That halving is specific to the
+ * regular weight.** At 90px *bold* the same strings measure 13–18px, i.e. at or
+ * just under the whole budget rather than half of it, so "text strokes are half
+ * the budget" is true of a 90px regular face and false of a 90px bold one.
+ *
+ * There are also two defaults, not one, and the smaller is worse than a half:
+ * `core`'s `DEFAULT_TEXT_SIZE` is **48** (what a scene layer with no `size:`
+ * gets), measuring 5–6px regular — a *third* of the budget. The CLI's
+ * `--text` path supplies its own `TEXT_FONT_SIZE` of **90**, i.e. the 9–10px
+ * row. Neither fuses.
  *
  * One claim about this was *not* reproducible and the comment is written
  * without it: switching to the other obvious ink definition (any sample above
  * zero, i.e. counting the antialiasing fringe) moves the number by 0–20%, never
  * the ~2× an earlier pair of figures implied. The fringe is about one pixel per
- * side, so it cannot double a 10px stem. Whatever produced that second column,
- * it was not the ink threshold — which is all the more reason to state the
- * metric in full rather than to call any of these numbers "the stroke width".
+ * side, so it cannot double a 10px stem. What produced the low column of that
+ * pair is now known — it was the CSS generic `sans-serif` falling through to a
+ * dingbat font in `@napi-rs/canvas`, which `src/node/canvas.ts` now resolves;
+ * see §9 of `docs/2026-10-09-testing-retrospective.md`. Which is all the more
+ * reason to state the metric in full rather than to call any of these numbers
+ * "the stroke width".
+ *
+ * One cross-platform caveat the table cannot carry: the two sides of this
+ * project do not necessarily resolve `sans-serif` to the same face. The Node
+ * adapter picks the first installed candidate of its own list (DejaVu Sans on a
+ * Debian stack); the browser uses its own mapping, and measured in Chromium on
+ * this machine that is Liberation Sans. Same scene, families 10–25% apart.
  *
  * **2. A verdict alone is not honest.** Following `diagnostics.ts`:
  * {@link describeLegibility} always reports the measured width, the budget, how

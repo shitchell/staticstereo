@@ -112,9 +112,14 @@ describe('the font-weight options main.ts offers', () => {
   })
 
   it('does not imply a heavier weight always helps', () => {
-    // Whether a 900 face exists is the viewer's font stack, not our code: the
-    // same assertion ("900 buys at most 5% over bold") passed on one machine
-    // and failed on GitHub's runner at +15%. So a numbered weight has to be
+    // What a numbered weight buys is the RASTERISER's call, not our code's and
+    // not really the font stack's: DejaVu Sans, Liberation Sans and Noto Sans
+    // all declare only 400 and 700, Chromium renders `900` byte-identically to
+    // `bold` in every one of them, and `@napi-rs/canvas` synthesises it at
+    // +13–25%. (The earlier version of this comment blamed a "real 900 face" on
+    // GitHub's runner for the +15% there; it was synthesis on a different
+    // silent font fallback — see §9 of
+    // docs/2026-10-09-testing-retrospective.md.) So a numbered weight has to be
     // labelled as conditional, and the page has to say so in prose too.
     const nine = main.match(/^\s*\['900',\s*'([^']*)'\],$/m)
     expect(nine?.[1], 'the 900 option needs a hedged label').toMatch(/if|may|might|when/i)

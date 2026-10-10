@@ -86,19 +86,48 @@ Two constraints matter more than anything else, and both are easy to violate by 
 
 **Features must be wider than the disparity budget.** That budget is
 `sepFar - sepNear` — 18px by default. A shape narrower than the shift cannot carry an
-unambiguous match, so it will not fuse no matter how long you stare. Measured stroke
-widths in the stock sans:
+unambiguous match, so it will not fuse no matter how long you stare.
 
-| weight | size | stroke | fuses? |
+**The metric**, stated in full because the numbers mean nothing without it: the *median
+width of the horizontal runs of depth-map samples at or above half the layer's own peak
+depth*, in pre-upscale scene pixels. That is exactly what the site's legibility panel
+reports, so these figures and the warning you get in the browser are the same
+measurement. Measured through `@napi-rs/canvas` on **DejaVu Sans**, which is what the Node
+adapter resolves `sans-serif` to on a Debian font stack:
+
+| weight | size | median stroke | verdict at an 18px budget |
 |---|---|---|---|
-| normal | 90px | 10px | no |
-| normal | 150px | 17px | no |
-| bold | 240px | 57px | yes |
-| bold | 360px | 84px | comfortably |
+| normal | 48px (a scene layer's default) | 6px | will not fuse |
+| normal | 90px (`--text`'s default) | 10px | will not fuse |
+| normal | 120px | 13px | will not fuse |
+| normal | 150px | 16px | will not fuse |
+| normal | 170px | 18px | exactly the budget — hard work |
+| bold | 90px | 18px | exactly the budget — hard work |
+| bold | 150px | 29px | over the budget, under 2× it |
+| bold | 240px | 46px | comfortable |
+| bold | 360px | 68px | comfortable |
 
-So **text wants bold and 240px or more.** Past bold, whether a heavier weight helps
-depends on your installed fonts: `900` is identical to `bold` on a stack with no 900 face
-and ~15% wider on one that has it. Size is the lever that always works. Alternatively raise `sepNear` to shrink the budget,
+**Neither default fuses, and there are two of them.** A text layer in a scene file that
+omits `size:` gets **48px** (`DEFAULT_TEXT_SIZE`) — a 6px stroke, a third of the budget.
+`stst still --text HELLO`, which supplies its own, gets **90px** (`TEXT_FONT_SIZE`) — a
+10px stroke, just over half. So the one-liner at the top of this file produces something
+you cannot fuse unless you ask for more, and the `size: 90` in the snippet above is both a
+default *and* too small. Set `size:` and `weight:` deliberately: **bold is the cheapest
+lever — 90px bold reaches the budget exactly and 150px bold clears it — and 240px bold
+clears it comfortably.**
+
+Those are one family's numbers and the family matters by 10–25%. The same four
+regular/bold rows measure 9 / 15 / 35 / 52 px on Liberation Sans and 9 / 14 / 37 / 55 px on
+Noto Sans, so treat the table as a scale, not a specification — and note the browser does
+its own generic resolution, so the site may be measuring a different face than the CLI.
+
+Past bold, a heavier weight is **synthesised, not selected**. DejaVu Sans and Liberation
+Sans each declare only a 400 and a 700 face, and in Chromium `900` is byte-identical to
+`bold` in both — same ink count, same pixels. Through `@napi-rs/canvas` the same request
+measures 14–19% wider on DejaVu Sans and 13–25% wider on Liberation Sans, because that
+rasteriser fakes the weight it cannot find. So `900` buys somewhere between nothing and a
+fifth, depending on who is drawing, and nothing in this repo can promise which. Size is
+the lever that always works. Alternatively raise `sepNear` to shrink the budget,
 buying legibility at the cost of depth range; for text, which wants one flat plane anyway,
 that is usually the right trade.
 

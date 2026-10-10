@@ -773,6 +773,49 @@ encoding bug.
   `at` anchoring (§3) and the `CanvasLike` cast (§2) were both unspecified and are now
   written down.
 
+### CSS generic font families are resolved in the Node adapter (2026-10-09)
+
+- **Status**: Accepted
+- **Context**: Round 3 of implementation review. `src/core/raster.ts`'s
+  `DEFAULT_FONT_FAMILY` is `'sans-serif'`; `@napi-rs/canvas` maps no CSS generic family at
+  all and does not fail when a family is unmatched — it renders the first registered
+  family instead, which on this Debian font stack is `D050000L` (URW ZapfDingbats). So
+  `stst still --text HELLO`, the README's headline one-liner, shipped five dingbats, and
+  every absolute text measurement in the repo's docs and reported test output was a
+  measurement of that font. Verified: `GlobalFonts.has('sans-serif') === false` against 269
+  installed concrete families, and `90px sans-serif`, `90px D050000L` and `90px
+  ThisFontDoesNotExist123` return byte-identical metrics.
+- **Rationale**: Rationale TBD from Shaun — technical correction under delegated
+  authority. The reasoning applied:
+
+  1. **`core` keeps requesting `sans-serif`.** It is correct CSS, it is right in the
+     browser, and `purity.test.ts` forbids `src/core/` from knowing anything about the
+     host. A concrete family hardcoded in core would be wrong on every platform except the
+     one it was written on.
+  2. **The adapter answers the request.** `src/node/canvas.ts` already exists to hold
+     platform quirks and already documents one cast for the same reason. It rewrites only
+     the generic *tokens* of the shorthand's family list, leaving concrete and quoted names
+     alone, so `"Some Font", sans-serif` keeps the author's own fallback order.
+  3. **No new dependency, and no new default.** The candidate lists are preference orders
+     checked against `GlobalFonts.has`; the first installed one wins.
+  4. **If nothing resolves it throws.** The pre-fix behaviour was to render garbage and
+     report success, which the author cannot diagnose from the outside. The error names the
+     generic, every candidate tried, and the `font:` escape hatch.
+  5. **The two sides can still disagree, and that is correct.** The browser does its own
+     generic mapping — measured in Chromium on this machine, `sans-serif` is Liberation
+     Sans, not DejaVu Sans — so the site and the CLI may render the same scene 10–25%
+     apart in stroke width. Overriding the browser's own resolution would be worse.
+
+  Measurement fallout, corrected in the README, `examples/scrolling-text.yaml`,
+  `src/node/metamorphic.real.test.ts`, `site/legibility.ts`, `site/index.html` and
+  §9 of `docs/2026-10-09-testing-retrospective.md`: the published stroke table
+  `10 / 17 / 57 / 84` is not reproducible on any font tested and is replaced by the
+  measured `10 / 16 / 46 / 68` (DejaVu Sans, normal/90, normal/150, bold/240, bold/360);
+  the "two defensible definitions" pair is retracted, with `5 / 7 / 21 / 30` identified as
+  the dingbat measurement to the pixel; and the "GitHub's runner has a real 900 face"
+  story is replaced by synthesised weight (Chromium: `900` byte-identical to `bold`;
+  `@napi-rs/canvas`: +13–25%).
+
 ---
 
 ## 9. Open questions for Shaun
@@ -872,6 +915,56 @@ implementation; all are cheap to change.
     spaced `sepFar` apart. Same *kind* of artifact as the shift ghost, but 1px instead of a
     full replica of the shape. **Wants an eye check before switching**; a blinded set
     (both encoders × two seeds, plus a motion pair) has been prepared.
+16. **The shipped examples fail our own legibility warning, including the one the site
+    opens on.** Now that `sans-serif` resolves to a real family the warning fires on real
+    numbers, and the default scene tells a first-time visitor the thing they are looking at
+    will not fuse. Measured with the site's own metric (median ink run at half the layer's
+    peak depth, scene pixels), at the scene midpoint, against each scene's own budget:
+
+    | scene | layer | median | budget | grade |
+    |---|---|---|---|---|
+    | `emerge` (site default) | `STATIC` 120px regular | **13px** | 18 | illegible |
+    | `marquee` | `STATIC ON THE STEREO` 96px regular | **10px** (5–14.5 over 72 frames) | 18 | illegible |
+    | `bounce` | circle r=36 | 62px | 18 | clear |
+    | `pacman` (site) | dots r=12 | 21px | 18 | tight |
+    | `pacman` (site) | mouth r=44 | 76px | 18 | clear |
+    | `still` | circle r=110 | 190px | 22 | clear |
+    | `still` | `FUSE ME` 64px regular | **7px** | 22 | illegible |
+    | `examples/pacman.yaml` | dots r=9 | **15.5px** | 18 | illegible |
+    | `examples/pacman.yaml` | mouth r=40 | 51.5px | 18 | clear |
+    | `examples/bouncing-ball.yaml` | circle r=46 | 79px | 18 | clear |
+    | `examples/scrolling-text.yaml` | `STATIC ON THE STEREO` 240px bold | 46px | 18 | clear |
+    | `stst still --text HELLO` | `TEXT_FONT_SIZE` 90px regular | **10px** | 18 | illegible |
+    | a scene layer with no `size:` | `DEFAULT_TEXT_SIZE` 48px regular | **6px** | 18 | illegible |
+
+    Four options, none taken — this is Shaun's call:
+
+    - **Enlarge the type, or embolden it.** Measured thresholds on DejaVu Sans, holding
+      each layer's string: `emerge` clears 18px at **170px regular** or at **96px bold**
+      (19px) — bold is the cheap lever, and it does not change the layout at all.
+      `marquee` is the same shape of problem: 170px regular, or 96px bold at its current
+      size (19px). `FUSE ME` is the awkward one: against its own 22px budget it needs
+      **>210px regular** (210px measures 21px) — which will not fit at `at: [200, 300]` on
+      a 640×360 stage — or **120px bold** (23px), which fits but needs `at` moved.
+    - **Raise `sepNear`.** `emerge` grades `tight` at a 13px budget (`sepNear` 97) and
+      `marquee` at 10px (`sepNear` 100), at the cost of 28% and 44% of the depth range.
+      For `emerge`, which is one flat plane rising, that is nearly free; for `marquee`,
+      also one plane, likewise.
+    - **Leave it and say so.** The examples' notes already explain what each one
+      demonstrates; one could argue a visitor's first encounter *should* be the authoring
+      trap, with the panel explaining it. That is a real position, but it makes the
+      default experience "this does not work".
+    - **The two defaults are a separate question, and the sharper one.** No example is
+      involved: `DEFAULT_TEXT_SIZE` (48, core) and `TEXT_FONT_SIZE` (90, the CLI's
+      `--text`) both produce text that cannot fuse, so the README's headline one-liner is
+      illegible *by default*. A default of 170px regular or 90px bold would fuse; either
+      changes what every existing scene renders as, which is why it is a question and not
+      a correction.
+    - **The dots are a separate question.** `examples/pacman.yaml`'s r=9 dots measure
+      15.5px and fail, while the site's r=12 dots pass at 21px. The CLI example is the
+      one that started the project. Measured: r=10 → 17px (still short), r=11 → 18px
+      (exactly the budget, grade `tight`), r=12 → 21px. Any of those keeps the spacing
+      and the eat timings untouched.
 
 ---
 

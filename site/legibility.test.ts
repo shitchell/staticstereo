@@ -73,8 +73,15 @@ describe('measureInk', () => {
   it('thresholds at a fraction of the peak, so antialiasing is not counted as stroke', () => {
     // A 4px core at depth 1 with one 0.25 fringe pixel either side. Counting
     // the fringe would report 6px for a stroke that only carries full
-    // disparity over 4 — the "two defensible definitions" problem the file
-    // comment records. The default fraction excludes it.
+    // disparity over 4, so the default fraction excludes it.
+    //
+    // This is the *whole* of what the threshold choice is worth, and the
+    // comment used to overstate it by calling it the "two defensible
+    // definitions" problem: on real glyphs the two thresholds differ by 0–20%
+    // and never by the ~2× an earlier pair of figures implied (see
+    // `legibility.ts`, and §9 of `docs/2026-10-09-testing-retrospective.md`
+    // for what actually produced that pair). A hand-built fixture can make the
+    // gap 50%; a rendered stem cannot.
     const depth = map(20, 1, x => (x === 5 || x === 10 ? 0.25 : x > 5 && x < 10 ? 1 : 0))
     expect(measureInk(depth, 20, 1).medianRun).toBe(4)
     // ...and a caller who wants the other definition gets 6, not a different
@@ -239,10 +246,11 @@ describe('describeLegibility', () => {
   })
 
   it('does not promise a heavier weight will help', () => {
-    // Whether a 900 face exists is the viewer's font stack, not ours: the same
-    // assertion that "900 buys at most 5% over bold" passed on a machine with
-    // no 900 face and failed on one with a real face. So the advice may say
-    // "bolder" only with that caveat, or not at all.
+    // What a heavier weight buys is the rasteriser's call: measured, Chromium
+    // renders `900` byte-identically to `bold` on every family installed here
+    // (all of which declare only 400 and 700), while `@napi-rs/canvas`
+    // synthesises it at +13–25%. Neither is this code's business, so the advice
+    // may say "bolder" only with that caveat, or not at all.
     const text = describeLegibility(at(9), STEREO)
     if (/bold|weight|900/i.test(text)) {
       expect(text).toMatch(/if|may|depend|font stack|not every|might/i)

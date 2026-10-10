@@ -143,6 +143,12 @@ describe('nodeCanvas().make', () => {
     expect(px(d, 16, 0, 0)).toEqual([0, 0, 0, 0])
   })
 
+  // **This test is deliberately weak and must not be mistaken for a text
+  // test.** It says the plumbing works: a font can be set, measured and drawn.
+  // It passed for a day while `sans-serif` silently resolved to a dingbat font
+  // and every rendered string was unreadable — the fallback draws MORE ink than
+  // DejaVu Sans does, so an ink count can never see it. Whether real glyphs
+  // come out is `canvas.generics.test.ts`'s job.
   it('fillText marks pixels and measureText grows with font size', () => {
     const ctx = nodeCanvas().make(200, 60)
     ctx.fillStyle = '#fff'
