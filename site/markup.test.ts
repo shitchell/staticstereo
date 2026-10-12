@@ -243,6 +243,260 @@ describe('the markup keeps the promises the page cannot test in node', () => {
   })
 })
 
+/**
+ * **Presentation mode's structural promises, checked against the real markup.**
+ *
+ * `?present=1` is defined by what it *removes*, and "removes" is a claim about
+ * every element on the page — which makes a hand-written list of hidden
+ * selectors exactly the wrong thing to assert, because the way it fails is by
+ * going out of date when a panel is added. So the list is **derived**: the
+ * children of `<body>`, of `<main>`, of `.views` and of the stereo figure are
+ * read out of `index.html`, and each one has to be either hidden by a
+ * `html.presenting … { display: none }` rule or on an explicit keep-list with a
+ * reason. Adding a section to the page fails this test until someone decides
+ * which it is.
+ *
+ * The indentation-based child extraction is blunt and is guarded: every slice
+ * asserts it found the children it is about to check, so a reformat that breaks
+ * the regex fails loudly instead of checking nothing. `index.html` is
+ * hand-maintained with consistent two-space indentation, and this is cheaper
+ * and more legible than pulling in an HTML parser for one file.
+ *
+ * What this file *cannot* see is whether the plate is actually scaled correctly
+ * once everything is hidden. That needs a browser, and the evidence is the
+ * run-length screenshot measurement in the task report.
+ */
+
+const lines = html.split('\n')
+
+/** Opening tags at exactly `indent` spaces, between `from` and `to`. */
+function childrenAt(indent: number, from: number, to: number): string[] {
+  const pad = ' '.repeat(indent)
+  const out: string[] = []
+  for (let i = from; i < to; i++) {
+    const line = lines[i]!
+    if (!line.startsWith(`${pad}<`) || line.startsWith(`${pad}</`)) continue
+    if (line[indent + 1] === '!') continue
+    if (line.slice(0, indent).trim() !== '') continue
+    const tag = /^<([a-z][a-z0-9]*)/.exec(line.slice(indent))
+    if (tag) out.push(line.slice(indent))
+  }
+  return out
+}
+
+function lineOf(needle: string): number {
+  const i = lines.findIndex(l => l.includes(needle))
+  expect(i, `index.html no longer contains ${JSON.stringify(needle)}`).toBeGreaterThan(-1)
+  return i
+}
+
+function closeAt(indent: number, tag: string, from: number): number {
+  const needle = `${' '.repeat(indent)}</${tag}>`
+  const i = lines.findIndex((l, n) => n > from && l === needle)
+  expect(i, `no </${tag}> at indent ${indent} after line ${from}`).toBeGreaterThan(from)
+  return i
+}
+
+/** `['p', '#error', '.banner']` for `<p class="banner" id="error" …>`. */
+function tokensOf(openTag: string): string[] {
+  const tag = /^<([a-z][a-z0-9]*)/.exec(openTag)![1]!
+  const id = /\bid="([^"]+)"/.exec(openTag)?.[1]
+  const classes = (/\bclass="([^"]+)"/.exec(openTag)?.[1] ?? '').split(/\s+/).filter(Boolean)
+  return [tag, ...(id === undefined ? [] : [`#${id}`]), ...classes.map(c => `.${c}`)]
+}
+
+const cssText = readFileSync(join(SITE, 'styles.css'), 'utf8')
+const cssRules = [...cssText.replace(/\/\*[\s\S]*?\*\//g, '').matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  .map(([, selector, body]) => ({ selector: selector!.trim(), body: body! }))
+
+/** Selectors hidden by a `html.presenting … { display: none }` rule. */
+const presentingHidden = cssRules
+  .filter(r => r.selector.includes('.presenting') && /display:\s*none/.test(r.body))
+  .flatMap(r => r.selector.split(','))
+  .map(s => s.trim().replace(/^html\.presenting\s*/, ''))
+  .filter(s => s !== '')
+
+/** The rightmost compound of a selector — the element the rule actually hides. */
+const hiddenSubjects = new Set(presentingHidden.map(s => s.split(/\s*>\s*|\s+/).pop()!))
+
+function isHidden(openTag: string): boolean {
+  return tokensOf(openTag).some(t => hiddenSubjects.has(t))
+}
+
+describe('presentation mode shows only the stereo canvas', () => {
+  it('found the hide rules, rather than matching nothing and passing', () => {
+    expect(presentingHidden.length).toBeGreaterThanOrEqual(5)
+    expect(hiddenSubjects.has('.panels')).toBe(true)
+  })
+
+  it('hides with display:none, never with visibility or opacity', () => {
+    // Not cosmetic. A merely-invisible control still takes layout space (so it
+    // still constrains the stage), is still in the accessibility tree, and is
+    // still FOCUSABLE — which would leave a keyboard user tabbing through two
+    // dozen sliders they cannot see, in a mode whose only exit is one key.
+    const presenting = cssRules.filter(r => r.selector.includes('.presenting'))
+    expect(presenting.length).toBeGreaterThanOrEqual(5)
+    for (const rule of presenting) {
+      expect(rule.body, rule.selector).not.toMatch(/visibility:\s*hidden/)
+      expect(rule.body, rule.selector).not.toMatch(/opacity:\s*0/)
+    }
+  })
+
+  /**
+   * Things presentation mode deliberately keeps, with the reason each one is
+   * not a panel. Anything else on the page has to be hidden.
+   */
+  const KEEP: Record<string, string> = {
+    main: 'the ancestor of the canvas',
+    script: 'not rendered',
+    '#error': 'a failure report, not chrome — repositioned, never hidden',
+    '#present-hint': 'the only way out of the mode',
+    '.views': 'the ancestor of the stereo figure',
+    '.stereo-view': 'the figure holding the canvas',
+    '#canvas-scroll': 'the stage itself',
+  }
+
+  const accounted = (openTag: string): boolean =>
+    isHidden(openTag) || tokensOf(openTag).some(t => t in KEEP)
+
+  it('accounts for every direct child of <body>', () => {
+    const open = lineOf('  <body>')
+    const children = childrenAt(4, open, closeAt(2, 'body', open))
+    expect(children.length).toBeGreaterThanOrEqual(5)
+    expect(children.filter(c => !accounted(c))).toEqual([])
+  })
+
+  it('accounts for every direct child of <main>', () => {
+    const open = lineOf('    <main>')
+    const children = childrenAt(6, open, closeAt(4, 'main', open))
+    expect(children.length).toBeGreaterThanOrEqual(3)
+    expect(children.filter(c => !accounted(c))).toEqual([])
+  })
+
+  it('hides the depth map, and keeps only the stereo figure', () => {
+    const open = lineOf('<section class="views"')
+    const children = childrenAt(8, open, closeAt(6, 'section', open))
+    expect(children.length).toBe(2)
+    expect(children.filter(c => !accounted(c))).toEqual([])
+    // Specifically: the depth panel is hidden, not merely not-promoted.
+    expect(children.filter(c => isHidden(c)).map(tokensOf).flat()).toContain('.depth-view')
+  })
+
+  it('strips the stereo figure down to the canvas — no caption, no notes', () => {
+    const open = lineOf('<figure class="view stereo-view">')
+    const children = childrenAt(10, open, closeAt(8, 'figure', open))
+    expect(children.length).toBeGreaterThanOrEqual(4)
+    expect(children.filter(c => !accounted(c))).toEqual([])
+    // And the one that survives is the scroller, not something else.
+    const kept = children.filter(c => !isHidden(c)).map(tokensOf)
+    expect(kept).toHaveLength(1)
+    expect(kept[0]).toContain('#canvas-scroll')
+  })
+
+  it('sizes the presented canvas from JS with the both-axes snap', () => {
+    // The height constraint is the whole difference from the normal view, and
+    // `fitScale` is the only thing in the repo that applies it. Deleting the
+    // branch leaves every other test green.
+    expect(main).toContain('fitScale(')
+    expect(main).toMatch(/availableHeight:\s*availableHeight|availableHeight,/)
+    expect(main).toMatch(/ui\.canvasScroll\.clientHeight/)
+    expect(main).toMatch(/ui\.canvasScroll\.clientWidth/)
+  })
+
+  it('writes the centring offset itself rather than trusting margin: auto', () => {
+    // `margin: auto` lands the plate on half the remainder, which is a
+    // FRACTIONAL device origin for half of all viewport widths — measured at a
+    // 3825x2160 viewport, dpr 1.5, as 109910 of 6300000 device pixels wrong, in
+    // 74 columns spaced 2 x scale apart. That is the unequal-run defect, not an
+    // edge artifact. Deleting either of these two lines restores it and leaves
+    // every other test in the repo green.
+    expect(main).toMatch(/ui\.canvasWrap\.style\.marginLeft\s*=\s*`\$\{fit\.offsetX\}px`/)
+    expect(main).toMatch(/ui\.canvasWrap\.style\.marginTop\s*=\s*`\$\{fit\.offsetY\}px`/)
+    // ...and clears them again, or the normal view inherits the last indent.
+    expect(main).toMatch(/ui\.canvasWrap\.style\.marginLeft\s*=\s*''/)
+    expect(main).toMatch(/ui\.canvasWrap\.style\.marginTop\s*=\s*''/)
+  })
+
+  it('never lets CSS do the scaling in this mode either', () => {
+    // The same defect as `canvas { width: 100% }`, wearing presentation
+    // clothes: `object-fit: contain`, `max-width: 100%`, `width: 100vw` and
+    // `height: 100%` on the canvas would each fit the plate to the viewport at
+    // an arbitrary fractional ratio, in a stylesheet where no unit test could
+    // see it. Checked over every presenting rule, because the canvas is a
+    // descendant of all of them.
+    for (const rule of cssRules.filter(r => r.selector.includes('.presenting'))) {
+      expect(rule.body, rule.selector).not.toMatch(/object-fit/)
+      expect(rule.body, rule.selector).not.toMatch(/(width|height):\s*[\d.]+(%|vw|vh|vmin|vmax)/)
+    }
+  })
+
+  it('lets an over-large plate scroll from its true left edge', () => {
+    // Centring an overflowing flex item with `justify-content` pushes its
+    // leading edge outside the scrollport, and a scroller cannot scroll back
+    // past its origin — so those columns are not shrunk, they are unreachable.
+    // Auto margins collapse to 0 when there is no spare space, which is the
+    // whole reason they are used instead.
+    const stage = cssRules.find(r => /\.presenting\s+#canvas-scroll$/.test(r.selector))
+    expect(stage, 'the presenting stage rule was not found').toBeDefined()
+    expect(stage!.body).toMatch(/overflow:\s*auto/)
+    expect(stage!.body).not.toMatch(/justify-content/)
+    const wrap = cssRules.find(r => /\.presenting\s+\.canvas-wrap$/.test(r.selector))
+    expect(wrap, 'the presenting wrap rule was not found').toBeDefined()
+    expect(wrap!.body).toMatch(/margin:\s*auto/)
+    // A flex item defaults to shrinking, and the automatic minimum size that
+    // would normally stop it does NOT apply to an item with `overflow: hidden`
+    // — which this wrapper has. Without `flex: none` the plate gets clipped.
+    expect(wrap!.body).toMatch(/flex:\s*none/)
+    // And the border comes off: 2 CSS px the fit arithmetic was not told about
+    // is the `box-sizing` trap one layer out.
+    expect(wrap!.body).toMatch(/border:\s*0/)
+  })
+
+  it('re-snaps on a fullscreen change, not only on resize', () => {
+    // `requestFullscreen` changes the viewport without a conventional resize
+    // event in some engines, and the stage's height is now an input to the
+    // scale — so a missed re-snap is a wrong integer, not a cosmetic lag.
+    expect(main).toMatch(/addEventListener\('fullscreenchange'/)
+    expect(main).toMatch(/\.observe\(ui\.canvasScroll\)/)
+  })
+
+  it('offers one key out, and drops the parameter on the way', () => {
+    // Without this the visitor who fullscreens the page is stuck with it.
+    expect(main).toMatch(/event\.key !== 'Escape'/)
+    expect(main).toContain('presentUrl(location, presenting)')
+    expect(main).toContain('history.replaceState')
+    // The hint names the key, in the markup rather than only in a comment.
+    expect(html).toMatch(/<kbd>Esc<\/kbd>/)
+  })
+
+  it('keeps the flag out of the fragment', () => {
+    // `site/present.test.ts` proves the round trip with a real scene; this is
+    // the structural half — `main.ts` must never assemble a hash itself, which
+    // is the one way the flag could end up where `parseSceneHash` would choke
+    // on it.
+    const calls = [...main.matchAll(/history\.replaceState\([^)]*\)/g)].map(m => m[0]).sort()
+    expect(calls, 'the replaceState regex matched nothing').toEqual([
+      "history.replaceState(null, '', hash)",
+      "history.replaceState(null, '', url)",
+    ])
+    // The first writes a fragment built by nothing but the scene codec…
+    expect(main).toContain('const hash = `#${encodeSceneHash(state.scene)}`')
+    // …and the second delegates to `presentUrl`, which concatenates
+    // `location.hash` verbatim and is unit-tested against a real scene.
+    expect(main).toContain('const url = presentUrl(location, presenting)')
+  })
+
+  it('leaves the scene, playback and the raster cache alone', () => {
+    // "This is a view mode, nothing more." The two things that would break it
+    // are stopping playback and dropping the cache, which is what `setScene`
+    // does and what entering a mode must not.
+    const body = /function setPresenting\(on: boolean\): void \{([\s\S]*?)\n\}/.exec(main)?.[1]
+    expect(body, 'the setPresenting() body regex matched nothing').toBeDefined()
+    expect(body).not.toMatch(/playing\s*=/)
+    expect(body).not.toMatch(/createRasterCache|setScene|syncHash|initialState/)
+  })
+})
+
 describe('the vendored webfont is loaded before anything is drawn', () => {
   /**
    * **Two source assertions, for a contract no test here can execute.**

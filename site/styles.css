@@ -200,6 +200,30 @@ h3 {
   width: auto;
 }
 
+/*
+ * The hint next to the "present" button. A `.note` as an inline sibling of a
+ * button rather than a paragraph under it, so the row stays one line.
+ *
+ * It lives BELOW the canvas rather than in the caption above it, for a reason
+ * that is a measurement rather than a preference — `index.html` carries it,
+ * next to the markup. In short: the caption's height sets the canvas's device
+ * y origin, that origin is fractional at fractional devicePixelRatio, and
+ * moving it makes the canvas's edge-row rasterisation measurably worse.
+ */
+.row > .note {
+  align-self: center;
+  margin: 0;
+}
+
+.row kbd,
+.row code {
+  padding: 0 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #0b0d10;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 canvas {
   display: block;
   border: 1px solid var(--line);
@@ -506,4 +530,194 @@ footer {
 
 a {
   color: var(--accent);
+}
+
+/* ------------------------------------------------------- presentation mode */
+
+/*
+ * `?present=1`: the stereo canvas and nothing else, at the largest WHOLE-NUMBER
+ * scale that fits both axes, centred, with the page background showing through
+ * wherever the plate's proportions do not reach the edges of the screen.
+ *
+ * The scale itself is `fitScale` in `site/scale.ts` and `applyDisplayScale` in
+ * `site/main.ts`; what is here is the box it is fitted into and the removal of
+ * everything else. Nothing in this block scales anything, which is deliberate:
+ * a CSS `object-fit`, `max-width: 100%` or `width: 100vw` would all reintroduce
+ * exactly the fractional nearest-neighbour resample this whole subsystem exists
+ * to prevent, and would do it in a stylesheet where no test could see it.
+ *
+ * The surround is `transparent`, i.e. the body background, which is what was
+ * asked for. Worth knowing rather than imposing: a dark or mid-grey surround is
+ * the better choice for *fusing* — a bright border next to a dot field competes
+ * with it for the eye and makes the vergence harder to hold — and this page's
+ * `--bg` is already #0d0f12, so the letterbox is near-black here without any
+ * rule forcing it to be.
+ */
+
+/*
+ * **The class is on `<html>`, not `<body>`, and that is a measurement, not a
+ * preference.** `html { scrollbar-gutter: stable }` above reserves a scrollbar
+ * gutter unconditionally, and a `position: fixed; inset: 0` stage is sized by
+ * the initial containing block — which excludes that gutter. Left alone it
+ * hands the plate ~15 fewer CSS px than the window really has, and at dpr 1
+ * that is one whole integer step lost for every viewport within 15px of a
+ * scale boundary. The gutter is there to stop the *normal* view's scale
+ * oscillating as the page scrollbar comes and goes; presentation mode has no
+ * page scroll to oscillate with, so it is turned back off.
+ */
+html.presenting {
+  scrollbar-gutter: auto;
+  overflow: hidden;
+}
+
+html.presenting body {
+  padding: 0;
+}
+
+/*
+ * `display: none`, not `visibility: hidden` and not `opacity: 0`.
+ *
+ * The difference is not cosmetic. A merely-invisible control still occupies
+ * layout (so it still constrains the stage), is still in the accessibility
+ * tree, and is still **focusable** — which would leave a keyboard user tabbing
+ * through two dozen sliders they cannot see, in a mode whose only documented
+ * exit is a single key. `display: none` removes all three.
+ *
+ * Hidden by the container rather than one rule per panel, so that adding a
+ * panel does not mean remembering to add a line here. The guard that this list
+ * is *complete* is in `site/markup.test.ts`, which enumerates the real children
+ * of `<body>` and of `<main>` out of the markup and fails if one of them is
+ * neither hidden here nor on its explicit keep-list.
+ */
+html.presenting .masthead,
+html.presenting footer,
+html.presenting .timeline,
+html.presenting .panels,
+html.presenting .depth-view,
+html.presenting .stereo-view > figcaption,
+html.presenting .stereo-view > .row,
+html.presenting .stereo-view > .note {
+  display: none;
+}
+
+/*
+ * The stage.
+ *
+ * `position: fixed; inset: 0` so its content box *is* the viewport, which is
+ * what makes `clientWidth`/`clientHeight` the right pair to hand `fitScale` —
+ * no padding, no border, nothing else between the measurement and the screen.
+ *
+ * `overflow: auto` on both axes rather than `hidden`. The plate is never
+ * downscaled, so a plate bigger than the screen at 1:1 has to go somewhere, and
+ * clipping it would make those columns *unreachable* — strictly worse than a
+ * scrollbar, for the same reason `.canvas-scroll` scrolls in the normal view.
+ * It can only happen at scale 1, so there is no loop: a scrollbar appearing
+ * shrinks the measurement, and the measurement is already at its floor.
+ */
+html.presenting #canvas-scroll {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  overflow: auto;
+  background: transparent;
+}
+
+/*
+ * Centred by `margin: auto` on the flex item — **not** by `justify-content:
+ * center` on the container.
+ *
+ * They are indistinguishable while the plate fits and differ exactly in the
+ * case that matters: a centred *overflowing* flex item has its leading edge
+ * pushed outside the scrollport, and a scroller cannot scroll back past its
+ * origin, so the left edge of the plate becomes unreachable. Auto margins
+ * absorb the spare space and collapse to zero when there is none, so the
+ * overflow case starts at the true left edge. Auto margins on the block axis
+ * also beat `align-items: stretch`, which is what stops the wrapper being
+ * stretched to the full viewport height.
+ *
+ * `flex: none` is load-bearing and was nearly missed. A flex item defaults to
+ * `flex-shrink: 1`, and the automatic minimum size that would normally stop it
+ * shrinking below its content does **not** apply to an item with `overflow:
+ * hidden` — which this wrapper has, for the stage guide's clip. So an
+ * over-wide plate would have had its wrapper squashed and its right-hand
+ * columns clipped away rather than scrolled to.
+ *
+ * The border comes off because presentation mode is the canvas and nothing
+ * else — and because a 1px border each side is 2 CSS px the fit arithmetic was
+ * not told about, which is the `box-sizing` trap this project already has scars
+ * from, one layer out.
+ *
+ * **`margin: auto` is only half of the centring, and the half that cannot be
+ * trusted alone.** `site/main.ts` overwrites `margin-left` and `margin-top`
+ * inline with offsets snapped to whole *device* pixels, because an auto margin
+ * lands the plate's origin on half the remainder — fractional for half of all
+ * viewport widths — and a fractional device origin measured 109910 of 6300000
+ * device pixels wrong at a 3825x2160 viewport, dpr 1.5, in 74 columns spaced
+ * `2 x scale` apart. The `auto` here is what the *trailing* margins keep, so
+ * they absorb the remainder; and it is also the no-JS fallback, which centres
+ * approximately rather than not at all.
+ */
+html.presenting .canvas-wrap {
+  flex: none;
+  margin: auto;
+  border: 0;
+  border-radius: 0;
+}
+
+/*
+ * The only chrome, and the way out.
+ *
+ * It has to overlap the plate — a plate centred at the largest scale that fits
+ * leaves no corner that is not beside it — so the mitigation is time rather
+ * than position: `main.ts` fades it after a few seconds and brings it back on
+ * any keypress or pointer movement. `pointer-events: none` so it can never
+ * take a click meant for the canvas.
+ */
+.present-hint {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 4;
+  margin: 0;
+  padding: 0.3rem 0.6rem;
+  border-bottom-right-radius: 6px;
+  background: rgb(0 0 0 / 60%);
+  color: var(--dim);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+
+.present-hint[hidden] {
+  display: none;
+}
+
+.present-hint.faded {
+  opacity: 0;
+}
+
+.present-hint kbd {
+  padding: 0 0.25rem;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: #0b0d10;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/*
+ * The error banner is NOT chrome and is not hidden: a link carrying an invalid
+ * scene would otherwise present a blank screen with no way to find out why. It
+ * is moved to the bottom edge, where it is away from the fusion the viewer is
+ * attempting, and it is `hidden` whenever there is nothing to say.
+ */
+html.presenting #error {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  margin: 0;
+  border-radius: 0;
 }

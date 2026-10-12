@@ -38,6 +38,23 @@
 
     <p class="banner" id="error" role="alert" hidden></p>
 
+    <!--
+      Presentation mode's only chrome, and the only way back out of it.
+
+      It overlaps the plate when the plate fills the viewport, which is
+      unavoidable — a centred image that fits the screen leaves no corner that
+      is not next to it — so it fades itself out a few seconds after it is shown
+      and comes back on any key or pointer movement. `pointer-events: none` so
+      it can never swallow a click meant for the canvas, and it is not focusable,
+      so it adds nothing to the tab order.
+
+      A paragraph rather than a button: Escape is the gesture, and a button here
+      would be a second control to hide.
+    -->
+    <p class="present-hint" id="present-hint" role="status" hidden>
+      presentation mode · <kbd>Esc</kbd> to leave
+    </p>
+
     <main>
       <!--
         The row/column decision is made in JS, not here. It depends on whether
@@ -46,7 +63,7 @@
         a media query can see. `site/scale.ts` owns it and toggles `.stacked`.
       -->
       <section class="views" id="views">
-        <figure class="view">
+        <figure class="view stereo-view">
           <figcaption>
             Stereogram
             <label class="check inline">
@@ -81,15 +98,50 @@
             if the scroller were also its containing block.
           -->
           <div class="canvas-scroll" id="canvas-scroll">
-            <div class="canvas-wrap">
+            <div class="canvas-wrap" id="canvas-wrap">
               <canvas id="stereo-canvas" width="16" height="9"></canvas>
               <div id="stage-guide" class="stage-guide" aria-hidden="true"></div>
             </div>
           </div>
+          <!--
+            Presentation mode. The URL flag `?present=1` is the real switch —
+            the mode has to survive a copy-pasted link, and the flag cannot live
+            in the fragment because the fragment IS the scene (see
+            site/present.ts) — and this button is only the discoverable way to
+            set it. It does not reload: a click is also the only kind of event
+            an engine will honour requestFullscreen from, and a reload here
+            would stop playback and throw away the decoded assets.
+
+            **BELOW the canvas, not up in the caption beside "full width", and
+            that is a measurement.** The caption sits directly above the
+            stereogram, so its height sets the canvas's *device* y origin —
+            which is fractional at any non-integral devicePixelRatio, and
+            Chromium then rasterises the canvas's edge rows from that
+            sub-pixel offset. Putting this button in the caption grew it from
+            18.72px to 23.91px and the canvas's device origin at dpr 1.5 from
+            332.13 to 339.91; measured against the backing store in headless
+            Chromium at a 1920x1080 viewport, the edge-row disagreement went
+            from 13 device px to 445. Constraining the button's height instead
+            of moving it got 332.32 and made it *worse* still, at 65947 px
+            spread over 163 rows — the sensitivity is to the exact sub-pixel
+            and is not something to tune. Anything added AFTER the canvas in
+            this figure cannot move it at all, so that is where it goes.
+            (`site/main.ts` records the related decision not to correct the
+            fractional origin in general; this is only about not making an
+            existing residual worse.)
+          -->
+          <div class="row">
+            <button id="present" type="button">present ⤢</button>
+            <span class="note">
+              Only the canvas, auto-fitted to the largest whole-number scale
+              that fits. <kbd>Esc</kbd> leaves. Shareable as
+              <code>?present=1</code>.
+            </span>
+          </div>
           <p class="note" id="scale-note"></p>
           <p class="note" id="guide-note"></p>
         </figure>
-        <figure class="view">
+        <figure class="view depth-view">
           <figcaption>
             Depth map
             <!--

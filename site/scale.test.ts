@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { agreement, encoderFor, nearestScaleX, report, slabDepth } from '../src/core/testing/metamorphic.js'
-import { scaleNote, snapScale, viewLayout } from './scale.js'
+import { OFFSET_SEARCH, fitNote, fitScale, scaleNote, snapOffset, snapScale, viewLayout } from './scale.js'
 import type { SirdsOpts } from '../src/core/types.js'
 
 /**
@@ -237,6 +237,321 @@ describe('viewLayout', () => {
   })
 })
 
+/* -------------------------------------------------------------- fitScale */
+
+describe('fitScale', () => {
+  const PLATE = { plateWidth: 1500, plateHeight: 720 }
+
+  it('takes the smaller of the two axes', () => {
+    // 3840x2160 at dpr 1: width allows floor(3840/1500) = 2, height allows
+    // floor(2160/720) = 3. The answer is 2, and it is not a compromise between
+    // them — 3 would overflow the width.
+    const fit = fitScale({ ...PLATE, availableWidth: 3840, availableHeight: 2160, dpr: 1 })
+    expect(fit.scale).toBe(2)
+    expect(fit.limit).toBe('width')
+    expect(fit.overflows).toBe(false)
+
+    // And the other way round: a tall-enough window, a short one.
+    const short = fitScale({ ...PLATE, availableWidth: 6000, availableHeight: 1500, dpr: 1 })
+    expect(short.scale).toBe(2)
+    expect(short.limit).toBe('height')
+  })
+
+  it('is exactly min(snapScale per axis), which is how it is built', () => {
+    // The reuse asserted, not just intended: if `fitScale` ever grows its own
+    // copy of the arithmetic, this is what fails.
+    for (const availableWidth of [0, 1, 320, 760, 1280, 1920, 2560, 3840, 7680]) {
+      for (const availableHeight of [0, 1, 200, 480, 720, 1080, 1440, 2160]) {
+        for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]) {
+          const fit = fitScale({ ...PLATE, availableWidth, availableHeight, dpr })
+          const w = snapScale({ plateWidth: 1500, availableWidth, dpr }).scale
+          const h = snapScale({ plateWidth: 720, availableWidth: availableHeight, dpr }).scale
+          expect(fit.scale, `${availableWidth}x${availableHeight} @ ${dpr}`)
+            .toBe(Math.min(w, h))
+        }
+      }
+    }
+  })
+
+  it('never returns 0, a negative, or a fraction — even for a degenerate box', () => {
+    for (const availableWidth of [0, -1, 1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      for (const availableHeight of [0, -1, 1, 0.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+        const fit = fitScale({ ...PLATE, availableWidth, availableHeight, dpr: 1 })
+        expect(Number.isInteger(fit.scale), `${availableWidth}x${availableHeight}`).toBe(true)
+        expect(fit.scale).toBeGreaterThanOrEqual(1)
+      }
+    }
+  })
+
+  it('never downscales a plate larger than the viewport', () => {
+    // A 1500x720 plate on a phone. Shrinking it to fit would drop whole source
+    // columns and the image would stop fusing, so the answer is 1:1 and
+    // something scrolls.
+    const fit = fitScale({ ...PLATE, availableWidth: 390, availableHeight: 844, dpr: 3 })
+    expect(fit.scale).toBe(1)
+    expect(fit.cssWidth).toBe(500)
+    expect(fit.overflowsWidth).toBe(true)
+    expect(fit.overflowsHeight).toBe(false)
+    expect(fit.overflows).toBe(true)
+  })
+
+  it('reports an overflow per axis, and only ever at 1:1', () => {
+    expect(fitScale({ ...PLATE, availableWidth: 1500, availableHeight: 720, dpr: 1 }).overflows)
+      .toBe(false)
+    const narrow = fitScale({ ...PLATE, availableWidth: 1499, availableHeight: 720, dpr: 1 })
+    expect(narrow.overflowsWidth).toBe(true)
+    expect(narrow.overflowsHeight).toBe(false)
+    const flat = fitScale({ ...PLATE, availableWidth: 1500, availableHeight: 719, dpr: 1 })
+    expect(flat.overflowsWidth).toBe(false)
+    expect(flat.overflowsHeight).toBe(true)
+
+    for (let availableWidth = 1; availableWidth < 4000; availableWidth += 13) {
+      for (const availableHeight of [11, 300, 719, 1200, 3000]) {
+        const fit = fitScale({ ...PLATE, availableWidth, availableHeight, dpr: 1.25 })
+        if (fit.overflows) expect(fit.scale).toBe(1)
+      }
+    }
+  })
+
+  it('snaps in DEVICE pixels on BOTH axes, so a fractional dpr still lands whole', () => {
+    // The trap, now twice over: an integer CSS scale at dpr 1.5 is a fractional
+    // device scale, and a height that was fitted in CSS px would reintroduce it
+    // vertically even with the width snapped correctly.
+    for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]) {
+      for (const availableWidth of [320, 760, 1280, 1920, 3840]) {
+        for (const availableHeight of [200, 480, 1080, 2160]) {
+          for (const plate of [PLATE, { plateWidth: 751, plateHeight: 361 }]) {
+            const fit = fitScale({ ...plate, availableWidth, availableHeight, dpr })
+            const where = `${plate.plateWidth}x${plate.plateHeight} in ` +
+              `${availableWidth}x${availableHeight} @ ${dpr}`
+            expect(Number.isInteger(fit.scale), where).toBe(true)
+            expect(fit.deviceWidth, where).toBe(fit.scale * plate.plateWidth)
+            expect(fit.deviceHeight, where).toBe(fit.scale * plate.plateHeight)
+            expect(Number.isInteger(fit.deviceWidth), where).toBe(true)
+            expect(Number.isInteger(fit.deviceHeight), where).toBe(true)
+            // The identities the browser has to honour, on both axes.
+            expect(fit.cssWidth * dpr, where).toBeCloseTo(fit.deviceWidth, 9)
+            expect(fit.cssHeight * dpr, where).toBeCloseTo(fit.deviceHeight, 9)
+            // One integer for both axes, so the aspect ratio is exact.
+            expect(fit.cssHeight / fit.cssWidth, where)
+              .toBeCloseTo(plate.plateHeight / plate.plateWidth, 12)
+          }
+        }
+      }
+    }
+  })
+
+  it('is monotonically non-decreasing in each dimension and in dpr', () => {
+    let previous = 0
+    for (let availableWidth = 0; availableWidth <= 6000; availableWidth += 7) {
+      const { scale } = fitScale({ ...PLATE, availableWidth, availableHeight: 1e6, dpr: 1.5 })
+      expect(scale).toBeGreaterThanOrEqual(previous)
+      previous = scale
+    }
+    expect(previous).toBeGreaterThan(1)
+
+    previous = 0
+    for (let availableHeight = 0; availableHeight <= 6000; availableHeight += 7) {
+      const { scale } = fitScale({ ...PLATE, availableWidth: 1e6, availableHeight, dpr: 1.5 })
+      expect(scale).toBeGreaterThanOrEqual(previous)
+      previous = scale
+    }
+    expect(previous).toBeGreaterThan(1)
+
+    previous = 0
+    for (const dpr of [0.5, 1, 1.25, 1.5, 2, 2.5, 3, 4]) {
+      const { scale } = fitScale({ ...PLATE, availableWidth: 1920, availableHeight: 1080, dpr })
+      expect(scale).toBeGreaterThanOrEqual(previous)
+      previous = scale
+    }
+  })
+
+  it('does not lose a whole step to binary floor error on either axis', () => {
+    for (let plate = 300; plate <= 400; plate++) {
+      for (const dpr of [1.1, 1.3, 2.4, 1 / 3]) {
+        const exact = (3 * plate) / dpr
+        expect(
+          fitScale({
+            plateWidth: plate, plateHeight: plate,
+            availableWidth: exact, availableHeight: exact, dpr,
+          }).scale,
+          `${plate} @ ${dpr}`,
+        ).toBe(3)
+      }
+    }
+  })
+
+  it('names the binding axis, including when neither binds alone', () => {
+    expect(fitScale({
+      plateWidth: 100, plateHeight: 100, availableWidth: 250, availableHeight: 250, dpr: 1,
+    }).limit).toBe('both')
+    expect(fitScale({
+      plateWidth: 100, plateHeight: 100, availableWidth: 250, availableHeight: 999, dpr: 1,
+    }).limit).toBe('width')
+    expect(fitScale({
+      plateWidth: 100, plateHeight: 100, availableWidth: 999, availableHeight: 250, dpr: 1,
+    }).limit).toBe('height')
+  })
+
+  it('rejects a plate size that is not a real measurement', () => {
+    for (const plateHeight of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => fitScale({
+        plateWidth: 100, plateHeight, availableWidth: 800, availableHeight: 600,
+      })).toThrow(/fitScale: plateHeight/)
+    }
+    for (const plateWidth of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => fitScale({
+        plateWidth, plateHeight: 100, availableWidth: 800, availableHeight: 600,
+      })).toThrow(/plateWidth/)
+    }
+  })
+})
+
+/* ------------------------------------------------------------ snapOffset */
+
+describe('snapOffset', () => {
+  /** The two conditions the browser imposes, asserted as one predicate. */
+  const usable = (offset: number, dpr: number): boolean =>
+    Math.abs(offset * dpr - Math.round(offset * dpr)) < 1e-6 &&
+    Math.abs(offset * 64 - Math.round(offset * 64)) < 1e-6
+
+  it('reproduces the offsets measured exact in the browser, and skips the broken one', () => {
+    // The 3825x2160 @ dpr 1.5 case, 420x600 plate at scale 5 → cssWidth 1400,
+    // so the remainder is 2425 and `margin: auto` would give 1212.5 (device
+    // origin 1818.75, measured 109910 bad device px). 1212 is the next offset
+    // down that satisfies both conditions, and measured 0.
+    expect(snapOffset(2425, 1.5)).toBe(1212)
+    expect(snapOffset(2425, 1.5) * 1.5).toBe(1818)
+    // ...and the two near misses the browser rejected are not what it picks.
+    expect(snapOffset(2425, 1.5)).not.toBe(1212.5)
+    expect(snapOffset(2425, 1.5)).not.toBeCloseTo(1819 / 1.5, 6)
+  })
+
+  it('is the plain half-remainder at dpr 1, where every offset is usable', () => {
+    for (const spare of [0, 1, 2, 7, 140, 2425, 2426]) {
+      expect(snapOffset(spare, 1)).toBe(Math.floor(spare / 2))
+    }
+  })
+
+  it('always lands on a whole device pixel AND a 1/64 CSS px', () => {
+    // Both halves, swept. Either one alone is reachable with a wrong offset:
+    // `1819 / 1.5` is a whole device pixel and is NOT representable, and
+    // `1212.5` is representable and is NOT a whole device pixel. The browser
+    // measured both of those broken.
+    for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 2.625, 1.7777777777, 16 / 9, 1 / 3]) {
+      for (let spare = 0; spare <= 4000; spare += 7) {
+        const offset = snapOffset(spare, dpr)
+        expect(usable(offset, dpr), `spare ${spare} @ ${dpr} → ${offset}`).toBe(true)
+      }
+    }
+  })
+
+  it('never overshoots the space it was given, and is never negative', () => {
+    for (const dpr of [1, 1.25, 1.5, 2.625, 3]) {
+      for (let spare = -10; spare <= 4000; spare += 11) {
+        const offset = snapOffset(spare, dpr)
+        expect(offset, `spare ${spare} @ ${dpr}`).toBeGreaterThanOrEqual(0)
+        // Bounded by the whole remainder, not the half: the search may go
+        // above the ideal midpoint, but never far enough to push the plate off
+        // the far edge of the box.
+        expect(offset, `spare ${spare} @ ${dpr}`).toBeLessThanOrEqual(Math.max(0, spare) + 1e-9)
+      }
+    }
+  })
+
+  it('stays close to centred, searching either side of the ideal', () => {
+    // The fallback is flush-left, and a fallback taken often would be a
+    // regression dressed as a safety net. At every realistic dpr the search
+    // finds a usable offset within a few device pixels — on EITHER side, which
+    // is what keeps a coarse-step dpr from reading as visibly off-centre.
+    for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 2.625, 16 / 9]) {
+      for (const spare of [92, 100, 457, 1000, 2425, 3999]) {
+        const ideal = (spare / 2) * dpr
+        const got = snapOffset(spare, dpr) * dpr
+        expect(Math.abs(ideal - got), `spare ${spare} @ ${dpr}`).toBeLessThan(32)
+      }
+    }
+    expect(OFFSET_SEARCH).toBeGreaterThanOrEqual(32)
+    // The specific case that motivated searching upward: a 420x600 plate at
+    // scale 2 in a 412 CSS px viewport at dpr 2.625 leaves 92px of slack, and
+    // only every 21st device px qualifies. Downward-only gave 40 (6px left of
+    // centre); the nearest qualifying offset is 48 (2px right of it).
+    expect(snapOffset(92, 2.625)).toBe(48)
+    expect(snapOffset(92, 2.625) * 2.625).toBe(126)
+    // ...and it still leaves the plate inside the box.
+    expect(snapOffset(92, 2.625)).toBeLessThanOrEqual(92)
+  })
+
+  it('prefers an exact plate flush left over a centred broken one', () => {
+    // 0 is always usable, so the fallback can only ever cost centring. The
+    // ordering is the point: this project would rather have the picture in the
+    // wrong place than in the wrong pixels.
+    expect(snapOffset(0, 1.5)).toBe(0)
+    expect(snapOffset(-100, 1.5)).toBe(0)
+    expect(usable(snapOffset(1, 1.7777777777), 1.7777777777)).toBe(true)
+  })
+
+  it('gives the plate a whole-device-pixel origin through fitScale too', () => {
+    for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 2.625]) {
+      for (const [w, h] of [
+        [3825, 2160], [3826, 2160], [1920, 1080], [1921, 1081], [800, 2400], [320, 240],
+      ] as const) {
+        for (const plate of [{ plateWidth: 420, plateHeight: 600 }, { plateWidth: 820, plateHeight: 320 }]) {
+          const fit = fitScale({ ...plate, availableWidth: w, availableHeight: h, dpr })
+          const where = `${plate.plateWidth}x${plate.plateHeight} in ${w}x${h} @ ${dpr}`
+          expect(usable(fit.offsetX, dpr), `${where} offsetX ${fit.offsetX}`).toBe(true)
+          expect(usable(fit.offsetY, dpr), `${where} offsetY ${fit.offsetY}`).toBe(true)
+          // An overflowing axis is flush, not negatively indented.
+          if (fit.overflowsWidth) expect(fit.offsetX, where).toBe(0)
+          if (fit.overflowsHeight) expect(fit.offsetY, where).toBe(0)
+          // And the plate still sits inside the box it was given.
+          if (!fit.overflowsWidth) expect(fit.offsetX + fit.cssWidth).toBeLessThanOrEqual(w + 1e-6)
+          if (!fit.overflowsHeight) expect(fit.offsetY + fit.cssHeight).toBeLessThanOrEqual(h + 1e-6)
+        }
+      }
+    }
+  })
+})
+
+describe('fitNote', () => {
+  const at = (availableWidth: number, availableHeight: number, dpr = 1) =>
+    fitNote(
+      fitScale({
+        plateWidth: 1500, plateHeight: 720, availableWidth, availableHeight, dpr,
+      }),
+      dpr,
+    )
+
+  it('states the integer scale and the device size', () => {
+    expect(at(3840, 2160)).toMatch(/exactly 2x/)
+    expect(at(3840, 2160)).toContain('3000x1440 device px')
+  })
+
+  it('names the binding axis', () => {
+    expect(at(3840, 2160)).toMatch(/Width is the binding constraint/)
+    expect(at(6000, 1500)).toMatch(/Height is the binding constraint/)
+    expect(at(3000, 1440)).toMatch(/equally/)
+  })
+
+  it('says the surround is page background when the plate fits', () => {
+    expect(at(3840, 2160)).toMatch(/page background, not image/)
+    expect(at(3840, 2160)).not.toMatch(/scrolls/)
+  })
+
+  it('explains the overflow, and names which way it goes', () => {
+    expect(at(800, 2160)).toMatch(/horizontally/)
+    expect(at(800, 2160)).not.toMatch(/vertically/)
+    expect(at(3840, 300)).toMatch(/vertically/)
+    expect(at(800, 300)).toMatch(/horizontally and vertically/)
+    expect(at(800, 300)).toMatch(/rather than being shrunk/)
+    expect(at(800, 300)).toMatch(/whole columns are dropped/)
+  })
+
+  it('names devicePixelRatio, because that is the thing that was snapped', () => {
+    expect(at(3840, 2160, 1.5)).toContain('devicePixelRatio 1.5')
+  })
+})
+
 describe('scaleNote', () => {
   const at = (containerWidth: number, dpr: number, fullWidth = false) =>
     scaleNote(viewLayout({ ...DEFAULT_PLATE, containerWidth, gap: 16, dpr, fullWidth }), dpr)
@@ -399,6 +714,29 @@ describe('a plate resampled the way a browser resamples it', () => {
           // Background at sepFar, and the near slab at sepNear — measured in
           // its own window, because the background does NOT encode sepNear and
           // scoring it there reads 0.516 on a perfectly good plate.
+          expect(displayed(subject, PLATE_W * scale, sepFar), where).toBe(1)
+          expect(displayed(subject, PLATE_W * scale, sepNear, SLAB), where).toBe(1)
+        }
+      }
+    }
+  })
+
+  it('keeps every scale fitScale will actually choose at 1.0000, in both orientations', () => {
+    // The same join-up for presentation mode, which is the mode that adds the
+    // height constraint — so the sweep includes landscape and portrait
+    // viewports and a fractional dpr, and both separations.
+    for (const [sepFar, sepNear] of [[110, 92], [111, 93]] as const) {
+      const subject = plateFor(sepFar, sepNear)
+      for (const [availableWidth, availableHeight] of [
+        [1920, 1080], [1080, 1920], [3840, 2160], [2160, 3840],
+        [1280, 800], [800, 1280], [390, 844], [844, 390], [2560, 1440],
+      ] as const) {
+        for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3]) {
+          const { scale } = fitScale({
+            plateWidth: PLATE_W, plateHeight: PLATE_H, availableWidth, availableHeight, dpr,
+          })
+          const where =
+            `sep ${sepFar}/${sepNear}, ${availableWidth}x${availableHeight} @ dpr ${dpr} → ${scale}x`
           expect(displayed(subject, PLATE_W * scale, sepFar), where).toBe(1)
           expect(displayed(subject, PLATE_W * scale, sepNear, SLAB), where).toBe(1)
         }

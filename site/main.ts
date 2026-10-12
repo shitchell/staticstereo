@@ -32,7 +32,8 @@ import { describeLegibility, measureInk, soloLayerScene } from './legibility.js'
 import { DEFAULT_EXAMPLE, EXAMPLES } from './examples.js'
 import { loadVendoredFont } from './fonts.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
-import { scaleNote, viewLayout } from './scale.js'
+import { isPresenting, presentUrl } from './present.js'
+import { fitNote, fitScale, scaleNote, viewLayout } from './scale.js'
 import { validateScene } from './scene.js'
 import { stageGuideLabel, stageGuideStyle } from './stageguide.js'
 
@@ -83,10 +84,13 @@ function collectElements() {
   error: el<HTMLParagraphElement>('error'),
   views: el<HTMLElement>('views'),
   canvasScroll: el<HTMLDivElement>('canvas-scroll'),
+  canvasWrap: el<HTMLDivElement>('canvas-wrap'),
   stereoCanvas: el<HTMLCanvasElement>('stereo-canvas'),
   stageGuide: el<HTMLDivElement>('stage-guide'),
   stageGuideToggle: el<HTMLInputElement>('stageGuide'),
   fullWidth: el<HTMLInputElement>('fullWidth'),
+  present: el<HTMLButtonElement>('present'),
+  presentHint: el<HTMLParagraphElement>('present-hint'),
   scaleNote: el<HTMLParagraphElement>('scale-note'),
   guideNote: el<HTMLParagraphElement>('guide-note'),
   depthCanvas: el<HTMLCanvasElement>('depth-canvas'),
@@ -153,6 +157,17 @@ let bandX0 = 0
 let bandX1 = 0
 let playing = false
 let lastWrittenHash = ''
+/**
+ * Presentation mode (`?present=1`).
+ *
+ * A **view** flag and nothing more: it is not in the scene, not in the hash, not
+ * in `UiState`, and it changes no pixel the renderer produces. Playback,
+ * `freezeNoise`, the frame the scrubber is on and the cache all carry straight
+ * through, which is why entering it is a class toggle rather than a navigation.
+ * `site/present.ts` carries the argument for the parameter living in the query
+ * string instead of the fragment.
+ */
+let presenting = false
 
 /**
  * Looked up directly rather than through `ui`, so that a failure *while
@@ -233,6 +248,8 @@ function drawStereo(frame: PlateFrame): void {
  */
 let displayDirty = true
 let lastViewsWidth = -1
+let lastStageWidth = -1
+let lastStageHeight = -1
 
 function applyDisplayScale(): void {
   if (!displayDirty) return
@@ -244,6 +261,62 @@ function applyDisplayScale(): void {
   displayDirty = false
 
   const dpr = window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
+
+  /**
+   * Presentation mode: the same snap, constrained by **both** axes.
+   *
+   * The normal view only ever fits the width, because the page scrolls
+   * vertically anyway and a plate taller than the window is not a problem.
+   * Presented, there is nowhere for the height to go, so the scale is
+   * `min(byWidth, byHeight)` — and it is still an integer and still floored at
+   * 1, for the reason in the header of `site/scale.ts`: below 1:1 nearest
+   * neighbour drops whole source columns and the partner pixel a percept needs
+   * is not on screen at all. A plate that does not fit at 1:1 is centred and
+   * scrolls; it is never shrunk.
+   *
+   * `#canvas-scroll` is the thing measured because in this mode the stylesheet
+   * makes it `position: fixed; inset: 0` with no padding and no border, so its
+   * content box *is* the space the plate may have. Measuring the viewport
+   * instead (`innerWidth`/`innerHeight`) would miss the stage's own scrollbars
+   * in the overflow case, and measuring `ui.views` would measure a container
+   * the canvas is no longer laid out inside.
+   */
+  if (presenting) {
+    const availableWidth = ui.canvasScroll.clientWidth
+    const availableHeight = ui.canvasScroll.clientHeight
+    lastStageWidth = availableWidth
+    lastStageHeight = availableHeight
+    const fit = fitScale({ plateWidth, plateHeight, availableWidth, availableHeight, dpr })
+    ui.stereoCanvas.style.width = `${fit.cssWidth}px`
+    ui.stereoCanvas.style.height = `${fit.cssHeight}px`
+    /*
+     * The centring, written here rather than left to the stylesheet's
+     * `margin: auto`.
+     *
+     * Auto margins put the plate at *half the remainder*, which is a fractional
+     * number of device pixels for half of all viewport widths — and a fractional
+     * device origin is not merely a sub-pixel shift. Measured at a 3825x2160
+     * viewport, dpr 1.5, on a 420x600 plate at scale 5: an origin of 1818.75
+     * device px put 109910 of 6300000 device pixels in disagreement with the
+     * backing store, in 74 columns spaced exactly 2 x scale apart, which is the
+     * unequal-run defect. `margin-left: 1212px` — origin 1818.00 — measured 0.
+     * The table is in `fitScale`'s `snapOffset`.
+     *
+     * Only the leading margins are written; `margin-right`/`margin-bottom` stay
+     * `auto` from the stylesheet and absorb the remainder, so the box still
+     * reads as centred and still collapses to flush-left when the plate
+     * overflows.
+     */
+    ui.canvasWrap.style.marginLeft = `${fit.offsetX}px`
+    ui.canvasWrap.style.marginTop = `${fit.offsetY}px`
+    // Written even though the panel holding it is `display: none`. It is the
+    // receipt the headless run-length check reads back, and it is what the panel
+    // shows the instant Escape puts the page back — a stale normal-view note
+    // would be wrong for as long as the mode lasted.
+    ui.scaleNote.textContent = fitNote(fit, dpr)
+    return
+  }
+
   const containerWidth = ui.views.clientWidth
   lastViewsWidth = containerWidth
   const layout = viewLayout({
@@ -258,6 +331,12 @@ function applyDisplayScale(): void {
   })
 
   ui.views.classList.toggle('stacked', layout.stacked)
+  // Presentation mode's inline centring, removed. The normal view does not
+  // centre the plate — the wrapper is flush with its track — so leaving these
+  // behind would indent it by whatever the last presented viewport happened to
+  // need.
+  ui.canvasWrap.style.marginLeft = ''
+  ui.canvasWrap.style.marginTop = ''
   ui.stereoCanvas.style.width = `${layout.cssWidth}px`
   ui.stereoCanvas.style.height = `${layout.cssHeight}px`
   ui.scaleNote.textContent = scaleNote(layout, dpr)
@@ -310,6 +389,96 @@ function watchDpr(): void {
   dprQuery.addEventListener('change', onDprChange)
 }
 
+/* ---------------------------------------------------- presentation mode */
+
+/**
+ * The fade timer for the exit hint.
+ *
+ * The hint cannot be positioned out of the way — a plate centred at the largest
+ * scale that fits leaves no corner of the screen that is not beside it — so it
+ * is moved out of the way in *time* instead. It is shown on entry, on any key,
+ * on pointer movement and whenever fullscreen is entered or left (which is the
+ * one moment the user is most likely to have forgotten how to get out), and it
+ * fades a few seconds later.
+ */
+let hintTimer: number | undefined
+
+const HINT_SECONDS = 5
+
+function flashHint(): void {
+  if (!presenting) return
+  ui.presentHint.classList.remove('faded')
+  if (hintTimer !== undefined) clearTimeout(hintTimer)
+  hintTimer = window.setTimeout(() => {
+    ui.presentHint.classList.add('faded')
+  }, HINT_SECONDS * 1000)
+}
+
+/**
+ * Enter or leave presentation mode.
+ *
+ * The class goes on `<html>` rather than `<body>`, and that is not stylistic:
+ * `html { scrollbar-gutter: stable }` reserves viewport width unconditionally,
+ * and a `position: fixed; inset: 0` stage is sized by the initial containing
+ * block, which excludes it — so the gutter has to be switched off from a
+ * selector that can reach the root element. `styles.css` carries the
+ * measurement.
+ *
+ * Everything else about the page is left alone. No scene is touched, no state
+ * is reset, `playing` is not stopped and the raster cache is not dropped, so an
+ * animation that was running keeps running at the same frame rate on the same
+ * decoded assets. A repaint is still queued, because the stage guide is written
+ * from `drawStereo` rather than from `applyDisplayScale` and has to come off.
+ */
+function setPresenting(on: boolean): void {
+  if (presenting === on) return
+  presenting = on
+  document.documentElement.classList.toggle('presenting', on)
+  ui.presentHint.hidden = !on
+  if (on) {
+    flashHint()
+  } else if (hintTimer !== undefined) {
+    clearTimeout(hintTimer)
+    hintTimer = undefined
+  }
+  invalidateDisplayScale()
+  void render()
+}
+
+/**
+ * Write the flag into the address bar, or take it out.
+ *
+ * `replaceState`, matching `syncHash`: entering a view mode is not navigation,
+ * and a `pushState` here would mean the Back button steps back through display
+ * toggles instead of going where the visitor wants. The consequence, stated
+ * because it is a real trade: Back does not undo a presentation-mode entry, and
+ * `Escape` is the documented way out.
+ *
+ * Nothing here can disturb the scene. `presentUrl` concatenates
+ * `location.hash` verbatim rather than rebuilding it, and a `replaceState` with
+ * an unchanged fragment fires no `hashchange`, so neither `lastWrittenHash` nor
+ * `loadFromHash` is involved.
+ */
+function syncPresentParam(): void {
+  const url = presentUrl(location, presenting)
+  if (url === `${location.pathname}${location.search}${location.hash}`) return
+  history.replaceState(null, '', url)
+}
+
+function leavePresenting(): void {
+  setPresenting(false)
+  syncPresentParam()
+  // Only if the page actually owns the fullscreen session. In Chromium the
+  // browser consumes Escape while fullscreen and the page never sees it, so the
+  // usual sequence is one Escape to leave fullscreen and a second to leave this
+  // mode; this branch covers the engines that do deliver the key.
+  if (document.fullscreenElement !== null) {
+    void document.exitFullscreen?.().catch(() => {
+      /* Already exiting, or never was. Nothing to report. */
+    })
+  }
+}
+
 /**
  * Mark the stage over the plate (design §10.5).
  *
@@ -324,7 +493,12 @@ function watchDpr(): void {
  * handler maps through `getBoundingClientRect` rather than using `offsetX`.
  */
 function drawStageGuide(frame: PlateFrame): void {
-  const show = ui.stageGuideToggle.checked
+  // Forced off while presenting, regardless of the checkbox. The guide is a
+  // dashed box plus a 35%-black wash over the two margin strips — authoring
+  // chrome, and a wash that changes the local contrast of a dot field is the
+  // last thing wanted by someone judging whether type is legible. The checkbox
+  // itself is untouched, so leaving the mode restores whatever it says.
+  const show = ui.stageGuideToggle.checked && !presenting
   ui.stageGuide.hidden = !show
   if (!show) return
   const style = stageGuideStyle(frame)
@@ -861,12 +1035,63 @@ function wire(): void {
    */
   ui.fullWidth.addEventListener('change', invalidateDisplayScale)
 
-  // Three triggers, because they fire in different situations and each one
-  // alone leaves a hole: `resize` misses a dpr change with no size change, the
-  // media query misses a plain window resize, and both miss a layout change
-  // that was not the window's doing (a panel growing, a scrollbar appearing).
+  /**
+   * Into presentation mode, without a reload.
+   *
+   * The URL flag is the real switch — the mode has to survive a pasted link —
+   * and this is only the discoverable way to set it. Deliberately
+   * `replaceState` + a class toggle rather than `location.search = …`: a
+   * navigation would stop playback, drop the raster cache and re-download the
+   * font, all to arrive at the same pixels.
+   *
+   * It is also the one place `requestFullscreen` can be called at all. It is
+   * gated on a user gesture by every engine, so a page entered via a typed
+   * `?present=1` gets presentation mode and the visitor's own F11; and the
+   * request is best-effort, because it is refused outright in a cross-origin
+   * iframe and by some enterprise policies, and the mode is useful without it.
+   */
+  ui.present.addEventListener('click', () => {
+    setPresenting(true)
+    syncPresentParam()
+    const request = document.documentElement.requestFullscreen?.()
+    if (request !== undefined) {
+      void request.catch(() => {
+        /* Refused. Presentation mode stands; the hint still says how to leave. */
+      })
+    }
+  })
+
+  /**
+   * Out of it.
+   *
+   * On `window` rather than on an element, because by this point every control
+   * is `display: none` and focus is on the body — there is nothing else left to
+   * listen on. Any other key only un-fades the hint, which is what makes "press
+   * something" a discoverable way back to the instructions.
+   */
+  window.addEventListener('keydown', event => {
+    if (!presenting) return
+    if (event.key !== 'Escape') {
+      flashHint()
+      return
+    }
+    event.preventDefault()
+    leavePresenting()
+  })
+  window.addEventListener('pointermove', flashHint)
+
+  // Four triggers, because they fire in different situations and each one alone
+  // leaves a hole: `resize` misses a dpr change with no size change, the media
+  // query misses a plain window resize, both miss a layout change that was not
+  // the window's doing (a panel growing, a scrollbar appearing), and
+  // `fullscreenchange` covers the engines that resize the viewport for
+  // fullscreen without dispatching a `resize` at all.
   window.addEventListener('resize', invalidateDisplayScale)
   watchDpr()
+  document.addEventListener('fullscreenchange', () => {
+    invalidateDisplayScale()
+    flashHint()
+  })
   new ResizeObserver(entries => {
     // Width only. Stacking the views changes their *height*, and reacting to
     // that would be reacting to our own last write.
@@ -874,6 +1099,31 @@ function wire(): void {
       if (Math.abs(entry.contentRect.width - lastViewsWidth) > 0.5) invalidateDisplayScale()
     }
   }).observe(ui.views)
+  /**
+   * The presentation stage, which is the only element whose *height* is an
+   * input to the scale.
+   *
+   * A second observer rather than a second branch in the one above, because the
+   * two react to different things: `ui.views` is a flow element whose height is
+   * partly our own doing, and this one is `position: fixed; inset: 0` in the
+   * mode where it matters, so its size is a pure function of the viewport and
+   * cannot be fed back into by anything written here.
+   *
+   * Gated on `presenting` so it is inert in the normal view, where this
+   * element's height tracks the canvas we just sized and a recompute would be a
+   * reaction to our own write.
+   */
+  new ResizeObserver(entries => {
+    if (!presenting) return
+    for (const entry of entries) {
+      if (
+        Math.abs(entry.contentRect.width - lastStageWidth) > 0.5 ||
+        Math.abs(entry.contentRect.height - lastStageHeight) > 0.5
+      ) {
+        invalidateDisplayScale()
+      }
+    }
+  }).observe(ui.canvasScroll)
 
   ui.width.addEventListener('change', () => {
     dispatch({ type: 'size', value: [coerceInt(ui.width.value, state.scene.size[0]), state.scene.size[1]] })
@@ -1075,6 +1325,12 @@ function boot(): void {
   wire()
   diagRow = middleRow()
   loadFromHash()
+  // After the scene, because entering the mode queues a paint. The URL is read
+  // and deliberately not rewritten: `?present` and `?present=1` both mean on,
+  // and normalising what the visitor typed on load would be a change to their
+  // address bar they did not ask for. `syncPresentParam` writes the canonical
+  // spelling only when the page itself changes the mode.
+  if (isPresenting(location.search)) setPresenting(true)
   syncControls()
   syncHash()
   void render()

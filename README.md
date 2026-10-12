@@ -29,7 +29,13 @@ npm run dev:site    # the static site, with live reload
 ```
 
 The site is a single static page with no backend — the scene lives in the URL hash, so a
-finished piece is a shareable link. `.github/workflows/pages.yml` publishes it on every
+finished piece is a shareable link. Append **`?present=1`** (a query parameter, not part
+of the hash — the hash is strictly the scene) and the page shows only the stereogram,
+centred at the largest *whole-number* scale that fits both axes, with the page background
+showing in the letterbox; `Esc` goes back. It is the view to fullscreen when judging
+whether type is legible. It never shrinks the plate — below 1:1 whole columns are dropped
+and the image stops fusing — so an over-large plate scrolls instead.
+`.github/workflows/pages.yml` publishes it on every
 push to `main`. CI deliberately runs both builds *before* the tests, because the
 Pages-critical assertions (relative asset paths, no Node code in the bundle) can only run
 against build output, and that output is gitignored — so without that ordering they skip
