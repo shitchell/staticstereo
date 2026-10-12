@@ -138,6 +138,31 @@ describe.skipIf(!fresh)('the built site', () => {
     expect(offenders).toEqual([])
   })
 
+  it('bundled the vendored woff2 for every weight, with a relative url', () => {
+    // The site's whole claim to agreeing with `stst` rests on these three
+    // files reaching the deploy. `site/fonts.test.ts` proves the @font-face
+    // rules name them; this proves vite emitted them and rewrote the urls
+    // *relatively*, which the generic root-relative check above cannot see
+    // because it would also pass for a stylesheet with no url() at all.
+    const woff2 = files.filter(f => f.endsWith('.woff2'))
+    expect(woff2).toHaveLength(3)
+    const bytes = woff2.reduce((a, f) => a + statSync(f).size, 0)
+    // Reported as an assertion with room, not pinned: the number is the tax a
+    // visitor pays, and it should fail loudly if a font upgrade triples it.
+    expect(bytes).toBeGreaterThan(30_000)
+    expect(bytes).toBeLessThan(120_000)
+
+    const cssText = files.filter(f => f.endsWith('.css'))
+      .map(f => readFileSync(f, 'utf8')).join('\n')
+    const urls = [...cssText.matchAll(/url\(\s*['"]?([^'")]+)/g)].map(m => m[1]!)
+      .filter(u => u.endsWith('.woff2'))
+    expect(urls).toHaveLength(3)
+    for (const url of urls) {
+      expect(url.startsWith('./')).toBe(true)
+      expect(existsSync(join(DIST, 'assets', url.slice(2)))).toBe(true)
+    }
+  })
+
   it('really did bundle core and the GIF encoder', () => {
     // The positive control for every grep above. Without it a build that
     // emitted an empty bundle would pass all of them.

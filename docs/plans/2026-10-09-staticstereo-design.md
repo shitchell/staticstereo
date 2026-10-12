@@ -806,6 +806,11 @@ encoding bug.
      Sans, not DejaVu Sans — so the site and the CLI may render the same scene 10–25%
      apart in stroke width. Overriding the browser's own resolution would be worse.
 
+  > **Point 5 was superseded the same week, by the entry below.** It was right that
+  > overriding the *browser's* generic mapping would be worse, and wrong to conclude the
+  > disagreement had to stand: the third option — stop asking either host — was not
+  > considered here.
+
   Measurement fallout, corrected in the README, `examples/scrolling-text.yaml`,
   `src/node/metamorphic.real.test.ts`, `site/legibility.ts`, `site/index.html` and
   §9 of `docs/2026-10-09-testing-retrospective.md`: the published stroke table
@@ -815,6 +820,64 @@ encoding bug.
   the dingbat measurement to the pixel; and the "GitHub's runner has a real 900 face"
   story is replaced by synthesised weight (Chromium: `900` byte-identical to `bold`;
   `@napi-rs/canvas`: +13–25%).
+
+
+### The sans-serif face is vendored, not resolved from the host (2026-10-11)
+
+- **Status**: Accepted
+- **Context**: Shaun, on the generic-family fix above: *"i might review if that causes bad
+  maths for us anywhere. ideally, changing font faces would not break any maths we're
+  performing"*, and *"can we have a fallback ttf linked to? e.g.: from google fonts?"*.
+  Resolving `sans-serif` to a system family had fixed the dingbats and left two problems
+  the entry above records and accepts: the face was a property of the host (DejaVu Sans
+  here, something else on CI or macOS), and the browser resolved the same generic
+  differently (Liberation Sans in Chromium on this machine), so the site's legibility
+  panel and `stst` reported stroke widths 10–25% apart for one scene with neither being
+  wrong. Both `fonts.googleapis.com` and `raw.githubusercontent.com/google/fonts` were
+  reachable, and `GlobalFonts.registerFromPath` exists.
+- **Rationale**: Shaun asked for the vendored fallback and approved defaulting `--text` to
+  bold (*"i think absolutely, it should default to bold. it's immensely difficult to read
+  the default text"*). The rest is reasoning applied under delegated authority:
+
+  1. **Vendored into the repository, never fetched.** `assets/fonts/` holds the files and
+     the OFL text. A build that reaches the network is a build that breaks offline, and a
+     *runtime* fetch would put the face behind a network failure on a CLI.
+  2. **One face, pointed at from both adapters.** Node registers the TTFs under a family
+     name of this project's own and puts it *first* in the sans chain; the site declares
+     the same files as WOFF2 under the same name and `src/web/canvas.ts` rewrites
+     `sans-serif` to it. The WOFF2s are produced from the subset TTFs, so the two formats
+     carry byte-identical `glyf` and `hmtx`. Measured against a headless Chromium:
+     advances agree to 0.0054% and the project's stroke statistic agrees exactly in 11 of
+     16 cells and by 1px in the other 5 (hinting at the half-peak threshold).
+  3. **Inter, for its real 900.** Every system family in the old chain declares only 400
+     and 700, which is why `weight: 900` was synthesised by `@napi-rs/canvas` and ignored
+     by Chromium, and why a test pinning a 900-vs-bold ratio passed here and failed on
+     CI. Inter declares 400/700/900; the gain is now +35% over bold in *both* rasterisers.
+     Noto Sans would have been cheaper (31 KB/14 KB per weight against 58 KB/21 KB) and
+     was rejected because its 900 lands exactly on the 18px budget at 90px where Inter's
+     clears it at 19px.
+  4. **Latin-subset, and the loss is stated rather than discovered.** 285 codepoints —
+     ASCII, Latin-1, general punctuation — at 174 KB of TTF and 62 KB of WOFF2 for three
+     weights, against 341–344 KB per unsubset instance. A scene with CJK or emoji does
+     not regress to dingbats (that needed an *unresolvable* family); both hosts do
+     per-glyph fallback down the rest of the list, so the text renders in a face neither
+     adapter chose and the two sides can then disagree about its width. See
+     `assets/fonts/PROVENANCE.txt`.
+  5. **Registration failure degrades, loudly.** A missing or refused file leaves the
+     system chain as the answer for `sans-serif` — what this adapter did yesterday — plus
+     one `process.emitWarning`. A throw would turn a cosmetic regression into a dead CLI;
+     silence is what let the dingbats ship for a day.
+
+  **Two claims were refuted by measurement while doing this, and both had been used as
+  justification.** First, "at 90px bold the stroke measures ~18px, exactly the default
+  disparity budget": that is DejaVu Sans, which is a 24–29% heavy outlier against every
+  mainstream sans. Through the vendored face 90px bold is **14px**, still under the
+  budget, so defaulting `--text` to bold improves it by 56% and does not fix it — the
+  smallest size reaching 18px is 182px regular, 110px bold or 83px at 900. `--font-weight`
+  was added so the 900 that now exists is reachable, and 90px/900 is 19px. Second, the
+  site's own prose said `900` "most likely buys you nothing" in a browser; with a real 900
+  face Chromium measures 23px → 31px at 150px, so that sentence is now false and is
+  corrected.
 
 ---
 

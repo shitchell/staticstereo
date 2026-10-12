@@ -118,7 +118,7 @@ carries a disparity of `Δ = sepFar - sep(z) <= sepFar - sepNear = 18px`, so its
 monocular images sit `Δ` apart. For a feature of width `F < Δ` those two images are
 *disjoint* — there is no overlap to establish correspondence, and the only evidence for
 the near match is `F` random pixels competing against a globally consistent wallpaper
-hypothesis at `sepFar`. 90px text has ~10px strokes; `Δ` is 18.
+hypothesis at `sepFar`. 90px regular text has ~9px strokes (~14px bold); `Δ` is 18.
 
 This derivation appears nowhere — not in the POC, not in the design. The POC gets as far
 as *"keep [the budget] ~10-20% of sep_far: more is 'deeper' but artifacts explode and
@@ -259,7 +259,7 @@ Short enough to actually use. Every item has a shipped defect behind it.
 3. **List every input the inner loop reads.** Is any of it implicit — a cursor, a cache, a
    counter — declared outside the loop that consumes it? *(defect 2)*
 4. **What is the smallest feature the current budget can express, and is anything in the
-   scene narrower?** `sepFar - sepNear` is the number; 90px text has 10px strokes.
+   scene narrower?** `sepFar - sepNear` is the number; 90px regular text has 9px strokes.
    *(defect 4)*
 5. **For each new or changed default, name the test that fails if it changes** — and say
    whether that test measures a *consequence* or merely restates the literal. If only the

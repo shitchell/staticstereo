@@ -30,6 +30,7 @@ import { depthToRgba, greyToRgba } from './depthmap.js'
 import { describeReadout, expectedPeriods, periodWindow, readRow, readSegment } from './diagnostics.js'
 import { describeLegibility, measureInk, soloLayerScene } from './legibility.js'
 import { DEFAULT_EXAMPLE, EXAMPLES } from './examples.js'
+import { loadVendoredFont } from './fonts.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
 import { validateScene } from './scene.js'
 import { stageGuideLabel, stageGuideStyle } from './stageguide.js'
@@ -302,7 +303,11 @@ async function updateLegibility(
   const depth = scene.layers.length === 1
     ? composited
     : await rasterDepth(soloLayerScene(scene, index), seconds, surface, cache)
-  ui.legibility.textContent = describeLegibility(measureInk(depth, w, h), stereo)
+  const line = describeLegibility(measureInk(depth, w, h), stereo)
+  // The font warning rides along with the measurement it invalidates rather
+  // than going to the error banner, which is for things the user typed.
+  ui.legibility.textContent =
+    fontProblem === undefined ? line : `${line} — WARNING: ${fontProblem}`
 }
 
 /* ----------------------------------------------------------------- render */
@@ -328,7 +333,29 @@ function render(): Promise<void> {
   return next
 }
 
+/**
+ * The vendored webfont, awaited before the first glyph is drawn.
+ *
+ * Started in `boot()` and awaited at the top of every paint, rather than
+ * gating `boot()` itself: the controls and the error banner should be usable
+ * while 62 KB of font arrives, and awaiting an already-settled promise costs a
+ * microtask. See `site/fonts.ts` for why the wait is not optional — canvas
+ * text in a declared-but-unloaded face falls back silently, and a frame drawn
+ * in the wrong face is a frame whose measured stroke width is wrong.
+ */
+let fontReady: Promise<void> = Promise.resolve()
+
+/** Set once if the font degraded; reported beside the legibility readout. */
+let fontProblem: string | undefined
+
+function startFontLoad(): void {
+  fontReady = loadVendoredFont().then(result => {
+    if (result.problem !== undefined) fontProblem = result.problem
+  })
+}
+
 async function paint(): Promise<void> {
+  await fontReady
   const problem = sceneError(state.scene)
   if (problem !== undefined) {
     // The last good frame stays on screen underneath the message. Blanking the
@@ -460,17 +487,21 @@ function selectedLayerIndex(): number {
  * font stack has and whether their browser synthesises the rest. Offering nine
  * numbered steps would imply nine distinguishable results.
  *
- * `900`'s label hedges with "may be identical to bold" rather than "if the font
- * has it", because measured, no installed family here *has* it — DejaVu Sans,
- * Liberation Sans and Noto Sans declare only 400 and 700 — and Chromium renders
- * `900` byte-identically to `bold` in all three. The honest caveat is about the
- * rasteriser faking the weight, not about a face existing.
+ * `900`'s label used to hedge with "may be identical to bold", and that was
+ * right: no installed family *had* a 900 — DejaVu Sans, Liberation Sans and
+ * Noto Sans declare only 400 and 700 — and Chromium rendered `900`
+ * byte-identically to `bold` in all three. The vendored face changes the fact
+ * and not the need for a hedge. It declares a real 900, measured here at
+ * 23px → 31px over bold for 150px `STATIC`; but it is a *webfont*, so if
+ * `site/fonts.ts` cannot load it the engine's own sans takes over and the old
+ * collapse comes straight back. Hence "if the webfont loaded" — a condition the
+ * reader can check, rather than a vaguer "may".
  */
 const WEIGHTS: ReadonlyArray<[value: string, label: string]> = [
   ['', 'default (unspecified)'],
   ['normal', 'normal'],
   ['bold', 'bold'],
-  ['900', '900 (may be identical to bold)'],
+  ['900', '900 (a real face, if the webfont loaded)'],
 ]
 
 function currentPresetKind(layer: Layer | undefined): string {
@@ -897,6 +928,7 @@ function wire(): void {
 
 function boot(): void {
   ui = collectElements()
+  startFontLoad()
   wire()
   diagRow = middleRow()
   loadFromHash()

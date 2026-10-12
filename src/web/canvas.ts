@@ -1,6 +1,7 @@
 import type {
   CanvasLike, Ctx2D, DecodedGif, DecodedImage,
 } from '../core/canvaslike.js'
+import { VENDORED_FAMILY, rewriteFontFamilies } from '../shared/fontspec.js'
 import { decodeGif } from '../shared/gif.js'
 import { anyTransparent } from '../shared/pixels.js'
 
@@ -68,6 +69,105 @@ function describeCause(err: unknown): string {
   return String(err)
 }
 
+/* ===================================================================== */
+/* THE VENDORED FACE                                                     */
+/* ===================================================================== */
+
+/**
+ * Point `sans-serif` at the vendored face, so this adapter and the Node one
+ * rasterise the same outlines.
+ *
+ * **Unlike Node, the browser's own generic mapping is correct**, so there is
+ * nothing to fix here — there is something to *agree* on. `core` asks for
+ * `sans-serif`; Chromium answered that with Liberation Sans on the machine
+ * this was measured on while the Node adapter answered DejaVu Sans, and the
+ * site's legibility panel therefore disagreed with `stst` by 10–25% on every
+ * stroke width. Rewriting the generic to {@link VENDORED_FAMILY} — the
+ * `@font-face` family `site/styles.css` declares over
+ * `assets/fonts/inter-*.woff2`, byte-identical in `glyf` and `hmtx` to the
+ * TTFs Node registers — removes the disagreement at its source.
+ *
+ * **Only `sans-serif`, and only when the face is really there.** The other
+ * generics are left to the engine, which knows its own host. And a webfont that
+ * has not finished loading is not usable from a canvas: `fillText` with an
+ * unavailable family falls back silently, which is the same class of failure as
+ * the dingbats. So availability is checked rather than assumed, through
+ * `FontFaceSet.check`, and when the answer is no the generic is passed through
+ * untouched and the engine's own sans is used — today's behaviour, not a
+ * regression. `site/fonts.ts` is what makes the answer become yes.
+ *
+ * Cached once it turns true, because a loaded font cannot unload and `check`
+ * is then called on every `ctx.font` assignment, i.e. once per text layer per
+ * frame.
+ */
+let vendoredAvailable = false
+
+function fontSet(): FontFaceSet | undefined {
+  // `document.fonts` on a page, `self.fonts` in a worker — both are
+  // `FontFaceSet`, and OffscreenCanvas is reachable from either.
+  if (typeof document !== 'undefined' && document.fonts) return document.fonts
+  const scope = globalThis as { fonts?: FontFaceSet }
+  return scope.fonts
+}
+
+/** Is the vendored family loaded and usable for canvas text right now? */
+export function vendoredFontAvailable(): boolean {
+  if (vendoredAvailable) return true
+  const fonts = fontSet()
+  if (!fonts || typeof fonts.check !== 'function') return false
+  try {
+    // A size is mandatory in the shorthand `check` parses; 16px is arbitrary
+    // and does not affect the answer, which is per family and weight.
+    vendoredAvailable = fonts.check(`16px "${VENDORED_FAMILY}"`)
+  } catch {
+    // An invalid shorthand throws per spec. Quoted family plus a size cannot
+    // be invalid, but a non-conforming engine must degrade, not break drawing.
+    vendoredAvailable = false
+  }
+  return vendoredAvailable
+}
+
+/** The rewrite applied to every `font` assignment on a context from here. */
+export function resolveWebFont(
+  font: string, available: () => boolean = vendoredFontAvailable,
+): string {
+  return rewriteFontFamilies(font, key =>
+    key === 'sans-serif' && available() ? VENDORED_FAMILY : undefined)
+}
+
+/**
+ * Shadow `font` on one context so assignments pass through the rewrite.
+ *
+ * Same technique and the same reasoning as the Node adapter's `interceptFont`:
+ * an own accessor on the instance, so every other member stays native and no
+ * method loses its receiver. Unlike Node's, this one **cannot throw** when the
+ * accessor is missing — a browser without `font` on its 2D context prototype
+ * does not exist, and the fallback (leave the property alone) is a correct
+ * rendering in the engine's own sans rather than a dead page.
+ *
+ * **Exported only because it is otherwise untestable.** `make()` needs
+ * `OffscreenCanvas`, which node does not have, so deleting the call to this
+ * function from `make()` broke no test — a mutation that survived. The
+ * mechanism is now exercised against a stand-in object carrying a `font`
+ * accessor on its prototype (`canvas.test.ts`), and the *call site* is pinned
+ * by a source assertion in the same file, in the manner `site/markup.test.ts`
+ * and `src/core/purity.test.ts` already use for contracts no runtime here can
+ * reach.
+ */
+export function interceptFont(ctx: object): void {
+  const proto = Object.getPrototypeOf(ctx) as object
+  const desc = Object.getOwnPropertyDescriptor(proto, 'font')
+  if (typeof desc?.get !== 'function' || typeof desc.set !== 'function') return
+  const get = desc.get
+  const set = desc.set
+  Object.defineProperty(ctx, 'font', {
+    configurable: true,
+    enumerable: true,
+    get: () => get.call(ctx) as string,
+    set: (value: string) => { set.call(ctx, resolveWebFont(String(value))) },
+  })
+}
+
 /**
  * Bytes for any URL the platform can fetch: `http(s):`, `data:`, `blob:`, or a
  * site-relative path.
@@ -101,6 +201,10 @@ export function webCanvas(): CanvasLike {
           `canvas was already claimed by another context type.`,
         )
       }
+      // Every surface core can draw text on goes through the generic rewrite.
+      // Per context rather than once on the prototype, so a caller using
+      // OffscreenCanvas directly keeps the platform's own semantics.
+      interceptFont(ctx)
       return asCtx2D(ctx)
     },
 

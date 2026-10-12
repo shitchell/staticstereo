@@ -256,6 +256,27 @@ explicitly, to the pixel. The second column remains unexplained; nothing in a te
 three-threshold × three-string sweep came within ±1 of it, and the honest statement is
 that the numbers in the table above are the ones that reproduce.
 
+> **Second postscript, 2026-10-11: the face moved again, and the re-measured column above
+> is now historical too.** The fix recorded here resolved `sans-serif` to the first
+> *installed* family, which on this host is DejaVu Sans — so every figure in the
+> "re-measured" column is a DejaVu measurement, and DejaVu's bold turns out to be a 24–29%
+> heavy outlier against every mainstream sans. The face is now **vendored** (three
+> Latin-subset instances of Inter in `assets/fonts/`, registered ahead of the system chain
+> and declared to the browser over `@font-face`), so these numbers are reproducible from a
+> checkout for the first time. The same cells read:
+>
+> | cell | dingbats (published) | DejaVu Sans (first fix) | vendored face (now) |
+> |---|---|---|---|
+> | 150px bold: median / max / floor | 13 / 114 / 108 | 29 / 102 / 108 | 24 / 90 / 108 |
+> | normal 90 / normal 150 / bold 240 / bold 360 | 10 / 17 / 57 / 84 | 10 / 16 / 46 / 68 | 9 / 15 / 37 / 55 |
+> | 900 over bold | identical | synthesised, +15–25% (Chromium: identical) | **a real face**, +35% in both |
+>
+> Which sharpens the third lesson below rather than adding a fourth: the first fix made the
+> face *deterministic per host* and that was still not enough to make a published number
+> mean anything, because "per host" includes the reader's host. Only vendoring the file
+> made the table checkable by someone else. The 1.7%-above-the-floor claim in the first row
+> has now been wrong twice and right once; it is 0% in both real faces.
+
 **Three transferable lessons, in increasing order of generality.**
 
 1. **A silent substitution is worse than an error.** Three separate things measured this

@@ -112,18 +112,27 @@ describe('the font-weight options main.ts offers', () => {
   })
 
   it('does not imply a heavier weight always helps', () => {
-    // What a numbered weight buys is the RASTERISER's call, not our code's and
-    // not really the font stack's: DejaVu Sans, Liberation Sans and Noto Sans
-    // all declare only 400 and 700, Chromium renders `900` byte-identically to
-    // `bold` in every one of them, and `@napi-rs/canvas` synthesises it at
-    // +13–25%. (The earlier version of this comment blamed a "real 900 face" on
-    // GitHub's runner for the +15% there; it was synthesis on a different
-    // silent font fallback — see §9 of
-    // docs/2026-10-09-testing-retrospective.md.) So a numbered weight has to be
-    // labelled as conditional, and the page has to say so in prose too.
+    // **This assertion survived a change in the underlying fact, and the fact is
+    // what moved.** It used to rest on there being no 900 face anywhere: DejaVu
+    // Sans, Liberation Sans and Noto Sans all declare only 400 and 700,
+    // Chromium rendered `900` byte-identically to `bold` in every one of them,
+    // and `@napi-rs/canvas` synthesised it at +13-25%. (An earlier version of
+    // this comment blamed a "real 900 face" on GitHub's runner for the +15%
+    // there; it was synthesis on a different silent font fallback — see §9 of
+    // docs/2026-10-09-testing-retrospective.md.)
+    //
+    // The vendored face *does* declare a real 900, so "may be identical to
+    // bold" is no longer the honest hedge. The hedge that replaces it is
+    // narrower and checkable: the face is a webfont, and if it does not load the
+    // page falls back to the engine's own sans and the collapse returns. So the
+    // label must still be conditional, and the page must still name the
+    // condition in prose — which is what is asserted, rather than any particular
+    // claim about font stacks.
     const nine = main.match(/^\s*\['900',\s*'([^']*)'\],$/m)
     expect(nine?.[1], 'the 900 option needs a hedged label').toMatch(/if|may|might|when/i)
-    expect(html).toMatch(/is a request, not a guarantee/)
+    expect(html).toMatch(/is a request, not a\s+guarantee/)
+    // And the condition itself, not just the hedge.
+    expect(html).toMatch(/fails to load/)
   })
 })
 
@@ -166,5 +175,37 @@ describe('the markup keeps the promises the page cannot test in node', () => {
     expect(html).toContain(pkg.license)
     expect(readFileSync(join(SITE, '..', 'LICENSE'), 'utf8'))
       .toContain('DO WHAT THE FUCK YOU WANT TO')
+  })
+})
+
+describe('the vendored webfont is loaded before anything is drawn', () => {
+  /**
+   * **Two source assertions, for a contract no test here can execute.**
+   *
+   * `main.ts` has no unit tests on purpose — `OffscreenCanvas` does not exist
+   * under node and jsdom does not rasterise — and the failure being guarded is
+   * silent in the worst way: `fillText` in a declared-but-unloaded family draws
+   * in a fallback face without complaint, so a frame rendered before the font
+   * arrives has a *wrong depth map* that looks exactly like a correct one, and
+   * the legibility panel measures it and reports a number.
+   *
+   * Deleting either half — the `startFontLoad()` in `boot()` or the
+   * `await fontReady` at the top of `paint()` — leaves every test in the repo
+   * green. So they are pinned the same way the element ids above are, with the
+   * same justification, and the regexes are guarded against matching nothing.
+   */
+  it('boot() starts the load', () => {
+    const boot = /function boot\(\): void \{([\s\S]*?)\n\}/.exec(main)?.[1]
+    expect(boot, 'the boot() body regex matched nothing').toBeDefined()
+    expect(boot).toContain('startFontLoad()')
+  })
+
+  it('paint() awaits it before it rasterises, and before anything else', () => {
+    const paint = /async function paint\(\): Promise<void> \{([\s\S]*?)\n\}/.exec(main)?.[1]
+    expect(paint, 'the paint() body regex matched nothing').toBeDefined()
+    expect(paint).toContain('await fontReady')
+    // First statement, not merely present: awaiting it after the first
+    // `rasterDepth` would still draw one frame in the wrong face.
+    expect(paint!.trimStart().startsWith('await fontReady')).toBe(true)
   })
 })

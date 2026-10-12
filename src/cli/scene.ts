@@ -446,12 +446,45 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
  * `measurer()` in `index.ts` measures through the same injected `CanvasLike`,
  * both sides of the centring see the same resolution. Hardcoding a family here
  * instead would be wrong on every host but one.
+ *
+ * Since the fonts were vendored that resolution lands on `VENDORED_FAMILY`
+ * (`assets/fonts/inter-*.ttf`) rather than on whatever system sans happens to
+ * be installed, so the width measured here is now reproducible across hosts —
+ * but the reason this stays a generic is unchanged: naming the vendored family
+ * here would hardcode the adapter's answer into the CLI and break the day a
+ * registration fails and the system chain takes over.
  */
 export const TEXT_FONT_FAMILY = 'sans-serif'
 /** Default canvas for `--text`, matching the design doc's example scene. */
 export const TEXT_SCENE_SIZE: readonly [number, number] = [800, 450]
 /** Default type size for `--text`, also from the design doc's example. */
 export const TEXT_FONT_SIZE = 90
+
+/**
+ * Default weight for `--text`. **Bold, not normal**, and not for taste.
+ *
+ * The project's one hard legibility rule is that a feature narrower than
+ * `sepFar - sepNear` carries no unambiguous disparity and cannot be fused at
+ * all. That budget is 18px at the defaults. Measured through the vendored face
+ * at this size, the median stroke is 9px regular and 14px bold — so the regular
+ * default produced a headline one-liner (`stst still --text HELLO`) that nobody
+ * could see, and bold is a 56% improvement for free.
+ *
+ * **It is still not enough, and that should be said plainly here rather than
+ * only in the README.** 14px is below the 18px budget, so `--text` at its
+ * defaults is *less* illegible, not legible. What clears the budget at 90px is
+ * `--font-weight 900` (19px), which the vendored face can honour because it
+ * ships a real 900; before vendoring, `900` was a weight the rasteriser faked
+ * and the browser ignored. Raising the size works too — bold reaches 19px at
+ * 120px type.
+ *
+ * Why bold is the default rather than 900: bold is what an author means by
+ * "heavy text", every face has one, and 900 at 90px is heavy enough to look
+ * like a deliberate style choice rather than a readable default. The honest
+ * summary is that no weight at 90px is comfortable, and the budget — not the
+ * type — is the reason.
+ */
+export const TEXT_FONT_WEIGHT = 'bold'
 
 /** Measure rendered text width. Injected so this module needs no canvas. */
 export type MeasureText = (text: string, font: string) => number
@@ -482,7 +515,16 @@ export type MeasureText = (text: string, font: string) => number
 export function textScene(args: CliArgs, measure: MeasureText): Scene {
   const text = args.text ?? ''
   const [w, h] = args.size ?? TEXT_SCENE_SIZE
-  const fontOf = (size: number): string => `${size}px ${TEXT_FONT_FAMILY}`
+  const weight = args.fontWeight ?? TEXT_FONT_WEIGHT
+  // **Assembled exactly the way `raster.ts` assembles it** — weight, then size,
+  // then family, joined by single spaces — because the two strings have to
+  // measure the same. They did not when the weight was added here and left out
+  // of the measurement: bold is 2–4% wider than regular at the same size, so
+  // the centring was off by half of that and the shrink-to-fit let an over-wide
+  // string overflow. A fragile dependency made face-independent by construction
+  // rather than by a tolerance.
+  const fontOf = (size: number): string =>
+    [weight, `${size}px`, TEXT_FONT_FAMILY].filter(Boolean).join(' ')
 
   let size = args.fontSize ?? TEXT_FONT_SIZE
   let width = measure(text, fontOf(size))
@@ -500,6 +542,7 @@ export function textScene(args: CliArgs, measure: MeasureText): Scene {
     text,
     size,
     font: TEXT_FONT_FAMILY,
+    weight,
     at: args.at ?? [Math.round((w - width) / 2), Math.round((h - size) / 2)],
   }
   if (args.depth !== undefined) layer.depth = args.depth

@@ -67,6 +67,15 @@ export interface CliArgs {
   /* `--text` scene construction */
   size?: [number, number]
   fontSize?: number
+  /**
+   * `--font-weight`: a CSS font-weight for the `--text` layer.
+   *
+   * Absent means `TEXT_FONT_WEIGHT`, which is `bold` — see `scene.ts` for why
+   * the default is not `normal`. Kept as the raw string rather than parsed:
+   * `bold`, `900` and `lighter` are all legal CSS and the rasteriser, not this
+   * parser, is what decides whether a request can be honoured.
+   */
+  fontWeight?: string
   depth?: number
 
   mp4: Mp4Overrides
@@ -93,6 +102,7 @@ Scene source:
   --text <string>          build a one-layer text scene instead
   --size <WxH>             scene size for --text (default 800x450)
   --font-size <px>         type size for --text (default 90, shrunk to fit)
+  --font-weight <w>        type weight for --text (default bold; try 900)
   --depth <0..1>           layer depth for --text (default 1, nearest)
   --at <x,y>               place the layer; overrides the scene's own \`at\`
 
@@ -163,7 +173,8 @@ const FLAGS = new Set([
 
 /** Flags that take a value. `-o` is the one short alias worth having. */
 const VALUED = new Set([
-  '-o', '--output', '--text', '--depth-map', '--size', '--font-size', '--depth',
+  '-o', '--output', '--text', '--depth-map', '--size', '--font-size',
+  '--font-weight', '--depth',
   '--at', '--at-time', '--fps', '--duration',
   '--sep-far', '--sep-near', '--noise-scale', '--depth-blur', '--seed',
   '--algorithm',
@@ -190,6 +201,25 @@ function algorithm(flag: string, raw: string): SirdsAlgorithm {
   throw new UsageError(
     `option "${flag}" expects one of: ${SIRDS_ALGORITHMS.join(', ')} — got "${raw}"`,
   )
+}
+
+/**
+ * Check a CSS font-weight, without interpreting it.
+ *
+ * Only emptiness is rejected, and only because `validateScene` requires a
+ * non-empty string — which it requires so that `weight: ""` cannot reach the
+ * rasteriser as a token that silently makes the whole `font` shorthand
+ * unparseable. Everything else is passed through: the set of honourable
+ * weights is a property of the face, and the face is not known here.
+ */
+function weight(flag: string, raw: string): string {
+  if (raw.trim() === '') {
+    throw new UsageError(
+      `option "${flag}" expects a CSS font-weight such as normal, bold or 900, ` +
+      `got an empty value`,
+    )
+  }
+  return raw
 }
 
 /** Parse an `x,y` or `WxH` pair. */
@@ -279,6 +309,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '--size': args.size = pair(flag, value, 'WxH'); break
       case '--at': args.at = pair(flag, value, 'x,y'); break
       case '--font-size': args.fontSize = num(flag, value); break
+      case '--font-weight': args.fontWeight = weight(flag, value); break
       case '--depth': args.depth = num(flag, value); break
       case '--at-time': args.atTime = num(flag, value); break
       case '--fps': args.fps = num(flag, value); break

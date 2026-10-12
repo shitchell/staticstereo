@@ -24,12 +24,13 @@
  * sans has the opposite and much larger relation. Measured ink-extent ratios,
  * `WWW` ÷ `III`:
  *
- * | family                       | 90px  | 240px |
- * |------------------------------|-------|-------|
- * | the unresolved fallback       | 0.944 | 0.946 |
- * | DejaVu Sans                   | 4.210 | 4.193 |
- * | Liberation Sans               | 4.322 | 4.346 |
- * | Noto Sans                     | 2.929 | 2.938 |
+ * | family                         | 90px  | 240px |
+ * |--------------------------------|-------|-------|
+ * | the unresolved fallback        | 0.944 | 0.946 |
+ * | the vendored face (what `sans-serif` resolves to now) | 4.667 | 4.664 |
+ * | DejaVu Sans                    | 4.210 | 4.193 |
+ * | Liberation Sans                | 4.322 | 4.346 |
+ * | Noto Sans                      | 2.929 | 2.938 |
  *
  * A threshold of 2 separates those by a factor of 1.5 on the tight side and 4.5
  * on the loose one, and the quantity is scale-invariant, which is why the same
@@ -73,6 +74,15 @@ const canvas = nodeCanvas()
  * Calibrated, not derived: the narrowest real family measured here is Noto Sans
  * at 2.93 and the widest substitute rendering is 1.0 (a perfect monospace), so
  * 2 is the round number in the middle of a gap that spans a factor of three.
+ *
+ * Unchanged by vendoring the face, deliberately. The vendored family sits at
+ * 4.67, the *loosest* of the real families measured, so the margin on the tight
+ * side still comes from Noto Sans — a family nothing resolves to any more but
+ * which an author can still name explicitly. Re-tightening the threshold around
+ * the one face this now resolves to would turn a test of "are these Latin
+ * glyphs" into a test of "is this our font", which is
+ * `canvas.vendored.test.ts`'s job and is answered there by a much sharper
+ * discriminator.
  */
 const LATIN_RATIO = 2
 

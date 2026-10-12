@@ -4,6 +4,9 @@ import { fileURLToPath } from 'node:url'
 import type {
   CanvasLike, Ctx2D, DecodedGif, DecodedImage,
 } from '../core/canvaslike.js'
+import {
+  VENDORED_FAMILY, VENDORED_WEIGHTS, rewriteFontFamilies, vendoredFontPath,
+} from '../shared/fontspec.js'
 import { decodeGif } from '../shared/gif.js'
 import { anyTransparent } from '../shared/pixels.js'
 
@@ -63,14 +66,125 @@ function asCtx2D(ctx: unknown): Ctx2D {
  * override. So `core` keeps asking for `sans-serif` — the right request — and
  * the adapter answers it, in the same file as the one other documented
  * platform quirk.
+ *
+ * **Why resolving to a system family was not enough.** It fixed the dingbats
+ * and left two problems. The face was still a property of the host — DejaVu
+ * Sans here, something else on a macOS or CI runner, and the README's stroke
+ * table is only true of one of them. And the browser resolves the same generic
+ * by its own rules, measured as Liberation Sans in Chromium on this machine, so
+ * the site's legibility panel and `stst` reported different numbers for the
+ * same scene and neither was wrong. The fix for both is to stop asking the host:
+ * `assets/fonts/inter-{400,700,900}.ttf` are vendored into the repository,
+ * registered here under {@link VENDORED_FAMILY}, and put **first** in the sans
+ * chain, with the system families kept behind them as the degradation path. The
+ * browser declares the same three files, under the same family name, via
+ * `@font-face` in `site/styles.css`. See `assets/fonts/PROVENANCE.txt`.
  */
 
+/* ===================================================================== */
+/* THE VENDORED FACE                                                     */
+/* ===================================================================== */
+
 /**
- * Preference order per generic. Verified against `GlobalFonts.has` on this
- * machine: of the sans list `DejaVu Sans`, `Liberation Sans` and `Noto Sans` are
- * present and `Arial`/`Helvetica` are not; same pattern for serif and mono. The
- * absent names are kept because they are what a macOS or Windows host has, and
- * a candidate that is missing costs one `has()` call.
+ * What one attempt to register `assets/fonts/inter-*.ttf` produced.
+ *
+ * Exported because it is the only honest answer to "which face am I looking
+ * at?", and because `canvas.vendored.test.ts` has to be able to tell the
+ * vendored face from a system fallback — the two differ by 20–30% on every
+ * stroke measurement this project makes, so a test that cannot distinguish them
+ * is a test that passes while the font layer is broken. Which is the failure
+ * this whole file is a monument to.
+ */
+export interface VendoredFont {
+  readonly family: string
+  /** `GlobalFonts.has(family)` after registering — the authoritative answer. */
+  readonly registered: boolean
+  /** Absolute paths, in registration order. */
+  readonly files: readonly string[]
+  /** Weights `GlobalFonts` reports for the family; `[]` when unregistered. */
+  readonly weights: readonly number[]
+  /** Per-file reasons, when something went wrong. Empty on success. */
+  readonly problems: readonly string[]
+}
+
+let attempt: VendoredFont | undefined
+
+/**
+ * Register the vendored face, once per process, and report what happened.
+ *
+ * **Lazy rather than at module load.** Importing this adapter must not have
+ * side effects for a caller who only wants `loadGif`, and the laziness is also
+ * what makes the ordering safe: every path that resolves a generic family goes
+ * through {@link fontIsInstalled}, which calls this first, so the registration
+ * cannot lose a race with the resolution that depends on it.
+ *
+ * **It degrades, it does not throw.** A missing or corrupt file leaves the
+ * system chain below as the answer for `sans-serif`, which is what this adapter
+ * did before the files existed — worse-looking output, not dingbats, because
+ * the generic still resolves to *something installed*. A throw here would turn
+ * a cosmetic regression into a dead CLI. One `process.emitWarning` is the
+ * compromise: silence is what let the dingbats ship for a whole day.
+ */
+function registerVendoredFont(): VendoredFont {
+  const root = new URL('../../', import.meta.url)
+  const files = VENDORED_WEIGHTS.map(w =>
+    fileURLToPath(new URL(vendoredFontPath(w, 'ttf'), root)))
+  const problems: string[] = []
+  for (const path of files) {
+    let key: unknown = null
+    try {
+      key = GlobalFonts.registerFromPath(path, VENDORED_FAMILY)
+    } catch (err) {
+      problems.push(`${path}: ${describeCause(err)}`)
+      continue
+    }
+    // `registerFromPath` returns null for a missing file and for a file that is
+    // not a font; measured, it throws for neither.
+    if (key === null) problems.push(`${path}: @napi-rs/canvas refused the file`)
+  }
+
+  const registered = GlobalFonts.has(VENDORED_FAMILY)
+  const weights = registered
+    ? (GlobalFonts.families.find(f => f.family === VENDORED_FAMILY)?.styles ?? [])
+      .map(s => s.weight)
+    : []
+
+  if (!registered) {
+    process.emitWarning(
+      `staticstereo: could not register the vendored font family ` +
+      `"${VENDORED_FAMILY}" from ${files.join(', ')}` +
+      `${problems.length > 0 ? ` (${problems.join('; ')})` : ''}. ` +
+      `Text will be drawn with whichever system sans is installed instead, so ` +
+      `measurements will not match the stroke table in the README and the ` +
+      `browser build will not agree with this one.`,
+    )
+  }
+  return { family: VENDORED_FAMILY, registered, files, weights, problems }
+}
+
+/** The one registration attempt, memoised. Safe to call on every lookup. */
+export function vendoredFont(): VendoredFont {
+  attempt ??= registerVendoredFont()
+  return attempt
+}
+
+/**
+ * Preference order per generic. **The vendored face is first**, which is the
+ * point of vendoring it: the face is then a property of this repository rather
+ * than of the host, and the browser resolves the same generic to the same
+ * family (see `src/web/canvas.ts`), so the site's legibility panel and `stst`
+ * stop measuring different fonts for the same scene.
+ *
+ * The system families stay behind it as the degradation path. Verified against
+ * `GlobalFonts.has` on this machine: of the sans list `DejaVu Sans`,
+ * `Liberation Sans` and `Noto Sans` are present and `Arial`/`Helvetica` are
+ * not; same pattern for serif and mono. The absent names are kept because they
+ * are what a macOS or Windows host has, and a candidate that is missing costs
+ * one `has()` call.
+ *
+ * Serif and monospace are deliberately **not** vendored. Nothing in this
+ * project measures them, nobody has reported them, and a face per generic is
+ * another 174 KB each for a request no scene in the repository makes.
  *
  * `cursive`, `fantasy`, `emoji` and `math` have **no safe concrete substitute**,
  * so they degrade onto the sans or serif list. That is a choice rather than a
@@ -84,7 +198,9 @@ function asCtx2D(ctx: unknown): Ctx2D {
  * Readable text in the wrong voice beats unreadable text, and beats an error
  * for a request that is satisfiable.
  */
-const SANS = ['DejaVu Sans', 'Liberation Sans', 'Noto Sans', 'Arial', 'Helvetica'] as const
+const SANS = [
+  VENDORED_FAMILY, 'DejaVu Sans', 'Liberation Sans', 'Noto Sans', 'Arial', 'Helvetica',
+] as const
 const SERIF = ['DejaVu Serif', 'Liberation Serif', 'Noto Serif', 'Times New Roman'] as const
 const MONO = ['DejaVu Sans Mono', 'Liberation Mono', 'Noto Sans Mono', 'Courier New'] as const
 
@@ -118,7 +234,14 @@ export const CSS_GENERIC_FAMILIES: readonly string[] = Object.keys(GENERIC_FAMIL
  */
 export type InstalledPredicate = (family: string) => boolean
 
-const fontIsInstalled: InstalledPredicate = family => GlobalFonts.has(family)
+/**
+ * The production predicate, which is also where the vendored face gets
+ * registered — see {@link vendoredFont} for why the two are the same call.
+ */
+const fontIsInstalled: InstalledPredicate = family => {
+  vendoredFont()
+  return GlobalFonts.has(family)
+}
 
 /**
  * First installed candidate for a generic, or a thrown error naming the list.
@@ -148,124 +271,14 @@ function resolveGeneric(
   )
 }
 
-interface Token {
-  readonly text: string
-  /** Index of the first character after the token. */
-  readonly end: number
-}
-
-/**
- * Whitespace-separated tokens, with a quoted run kept whole.
- *
- * Only enough of a CSS tokeniser to find where the family list starts. A comma
- * is its own token so that `48px Foo,bar` cannot be mistaken for one family.
- */
-function tokenize(s: string): Token[] {
-  const out: Token[] = []
-  let i = 0
-  while (i < s.length) {
-    const c = s[i]!
-    if (/\s/.test(c)) { i++; continue }
-    if (c === ',') { out.push({ text: ',', end: i + 1 }); i++; continue }
-    if (c === '"' || c === "'") {
-      let j = i + 1
-      while (j < s.length && s[j] !== c) j += s[j] === '\\' ? 2 : 1
-      j = Math.min(j + 1, s.length)
-      out.push({ text: s.slice(i, j), end: j })
-      i = j
-      continue
-    }
-    let j = i
-    while (j < s.length && !/[\s,"']/.test(s[j]!)) j++
-    out.push({ text: s.slice(i, j), end: j })
-    i = j
-  }
-  return out
-}
-
-/** `<absolute-size>` and `<relative-size>` keywords, which need no unit. */
-const SIZE_KEYWORDS = new Set([
-  'xx-small', 'x-small', 'small', 'medium', 'large', 'x-large', 'xx-large',
-  'xxx-large', 'smaller', 'larger',
-])
-
-const LENGTH_RE = new RegExp(
-  '^[+-]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[+-]?\\d+)?' +
-  '(?:px|pt|pc|in|cm|mm|q|em|rem|ex|ch|ic|cap|lh|rlh|vw|vh|vi|vb|vmin|vmax|%)$',
-  'i',
-)
-
-/**
- * Is this token the shorthand's `<font-size>`?
- *
- * The discriminator against `<font-weight>` is the unit: `700` is a weight and
- * `700px` is a size, so scanning left to right for the first *dimensioned*
- * number finds the size even in `700 48px sans-serif`. A `/ <line-height>` may
- * be glued on, so only the part before the first `/` is tested.
- */
-function isSizeToken(text: string): boolean {
-  const core = text.split('/')[0]!
-  return core === '0' || LENGTH_RE.test(core) || SIZE_KEYWORDS.has(core.toLowerCase())
-}
-
-/**
- * Index into `font` where the `<font-family>` list begins, or `-1`.
- *
- * Per the shorthand grammar the family list is everything after the size and
- * its optional `/ <line-height>`. Returning `-1` for anything without a size
- * means an unparseable value is passed through untouched rather than guessed
- * at — CSS ignores an invalid `font` shorthand, and so should this.
- */
-function familyListStart(font: string): number {
-  const tokens = tokenize(font)
-  for (let i = 0; i < tokens.length; i++) {
-    if (tokens[i]!.text === ',') return -1  // a comma before any size: not a shorthand
-    if (!isSizeToken(tokens[i]!.text)) continue
-    let last = i
-    // `48px/1.2` is already whole; `48px / 1.2` and `48px /1.2` and `48px/ 1.2`
-    // are not. Skip whatever the line-height occupies.
-    if (!tokens[i]!.text.includes('/')) {
-      const next = tokens[i + 1]
-      if (next?.text === '/') last = i + 2
-      else if (next?.text.startsWith('/')) last = i + 1
-    } else if (tokens[i]!.text.endsWith('/')) {
-      last = i + 1
-    }
-    const family = tokens[last + 1]
-    return family === undefined ? -1 : tokens[last]!.end
-  }
-  return -1
-}
-
-/** Top-level (quote-aware) comma split of a family list. */
-function splitFamilies(list: string): string[] {
-  const out: string[] = []
-  let start = 0
-  let quote = ''
-  for (let i = 0; i < list.length; i++) {
-    const c = list[i]!
-    if (quote) {
-      if (c === '\\') i++
-      else if (c === quote) quote = ''
-    } else if (c === '"' || c === "'") {
-      quote = c
-    } else if (c === ',') {
-      out.push(list.slice(start, i))
-      start = i + 1
-    }
-  }
-  out.push(list.slice(start))
-  return out
-}
-
 /**
  * Rewrite every CSS generic family in a `font` shorthand to an installed one.
  *
- * Only the generic *tokens* move: `bold 240px "Some Font", sans-serif` becomes
- * `bold 240px "Some Font", DejaVu Sans`, leaving the author's own family first
- * in the list so the real fallback order survives. A **quoted** entry is never
- * rewritten even if it spells a generic, because CSS says a quoted name is a
- * family name — `"serif"` requests a font literally called serif.
+ * The parsing — finding the `<font-family>` list inside a `font` shorthand and
+ * splitting it — lives in `src/shared/fontspec.ts`, because the web adapter
+ * performs the same rewrite and two copies of a CSS tokeniser is two things to
+ * get wrong. What stays here is the part that is Node's alone: the candidate
+ * lists, the `GlobalFonts` lookup, and the throw.
  *
  * Exported for its own test: the parsing is where this can go wrong quietly,
  * and it is pure, so it should be tested without a canvas.
@@ -273,16 +286,10 @@ function splitFamilies(list: string): string[] {
 export function resolveFontGenerics(
   font: string, installed: InstalledPredicate = fontIsInstalled,
 ): string {
-  const start = familyListStart(font)
-  if (start < 0) return font
-  const families = splitFamilies(font.slice(start)).map(raw => {
-    const entry = raw.trim()
-    if (entry === '' || entry.startsWith('"') || entry.startsWith("'")) return entry
-    const key = entry.replace(/\s+/g, ' ').toLowerCase()
+  return rewriteFontFamilies(font, key => {
     const candidates = GENERIC_FAMILIES[key]
-    return candidates === undefined ? entry : resolveGeneric(key, candidates, installed)
+    return candidates === undefined ? undefined : resolveGeneric(key, candidates, installed)
   })
-  return `${font.slice(0, start).trim()} ${families.join(', ')}`
 }
 
 /**
@@ -337,6 +344,24 @@ export function nodeCanvas(): CanvasLike {
       if (!Number.isFinite(w) || !Number.isFinite(h) || w < 1 || h < 1) {
         throw new Error(`nodeCanvas.make: bad size ${w}x${h}; both must be >= 1`)
       }
+      // **Register before the surface exists, not when a generic is resolved.**
+      // Found by measurement, and it is the dingbat bug wearing a different
+      // hat: a layer that names the vendored family *concretely*
+      // (`font: "Staticstereo Sans"`) never touches `resolveFontGenerics`, so
+      // nothing triggered the registration and `@napi-rs/canvas` fell through
+      // to the first registered family — measured, `90px Staticstereo Sans`
+      // returned 367.47px for HELLO, the URW Dingbats advance, instead of
+      // 289.03px. Worse, it is *sticky*: the resolution is cached per context
+      // per font string, so registering afterwards did not repair that
+      // context — a later `90px sans-serif` resolved to the same string, hit
+      // the poisoned entry and still measured 367.47.
+      //
+      // Doing it here closes both halves, because no context can be handed out
+      // before the family exists. It is still lazy in the sense that matters:
+      // importing this module has no side effect, and a caller who never draws
+      // never pays. The call on the resolution path stays as well — belt and
+      // braces for anyone holding a `Ctx2D` from somewhere else.
+      vendoredFont()
       const canvas = createCanvas(Math.round(w), Math.round(h))
       const ctx = canvas.getContext('2d')
       // Every surface core can draw text on goes through the generic-family

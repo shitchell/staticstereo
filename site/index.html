@@ -184,15 +184,24 @@
           <p class="note" id="text-note"></p>
           <p class="note">
             Leave <strong>size</strong> empty for the renderer's own default.
-            <strong>Weight</strong> is a request, not a guarantee, and the thing that
-            decides it is the <em>rasteriser</em> rather than the font stack. DejaVu
-            Sans, Liberation Sans and Noto Sans each ship only a regular and a bold
-            face; measured, Chromium renders <code>900</code> byte-identically to
-            <code>bold</code> in all three — same pixels — while the CLI's rasteriser
-            fakes the missing weight at 13–25% wider. So in this page
-            <code>900</code> most likely buys you nothing, and the same scene rendered
-            by <code>stst</code> may well differ. Size is the lever that always works,
-            and the legibility panel measures what you actually got.
+            <strong>Weight</strong> now does what it says, and it did not used to. This
+            page and <code>stst</code> both draw text in one vendored face — three
+            instances of Inter shipped with the repository, the same outlines on both
+            sides — and it declares a <em>real</em> 900 as well as 400 and 700.
+            Measured here, 150px <code>STATIC</code> goes 14px regular → 23px bold →
+            31px at <code>900</code>, and the CLI reports 15 / 24 / 31 for the same
+            scene. Before the face was vendored, <code>900</code> was a request nobody
+            could honour: the system fonts this fell back on (DejaVu Sans, Liberation
+            Sans, Noto Sans) each ship only a regular and a bold, so Chromium rendered
+            <code>900</code> byte-identically to <code>bold</code> — same pixels — while
+            the CLI's rasteriser faked it at 13–25% wider, and the two sides of this
+            project disagreed about every stroke width by 10–25%. Size is still the
+            lever with the widest range, and the legibility panel below measures what
+            you actually got rather than what was asked for. One condition on all of
+            that: the face is a webfont. <strong>Weight is a request, not a
+            guarantee</strong> — if it fails to load, this page falls back to your
+            browser's own sans-serif, <code>900</code> collapses back onto
+            <code>bold</code>, and the legibility panel says so in as many words.
           </p>
         </section>
 
@@ -208,7 +217,9 @@
             <code>sepFar − sepNear</code> is the whole disparity range, so a stroke
             thinner than that gap has no room to carry an unambiguous shift, and no
             amount of staring will resolve it. Text is where this bites: at 90px a
-            regular sans stem measures about half the default 18px budget.
+            regular stem measures 9px against the default 18px budget — exactly half —
+            and bold only reaches 14px. The smallest size that reaches the budget is
+            182px regular, 110px bold, or 83px at <code>900</code>.
           </p>
           <dl class="readout">
             <dt>Selected text layer</dt>

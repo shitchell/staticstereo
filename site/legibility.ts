@@ -31,28 +31,36 @@ import type { Scene, StereoOpts } from '../src/core/types.js'
  * only commensurable because they were lined up by measurement rather than
  * derived from one another.
  *
- * What that calibration rests on, measured here (`@napi-rs/canvas`, DejaVu Sans
- * and Liberation Sans, strings `STATIC` / `HELLO` / `Static on the Stereo`):
+ * What that calibration rests on, measured through `@napi-rs/canvas` on the **vendored
+ * face** (`assets/fonts/inter-*`, which `src/node/canvas.ts` registers and this page
+ * declares over `@font-face`), strings `STATIC` / `HELLO` / `Static on the Stereo` —
+ * which agree with each other to within 1px at every cell but one (the three strings
+ * span 48-50 at 240px/900):
  *
  * | size | regular | bold  | 900   |
  * |------|---------|-------|-------|
- * | 48   | 5–6     | 8–10  | 9–11  |
- * | 90   | 9–10    | 13–18 | 16–21 |
- * | 120  | 12–13   | 18–24 | 22–27 |
- * | 200  | 19–21   | 29–38 | 35–45 |
+ * | 48   | 5       | 8     | 10-11 |
+ * | 90   | 9       | 14    | 19    |
+ * | 120  | 12      | 19    | 25    |
+ * | 150  | 14-15   | 23-24 | 30-31 |
+ * | 240  | 23      | 37    | 48-50 |
  *
- * So at 90px regular a stroke is 9–10px against an 18px budget — a half, which
- * is the observation this check exists to surface, and it is why the shipped
- * examples (120px and 96px regular) trip it. **That halving is specific to the
- * regular weight.** At 90px *bold* the same strings measure 13–18px, i.e. at or
- * just under the whole budget rather than half of it, so "text strokes are half
- * the budget" is true of a 90px regular face and false of a 90px bold one.
+ * So at 90px regular a stroke is 9px against an 18px budget — a half, which is the
+ * observation this check exists to surface, and it is why the shipped examples (120px
+ * regular at 12px, 96px regular at 10px, 64px regular at 7px) all trip it.
+ *
+ * **The halving is not cured by bold.** 90px bold is 14px, still under the budget; the
+ * smallest size that reaches 18px is 182px regular, 110px bold, or 83px at 900. An
+ * earlier version of this comment said 90px bold measured "13–18px, i.e. at or just
+ * under the whole budget" — that was DejaVu Sans, the heaviest of the system fallbacks
+ * and a 29% outlier, and it is the single reason the CLI's `--text` default (now bold)
+ * was expected to land on the budget and does not.
  *
  * There are also two defaults, not one, and the smaller is worse than a half:
  * `core`'s `DEFAULT_TEXT_SIZE` is **48** (what a scene layer with no `size:`
- * gets), measuring 5–6px regular — a *third* of the budget. The CLI's
- * `--text` path supplies its own `TEXT_FONT_SIZE` of **90**, i.e. the 9–10px
- * row. Neither fuses.
+ * gets), measuring 5px regular — barely a quarter of the budget. The CLI's
+ * `--text` path supplies its own `TEXT_FONT_SIZE` of **90** at `TEXT_FONT_WEIGHT`
+ * of **bold**, i.e. the 14px cell. Neither fuses.
  *
  * One claim about this was *not* reproducible and the comment is written
  * without it: switching to the other obvious ink definition (any sample above
@@ -65,34 +73,25 @@ import type { Scene, StereoOpts } from '../src/core/types.js'
  * reason to state the metric in full rather than to call any of these numbers
  * "the stroke width".
  *
- * One cross-platform caveat the table cannot carry: the two sides of this
- * project do not necessarily resolve `sans-serif` to the same face. The Node
- * adapter picks the first installed candidate of its own list (DejaVu Sans on a
- * Debian stack); the browser uses its own mapping, and measured in Chromium on
- * this machine that is Liberation Sans. Same scene, families 10–25% apart.
+ * **The cross-platform caveat the table used to carry is gone, and that is the point of
+ * vendoring the face.** The two sides of this project no longer resolve `sans-serif`
+ * differently: both answer it with the same three files, and the WOFF2 the browser
+ * downloads was produced from the TTF Node reads. Measured against a headless Chromium,
+ * advance widths agree to 0.0054% and this very statistic agrees exactly in 11 of 16
+ * cells and by 1px in the rest — rasteriser hinting at the half-peak threshold, not a
+ * different font. It used to be 10–25%, Liberation Sans in the browser against DejaVu
+ * Sans in the CLI.
  *
- * **2. A verdict alone is not honest.** Following `diagnostics.ts`:
- * {@link describeLegibility} always reports the measured width, the budget, how
- * the budget was arrived at, and how many runs the median rests on, so the
- * margin is visible rather than implied by a traffic light.
- *
- * ## The alternative the warning has to offer
- *
- * Enlarging the type is the obvious fix and not the only one. Raising `sepNear`
- * shrinks the budget, which makes a narrower stroke sufficient — at the cost of
- * depth range, since the gap *is* the range. A warning that only said "bigger"
- * would hide a legitimate trade, so {@link describeLegibility} names both and
- * {@link legibilityOf} is a function of the budget rather than of the stroke
- * alone.
- *
- * Nothing here says a heavier weight will help. What `weight: "900"` buys over
- * `"bold"` is a property of the viewer's font stack and of its rasteriser, not
- * of this code: the same assertion ("900 buys at most 5% over bold") passed on
- * a machine where the request saturated and failed on GitHub's runner at +15%.
- * Measured here it is +17% on DejaVu Sans and +21% on Liberation Sans — both of
- * which declare only 400 and 700 faces, so that gain is the rasteriser
- * synthesising weight, which another one is free not to do. The measurement is
- * the only honest advisor, and this module gives the user the measurement.
+ * **A heavier weight now does something, and it did not before.** `weight: "900"` used to
+ * be a request nobody could honour: DejaVu Sans, Liberation Sans and Noto Sans each
+ * declare only 400 and 700, so Chromium rendered 900 byte-identically to bold while
+ * `@napi-rs/canvas` synthesised it at +13–25% — which is why the same assertion ("900
+ * buys at most 5% over bold") passed on one machine and failed on GitHub's runner at
+ * +15%. The vendored family declares a real 900, and the gain is consistent across both
+ * rasterisers: +36% over bold at 90px measured in Node, and 23px → 31px at 150px measured
+ * in this page. That is a property of the vendored file rather than of this code, so the
+ * measurement is still the only honest advisor — and this module still gives the user the
+ * measurement rather than a promise.
  */
 
 /**

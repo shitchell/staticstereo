@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { webCanvas } from './canvas.js'
+import { readFile } from 'node:fs/promises'
+import { interceptFont, resolveWebFont, vendoredFontAvailable, webCanvas } from './canvas.js'
+import { VENDORED_FAMILY } from '../shared/fontspec.js'
 import {
   dispose2Gif, gifDataUrl, keepGif, solid3Gif,
 } from '../shared/testing/gifFixtures.js'
@@ -102,5 +104,147 @@ describe('webCanvas().loadGif', () => {
     } finally {
       globalThis.fetch = original
     }
+  })
+})
+
+/* ====================================================================== */
+/* THE VENDORED FACE                                                      */
+/* ====================================================================== */
+
+/**
+ * `resolveWebFont` is the one piece of real logic this adapter has, and it is
+ * testable here because it is pure once the availability probe is injected.
+ *
+ * What cannot be tested under node is the thing that matters most — that the
+ * browser actually rasterises the vendored outlines — so that is verified
+ * against a real headless Chromium instead, and the agreement with the Node
+ * adapter is recorded in the README. What is pinned here is the decision table:
+ * which requests get retargeted, which are left to the engine, and what happens
+ * when the face has not loaded.
+ */
+describe('resolveWebFont', () => {
+  const yes = (): boolean => true
+  const no = (): boolean => false
+
+  it('points sans-serif at the vendored family once it is loaded', () => {
+    expect(resolveWebFont('90px sans-serif', yes)).toBe(`90px ${VENDORED_FAMILY}`)
+    expect(resolveWebFont('bold 90px sans-serif', yes)).toBe(`bold 90px ${VENDORED_FAMILY}`)
+    expect(resolveWebFont('900 48px/1.2 sans-serif', yes)).toBe(`900 48px/1.2 ${VENDORED_FAMILY}`)
+    expect(resolveWebFont('48px SANS-SERIF', yes)).toBe(`48px ${VENDORED_FAMILY}`)
+  })
+
+  it('leaves the request alone while the face is still loading', () => {
+    // The degradation that matters: `fillText` in a declared-but-unloaded
+    // family silently draws a fallback, so until `FontFaceSet.check` says yes
+    // the honest thing is the engine's own sans-serif — which is what this page
+    // used before the font was vendored.
+    expect(resolveWebFont('90px sans-serif', no)).toBe('90px sans-serif')
+  })
+
+  it('leaves every other generic to the engine, which knows its own host', () => {
+    // Unlike @napi-rs/canvas, a browser maps all of these correctly. Nothing in
+    // this project measures serif or monospace, and vendoring a face per
+    // generic would be another 60 KB each for a request no scene makes.
+    for (const g of ['serif', 'monospace', 'cursive', 'fantasy', 'system-ui', 'emoji']) {
+      expect(resolveWebFont(`90px ${g}`, yes)).toBe(`90px ${g}`)
+    }
+  })
+
+  it('keeps an author-named family first, so their own fallback order survives', () => {
+    expect(resolveWebFont('90px "Comic Sans MS", sans-serif', yes))
+      .toBe(`90px "Comic Sans MS", ${VENDORED_FAMILY}`)
+    expect(resolveWebFont('90px Georgia', yes)).toBe('90px Georgia')
+    // A quoted generic is a family name per CSS, not a keyword.
+    expect(resolveWebFont('90px "sans-serif"', yes)).toBe('90px "sans-serif"')
+  })
+
+  it('passes through anything that is not a font shorthand', () => {
+    for (const bad of ['', 'sans-serif', 'bold', 'inherit']) {
+      expect(resolveWebFont(bad, yes)).toBe(bad)
+    }
+  })
+})
+
+describe('vendoredFontAvailable', () => {
+  it('is false under node, where there is no FontFaceSet at all', () => {
+    // Not a degenerate case: it is the proof that the probe fails closed. A
+    // probe that threw here would break `make()` on any runtime without
+    // `document.fonts`, and one that returned true would retarget every
+    // request at a family that does not exist.
+    expect(typeof document).toBe('undefined')
+    expect(vendoredFontAvailable()).toBe(false)
+  })
+})
+
+describe('interceptFont', () => {
+  /**
+   * A stand-in for a 2D context: a `font` accessor **on the prototype**, which
+   * is the shape the real interception depends on.
+   *
+   * Not a mock of a canvas — nothing here pretends to rasterise. It is the
+   * minimum object for which "shadow the prototype's accessor with an own one
+   * that rewrites on the way in and reports the stored value on the way out"
+   * is a meaningful statement.
+   */
+  function fakeContext(): { font: string; stored: () => string } {
+    let stored = '10px sans-serif'
+    const proto = {
+      get font(): string { return stored },
+      set font(v: string) { stored = v },
+    }
+    const ctx = Object.create(proto) as { font: string; stored: () => string }
+    ctx.stored = () => stored
+    return ctx
+  }
+
+  it('rewrites on assignment and reports what will actually render', () => {
+    const ctx = fakeContext()
+    // The availability probe is false under node, so force the branch the
+    // browser takes by naming the family the way core never would.
+    interceptFont(ctx)
+    ctx.font = '90px Georgia'
+    expect(ctx.stored()).toBe('90px Georgia')
+    expect(ctx.font).toBe('90px Georgia')
+    // And the getter is the *stored* value, not an echo of the request: the
+    // whole point of reporting the resolved font is that `ctx.font` answers
+    // "what will render" rather than "what did I ask for".
+    ;(Object.getPrototypeOf(ctx) as { font: string }).font = '1px Mutated'
+    expect(ctx.font).toBe('1px Mutated')
+  })
+
+  it('leaves every other member native, which is why it is an accessor and not a wrapper', () => {
+    const ctx = fakeContext() as unknown as Record<string, unknown>
+    const before = Object.getPrototypeOf(ctx) as object
+    interceptFont(ctx)
+    expect(Object.getPrototypeOf(ctx)).toBe(before)
+    expect(Object.getOwnPropertyNames(ctx)).toContain('font')
+  })
+
+  it('does nothing at all when there is no accessor to shadow', () => {
+    // A plain data property: `make()` must still return a usable context, with
+    // the platform's own generic mapping, rather than throwing. The Node
+    // adapter deliberately throws in the same situation; here the degradation
+    // is a correct rendering in the engine's own sans.
+    const plain = { font: '10px sans-serif' }
+    expect(() => interceptFont(plain)).not.toThrow()
+    plain.font = '90px sans-serif'
+    expect(plain.font).toBe('90px sans-serif')
+  })
+
+  it('is actually called by make(), which no runtime here can reach', async () => {
+    // **A source assertion, and the reason is a mutation that survived.**
+    // `make()` needs OffscreenCanvas, so under node its body cannot be
+    // executed at all — deleting `interceptFont(ctx)` from it left the whole
+    // suite green while every text layer in the browser silently rendered in
+    // the engine's own sans instead of the vendored face. Same technique, and
+    // the same justification, as `site/markup.test.ts`: grep the source when
+    // the contract is unreachable, and pin the regex so it cannot quietly
+    // match nothing.
+    const src = await readFile(new URL('./canvas.ts', import.meta.url), 'utf8')
+    const body = /make\(w: number, h: number\): Ctx2D \{([\s\S]*?)\n    \},/.exec(src)?.[1]
+    expect(body, 'the make() body regex matched nothing').toBeDefined()
+    expect(body).toContain('interceptFont(ctx)')
+    expect(body!.indexOf('interceptFont(ctx)'))
+      .toBeLessThan(body!.indexOf('return asCtx2D(ctx)'))
   })
 })

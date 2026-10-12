@@ -1,3 +1,55 @@
+/*
+ * The vendored face, declared for the browser.
+ *
+ * These three files are the same Inter instances the Node adapter registers
+ * from `assets/fonts/inter-*.ttf` — the WOFF2s were produced *from* those
+ * subset TTFs, so the two formats carry byte-identical `glyf` and `hmtx`
+ * tables. That is what lets this page's legibility panel and `stst` report the
+ * same stroke width for the same scene; before it, the browser resolved
+ * `sans-serif` to Liberation Sans and the CLI to DejaVu Sans, and the two
+ * disagreed by 10-25% with neither being wrong.
+ *
+ * `src/web/canvas.ts` is what points `sans-serif` at this family, and
+ * `site/fonts.ts` is what waits for it to load — a webfont that has not
+ * loaded is not usable from a canvas, and `fillText` falls back silently.
+ *
+ * Relative URLs, like everything else here: a GitHub project Page serves from
+ * /staticstereo/, vite rewrites these into its own hashed asset paths, and
+ * `site/dist.test.ts` asserts no root-relative url() survives the build.
+ *
+ * One @font-face per weight, so a visitor downloads only the weights the
+ * scene asks for: ~20 KB each, 62 KB for all three.
+ *
+ * `font-display: block` and not `swap`, because the alternative is wrong here
+ * rather than merely slower: `swap` renders text in a fallback face first, and
+ * the thing being rendered is a *stereogram*, measured and graded for stroke
+ * width. A frame drawn in the fallback is a frame whose depth map is wrong,
+ * and it would be indistinguishable from the real thing by eye.
+ */
+@font-face {
+  font-family: "Staticstereo Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("../assets/fonts/inter-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Staticstereo Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("../assets/fonts/inter-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Staticstereo Sans";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url("../assets/fonts/inter-900.woff2") format("woff2");
+}
+
 :root {
   --bg: #0d0f12;
   --panel: #16191f;

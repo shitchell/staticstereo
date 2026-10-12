@@ -6,6 +6,7 @@ import { parseArgs } from './args.js'
 import type { CliArgs } from './args.js'
 import {
   TEXT_FONT_FAMILY,
+  TEXT_FONT_WEIGHT,
   applyOverrides,
   loadScene,
   parseSceneText,
@@ -306,11 +307,26 @@ describe('loadScene', () => {
 })
 
 describe('textScene', () => {
-  /** A stand-in for canvas text metrics: width scales with the px size in `font`. */
+  /**
+   * A stand-in for canvas text metrics: width scales with the px size in
+   * `font`, and **with the weight**, because a heavier face really is wider.
+   *
+   * The weight sensitivity is not decoration. This stub used to match `px` only
+   * at the *start* of the string, so the day `textScene` began emitting
+   * `bold 90px sans-serif` it silently measured 0 — a stub that cannot parse
+   * what the code under test produces reports a pass for a broken centring.
+   * Keeping it weight-aware is what makes the assertions below able to see a
+   * weight that is dropped from the measurement but kept on the layer.
+   */
   const measure = (text: string, font: string): number => {
-    const px = Number(/^(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 0)
-    return text.length * px * 0.6
+    const px = Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 0)
+    const heavier = /^bold\b/.test(font) ? 1.1 : /^900\b/.test(font) ? 1.2 : 1
+    return text.length * px * 0.6 * heavier
   }
+
+  /** The `font` shorthand `textScene` is expected to measure with. */
+  const fontOf = (size: number, weight: string = TEXT_FONT_WEIGHT): string =>
+    `${weight} ${size}px ${TEXT_FONT_FAMILY}`
 
   const build = (line: string[]): Scene =>
     textScene(args(['still', ...line, '-o', 'out.png']), measure)
@@ -332,6 +348,40 @@ describe('textScene', () => {
     expect(layer.font).toBe(TEXT_FONT_FAMILY)
   })
 
+  it('defaults to bold, because the regular default is unfusable', () => {
+    // Not a style preference: 90px regular measures a 9px median stroke against
+    // an 18px disparity budget, so the headline one-liner rendered something
+    // nobody can fuse. See TEXT_FONT_WEIGHT.
+    const layer = build(['--text', 'HELLO']).layers[0]!
+    if (layer.type !== 'text') throw new Error('unreachable')
+    expect(layer.weight).toBe('bold')
+    expect(TEXT_FONT_WEIGHT).toBe('bold')
+  })
+
+  it('lets --font-weight override the default', () => {
+    for (const w of ['normal', '900', 'lighter']) {
+      const layer = build(['--text', 'HELLO', '--font-weight', w]).layers[0]!
+      if (layer.type !== 'text') throw new Error('unreachable')
+      expect(layer.weight).toBe(w)
+    }
+  })
+
+  it('measures with the weight it puts on the layer, so the centring matches', () => {
+    // The fragile dependency, pinned: `raster.ts` draws with
+    // `<weight> <size>px <family>`, and if the width measured here came from a
+    // different string the layer would be centred for a face it is not drawn
+    // in. Bold is ~2-4% wider than regular at 90px through the real rasteriser,
+    // which on an 800px canvas is several pixels of mis-centring.
+    const bold = build(['--text', 'HELLO'])
+    const regular = build(['--text', 'HELLO', '--font-weight', 'normal'])
+    const xOf = (s: Scene): number => s.layers[0]!.at![0]
+    expect(xOf(bold)).toBeLessThan(xOf(regular))
+    const size = (bold.layers[0] as { size: number }).size
+    expect(xOf(bold)).toBe(Math.round((bold.size[0] - measure('HELLO', fontOf(size))) / 2))
+    expect(xOf(regular))
+      .toBe(Math.round((regular.size[0] - measure('HELLO', fontOf(size, 'normal'))) / 2))
+  })
+
   it('centres the text instead of leaving it in the top-left corner', () => {
     // Design §3: `at` defaults to [0,0] for text layers, which the presets need
     // but which would render `stst still --text HELLO` in the corner.
@@ -340,7 +390,7 @@ describe('textScene', () => {
     if (layer.type !== 'text') throw new Error('unreachable')
     const [w, h] = s.size
     const size = layer.size!
-    const expectedX = Math.round((w - measure('HELLO', `${size}px ${TEXT_FONT_FAMILY}`)) / 2)
+    const expectedX = Math.round((w - measure('HELLO', fontOf(size))) / 2)
     expect(layer.at).toEqual([expectedX, Math.round((h - size) / 2)])
     expect(layer.at![0]).toBeGreaterThan(0)
     expect(layer.at![1]).toBeGreaterThan(0)
@@ -364,7 +414,7 @@ describe('textScene', () => {
     const long = build(['--text', 'A VERY LONG PHRASE INDEED'])
     const layer = long.layers[0]!
     if (layer.type !== 'text') throw new Error('unreachable')
-    const width = measure(layer.text, `${layer.size!}px ${TEXT_FONT_FAMILY}`)
+    const width = measure(layer.text, fontOf(layer.size!))
     expect(width).toBeLessThanOrEqual(long.size[0])
     expect(layer.at![0]).toBeGreaterThanOrEqual(0)
   })

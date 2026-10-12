@@ -1,0 +1,119 @@
+Inter — vendored, instanced, and Latin-subset
+=============================================
+
+Why these files are in the repository at all
+--------------------------------------------
+`core` asks for the CSS generic `sans-serif`. The browser maps that itself;
+`@napi-rs/canvas` maps no generic family and silently renders the first
+registered family instead, which on a stock Debian fontconfig is the URW
+ZapfDingbats clone — see the generic-family block in `src/node/canvas.ts`.
+Resolving the generic to a *system* family fixes the dingbats but leaves two
+problems: which family is picked depends on the host, and the browser picks a
+different one, so the site's legibility panel and `stst` measure different
+faces for the same scene. Vendoring one face and pointing both adapters at it
+is what makes the two agree.
+
+Nothing here is fetched at build time or at run time. A build that reaches the
+network is a build that breaks offline, and these bytes are the whole point of
+not doing that.
+
+Source
+------
+  Inter 4.001 (git-66647c0bb), variable, axes opsz 14..32 and wght 100..900
+  https://raw.githubusercontent.com/google/fonts/main/ofl/inter/Inter%5Bopsz%2Cwght%5D.ttf
+  retrieved 2026-10-11, 876 576 bytes
+
+Licence
+-------
+  SIL Open Font License 1.1 — the full text is in OFL.txt next to these files,
+  as the licence requires. Copyright 2020 The Inter Project Authors
+  (https://github.com/rsms/inter).
+
+What was done to it
+-------------------
+Three static instances, pinned at `opsz=14` and `wght` 400 / 700 / 900, then
+subset to Google's own "latin" unicode range, then the same subset TTF
+re-saved as WOFF2 so the browser and Node provably get the same outlines.
+
+  for w in 400 700 900:
+      font = TTFont("Inter[opsz,wght].ttf")
+      instancer.instantiateVariableFont(
+          font, {"wght": w, "opsz": 14}, inplace=True, updateFontNames=True)
+      font.save(f"inter-{w}-full.ttf")
+
+      python -m fontTools.subset inter-$w-full.ttf \
+          --unicodes=U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,\
+U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,\
+U+2212,U+2215,U+FEFF,U+FFFD \
+          --output-file=inter-$w.ttf --no-hinting --desubroutinize \
+          --name-IDs='*' --drop-tables+=DSIG
+
+      t = TTFont(f"inter-{w}.ttf"); t.flavor = "woff2"; t.save(f"inter-{w}.woff2")
+
+fontTools 4.62.1, brotli present (WOFF2 needs it).
+
+`opsz=14` and not 32: Inter's optical-size axis thins the strokes and tightens
+the spacing as it rises, and this project's one hard legibility rule is that a
+stroke narrower than `sepFar - sepNear` cannot be fused. 14 is the heavier end
+and the axis default, so it is what gets pinned. The consequence is that large
+display text is set with UI-optical proportions, which is a typographic
+compromise made deliberately in favour of the 18px disparity budget.
+
+`updateFontNames=True` is why the 900 instance reports its family as
+"Inter Black" rather than "Inter" — static RIBBI naming can only carry four
+styles per family. Both adapters therefore register/declare these files under
+one family name of this project's own (`VENDORED_FAMILY` in
+`src/shared/fontspec.ts`), which is also what makes "is the vendored face in
+use, or did we fall back to the system?" a question with a testable answer.
+
+The WOFF2 files are produced *from the subset TTFs*, not independently, so the
+two formats carry byte-identical `glyf` and `hmtx` tables. Verified:
+
+  400  glyf 22262 B, hmtx equal   700  glyf 22442 B, hmtx equal
+  900  glyf 22640 B, hmtx equal
+
+Byte cost
+---------
+  inter-400.ttf    57 924      inter-400.woff2   20 492
+  inter-700.ttf    58 100      inter-700.woff2   21 076
+  inter-900.ttf    58 344      inter-900.woff2   20 672
+  TTF total       174 368      WOFF2 total       62 240      OFL.txt 4 377
+
+The TTFs are read from disk by the Node adapter and are *not* bundled into the
+site; the WOFF2s are what the page downloads, and only the weights a scene
+actually asks for. 62 KB is the worst case for a visitor who uses all three.
+The unsubset instances were 341–344 KB each, so the subset is a 6× saving.
+
+Coverage, and what happens outside it
+-------------------------------------
+285 codepoints in 24 ranges:
+
+  U+0000 U+0020-007E U+00A0-00AC U+00AE-00FF U+0131 U+0152-0153 U+02BB-02BC
+  U+02C6 U+02DA U+02DC U+0304 U+0308 U+2000-200B U+2010-2027 U+202F-2055
+  U+2057 U+205F U+2074 U+20AC U+2122 U+2191 U+2193 U+2212 U+FEFF
+
+That is ASCII plus Latin-1 plus general punctuation, the currency and arrow
+glyphs Google's "latin" subset carries, and nothing else. **No Greek, no
+Cyrillic, no CJK, no emoji.** `U+0329`, `U+2215` and `U+FFFD` were requested
+and are absent from the source, so there is not even a replacement character.
+
+A scene whose text falls outside that range does **not** silently become
+dingbats again — that failure needed an unresolvable family, and this one
+resolves. What happens instead is per-glyph fallback, and it differs by
+adapter:
+
+  - Node (`@napi-rs/canvas`): the family list is `"<vendored>", DejaVu Sans,
+    Liberation Sans, …`, so a missing glyph is drawn from the next family that
+    has it. 日本語 renders in whatever CJK face fontconfig offers, at the right
+    size, in the right place — correct text in a different voice.
+  - Browser: the `@font-face` family is first in the same list, so the engine
+    does its own per-glyph fallback down the chain in exactly the same way.
+
+So CJK and emoji still render; they just render in a face neither adapter
+chose, which means the two sides can disagree about their *width* even though
+they agree about Latin. Nothing in this project measures the width of a CJK
+string today, and `site/legibility.ts` would measure such a layer honestly
+(the stroke statistic is read off the depth map, not off font metrics), but a
+scene mixing scripts is the one case where "both adapters rasterise the same
+face" stops being true. Set `font:` on the layer to a family both hosts have
+if that matters to you.

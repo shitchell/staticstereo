@@ -268,6 +268,27 @@ describe('parseArgs — placement and timing', () => {
     expect(a.fontSize).toBe(120)
     expect(a.depth).toBe(0.6)
   })
+
+  it('takes --font-weight verbatim, without deciding what a face can honour', () => {
+    // Deliberately unvalidated beyond emptiness: `bold`, `900` and `lighter`
+    // are all legal CSS, and which of them a face can actually honour is the
+    // rasteriser's business. See `weight()` in args.ts.
+    for (const w of ['bold', '900', 'normal', 'lighter', '550']) {
+      const a = parse(['still', '--text', 'HI', '-o', 'o.png', '--font-weight', w])
+      expect(a.fontWeight).toBe(w)
+    }
+    expect(parse('still --text HI -o o.png').fontWeight).toBeUndefined()
+  })
+
+  it('rejects an empty --font-weight, which validateScene would refuse anyway', () => {
+    const msg = reject(['still', '--text', 'HI', '-o', 'o.png', '--font-weight', '  '])
+    expect(msg).toMatch(/--font-weight/)
+    expect(msg).toMatch(/900/)
+  })
+
+  it('lists --font-weight in the help, or nobody can find it', () => {
+    expect(HELP).toContain('--font-weight')
+  })
 })
 
 describe('parseArgs — mp4 passthrough', () => {

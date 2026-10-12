@@ -67,7 +67,10 @@ stst render scene.yaml -o out.gif --depth-map depth.png   # and the depth map
 
 `stst --help` lists the rest. Every stereo parameter (`--sep-far`, `--sep-near`,
 `--noise-scale`, `--depth-blur`, `--seed`, `--cross`, `--freeze-noise`) overrides the
-scene file, so fusion can be tuned without editing anything.
+scene file, so fusion can be tuned without editing anything. The `--text` path takes
+`--size`, `--font-size`, `--font-weight` and `--depth` for the layer it builds;
+`--font-weight` defaults to `bold`, and `--font-weight 900` is the one that clears the
+default depth budget at 90px — see the table below.
 
 ## Examples
 
@@ -92,44 +95,63 @@ unambiguous match, so it will not fuse no matter how long you stare.
 width of the horizontal runs of depth-map samples at or above half the layer's own peak
 depth*, in pre-upscale scene pixels. That is exactly what the site's legibility panel
 reports, so these figures and the warning you get in the browser are the same
-measurement. Measured through `@napi-rs/canvas` on **DejaVu Sans**, which is what the Node
-adapter resolves `sans-serif` to on a Debian font stack:
+measurement.
+
+They are also, since the font was vendored, the same *face*. `assets/fonts/inter-*` is
+registered by the Node adapter and declared by the site over `@font-face`, both under one
+family name, and the WOFF2 the browser downloads was produced from the TTF Node reads —
+byte-identical `glyf` and `hmtx` tables. Measured against a headless Chromium: the same
+strings advance to within **0.0054%** (worst case 0.0047px at 100px type, which is
+fixed-point rounding), and the median stroke below agrees exactly in 11 of 16 cells and by
+±1px in the other 5, which is rasteriser hinting at the half-peak threshold. Before
+vendoring, the browser resolved `sans-serif` to Liberation Sans and the CLI to DejaVu Sans
+and the two disagreed by **1.2–8.3%** with neither being wrong.
 
 | weight | size | median stroke | verdict at an 18px budget |
 |---|---|---|---|
-| normal | 48px (a scene layer's default) | 6px | will not fuse |
-| normal | 90px (`--text`'s default) | 10px | will not fuse |
-| normal | 120px | 13px | will not fuse |
-| normal | 150px | 16px | will not fuse |
-| normal | 170px | 18px | exactly the budget — hard work |
-| bold | 90px | 18px | exactly the budget — hard work |
-| bold | 150px | 29px | over the budget, under 2× it |
-| bold | 240px | 46px | comfortable |
-| bold | 360px | 68px | comfortable |
+| normal | 48px (a scene layer's default) | 5px | will not fuse |
+| normal | 90px (`--text`'s own size) | 9px | will not fuse |
+| normal | 120px | 12px | will not fuse |
+| normal | 150px | 15px | will not fuse |
+| normal | 182px | 18px | exactly the budget — hard work |
+| bold   | 48px | 8px | will not fuse |
+| bold   | 90px (**`--text`'s default**) | 14px | still will not fuse |
+| bold   | 110px | 18px | exactly the budget — hard work |
+| bold   | 150px | 24px | over the budget, under 2× it |
+| bold   | 240px | 37px | comfortable |
+| bold   | 360px | 55px | comfortable |
+| 900    | 83px | 18px | exactly the budget — hard work |
+| 900    | 90px | 19px | just over the budget |
+| 900    | 150px | 31px | over the budget, under 2× it |
+| 900    | 240px | 50px | comfortable |
 
 **Neither default fuses, and there are two of them.** A text layer in a scene file that
-omits `size:` gets **48px** (`DEFAULT_TEXT_SIZE`) — a 6px stroke, a third of the budget.
-`stst still --text HELLO`, which supplies its own, gets **90px** (`TEXT_FONT_SIZE`) — a
-10px stroke, just over half. So the one-liner at the top of this file produces something
-you cannot fuse unless you ask for more, and the `size: 90` in the snippet above is both a
-default *and* too small. Set `size:` and `weight:` deliberately: **bold is the cheapest
-lever — 90px bold reaches the budget exactly and 150px bold clears it — and 240px bold
-clears it comfortably.**
+omits `size:` gets **48px** (`DEFAULT_TEXT_SIZE`) — a 5px stroke, barely a quarter of the
+budget. `stst still --text HELLO`, which supplies its own, gets **90px**
+(`TEXT_FONT_SIZE`) **in bold** (`TEXT_FONT_WEIGHT`) — a 14px stroke. Bold is the default
+there because 9px regular was indefensible for the headline one-liner, and it is a 56%
+improvement; it is **not** enough, and the table says so. Reaching the budget at 90px
+takes `--font-weight 900`, which is 19px. Otherwise: **the smallest size that reaches the
+18px budget is 182px regular, 110px bold, or 83px at 900.** Set `size:` and `weight:`
+deliberately.
 
-Those are one family's numbers and the family matters by 10–25%. The same four
-regular/bold rows measure 9 / 15 / 35 / 52 px on Liberation Sans and 9 / 14 / 37 / 55 px on
-Noto Sans, so treat the table as a scale, not a specification — and note the browser does
-its own generic resolution, so the site may be measuring a different face than the CLI.
+Past bold there is now a **real 900 face**, which there was not before. The system
+families this used to fall back on — DejaVu Sans, Liberation Sans, Noto Sans — each
+declare exactly 400 and 700, so `weight: 900` was *synthesised*: `@napi-rs/canvas` faked
+it at +13–25% and Chromium ignored it, rendering 900 byte-identically to bold. That is why
+one test pinning a 900-vs-bold ratio passed on this machine and failed on CI. The vendored
+family declares 400, 700 **and** 900, and the gain is now real and consistent across both
+rasterisers: +36% over bold at 90px and +35% at 240px in `@napi-rs/canvas`, and 23px → 31px
+at 150px measured in the browser's own legibility panel.
 
-Past bold, a heavier weight is **synthesised, not selected**. DejaVu Sans and Liberation
-Sans each declare only a 400 and a 700 face, and in Chromium `900` is byte-identical to
-`bold` in both — same ink count, same pixels. Through `@napi-rs/canvas` the same request
-measures 14–19% wider on DejaVu Sans and 13–25% wider on Liberation Sans, because that
-rasteriser fakes the weight it cannot find. So `900` buys somewhere between nothing and a
-fifth, depending on who is drawing, and nothing in this repo can promise which. Size is
-the lever that always works. Alternatively raise `sepNear` to shrink the budget,
-buying legibility at the cost of depth range; for text, which wants one flat plane anyway,
-that is usually the right trade.
+The face is pinned, so the table is reproducible — but if the vendored registration ever
+fails, `stst` warns on stderr and falls back to the system chain, where the same cells
+measure up to **29% away** (DejaVu Sans is the heavy outlier: 18px where the vendored face
+gives 14px at 90px bold). That is the one condition under which these numbers stop
+holding, and it is the reason the fallback is loud.
+
+Alternatively raise `sepNear` to shrink the budget, buying legibility at the cost of depth
+range; for text, which wants one flat plane anyway, that is usually the right trade.
 
 **The emitted image is wider than `size:`, and you should compose only inside `size:`.**
 `size:` is the **stage** — the region that survives fusion. The encoders cannot express
@@ -160,6 +182,46 @@ the pairing.
 
 And if a render looks wrong, use `--depth-map`. A stereogram cannot be debugged by eye;
 the depth map is the only way to tell an authoring mistake from an encoding one.
+
+## The vendored font
+
+`core` asks for the CSS generic `sans-serif`, which is the right request and which neither
+side of this project can answer for itself. A browser maps it; `@napi-rs/canvas` maps no
+generic family **and does not fail** — it renders the first registered family, which on a
+Debian fontconfig is the URW ZapfDingbats clone, so `stst still --text HELLO` shipped five
+dingbats for a day. Resolving the generic to a system family fixed that and left the face a
+property of the host, with the browser picking a different one.
+
+So the face is vendored. [`assets/fonts/`](assets/fonts/) holds three static instances of
+**Inter 4.001** (SIL OFL 1.1, licence alongside), subset to Google's own "latin" range:
+the Node adapter registers the TTFs, the site declares the WOFF2s over `@font-face`, both
+under one family name, and the WOFF2s were produced *from* the subset TTFs so the two
+formats carry byte-identical outlines and advances. Nothing is fetched at build time or
+run time — a build that reaches the network is a build that breaks offline.
+
+| | per weight | 400 + 700 + 900 |
+|---|---|---|
+| TTF, read from disk by Node, **not** bundled into the site | 58 KB | 174 KB |
+| WOFF2, what a visitor downloads | 20–21 KB | 62 KB |
+
+62 KB is the worst case for a visitor who uses all three weights; the `@font-face` rules
+are per weight, so a scene that only uses bold fetches 21 KB. The unsubset instances were
+341–344 KB each, so the Latin subset is a 6× saving. Inter was chosen over Noto Sans
+(which subsets to 31 KB / 14 KB — cheaper) because its 900 is heavier relative to its
+bold, which is the whole reason for having a 900: at 90px Inter's 900 clears the 18px
+budget at 19px and Noto's lands exactly on it.
+
+**What you give up is everything outside Latin.** 285 codepoints: ASCII, Latin-1, general
+punctuation, the arrows and currency marks Google's "latin" subset carries. No Greek, no
+Cyrillic, no CJK, no emoji — and no `U+FFFD`, so not even a replacement character. A scene
+with CJK or emoji in it does **not** silently become dingbats again (that needed an
+*unresolvable* family, and this one resolves); the vendored family is simply first in a
+list, so both the browser and `@napi-rs/canvas` do per-glyph fallback down the rest of it
+and the text renders in whatever face the host has for that script. It is correct text in a
+face neither adapter chose — which means the two sides can disagree about its width even
+though they agree about Latin. Set `font:` on the layer to a family both hosts have if that
+matters. Details and the exact subset ranges are in
+[`assets/fonts/PROVENANCE.txt`](assets/fonts/PROVENANCE.txt).
 
 ## License
 

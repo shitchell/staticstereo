@@ -16,21 +16,31 @@
  * only place to check it is the depth map, and the only interesting depth maps
  * are the ones with text in them.
  *
- * **Everything absolute here is reported, not asserted.** Font files differ
- * between this machine and CI, so a pinned median stroke width would be a test
- * of the runner's fontconfig. What is asserted are the relations: the metric
- * responds monotonically to the knobs an author has, and asking for a weight
- * heavier than `bold` never gives you less stroke.
+ * **Everything absolute here is reported, not asserted** — and the reason has
+ * changed, so it is worth restating rather than inheriting. It used to be that
+ * font files differ between this machine and CI, so a pinned median stroke
+ * width would have been a test of the runner's fontconfig. That is no longer
+ * true: `assets/fonts/inter-*` is vendored and registered ahead of the system
+ * chain, so these numbers are now reproducible anywhere the repository is
+ * checked out. What is asserted is still the relations, but now as a *choice*:
+ * the absolutes are properties of a font file, a font upgrade is allowed to move
+ * them, and the thing that must fail when the face silently changes is an
+ * identity test rather than every stroke assertion in the suite. That test is
+ * `canvas.vendored.test.ts`, which compares the resolved face against each
+ * system candidate over the probes that actually separate them. Two absolutes
+ * *are* pinned there, both load-bearing for the CLI's defaults: that 90px bold
+ * is below the disparity budget and 90px at 900 is above it.
  *
- * That caveat used to be doing more work than it should have. Until
+ * The old caveat used to be doing more work than it should have. Until
  * `src/node/canvas.ts` learned to resolve CSS generic families, "real glyph
  * outlines" was aspirational: `sans-serif` matched nothing in
  * `@napi-rs/canvas`, fell through to whichever family fontconfig registered
  * first, and on this machine that was a dingbat font. Every absolute number in
  * this file was therefore a measurement of URW Dingbats, and two of the
- * comments below record what it cost. The family is now deterministic
- * (DejaVu Sans on a Debian stack), which is why the reported figures moved and
- * why they are worth reading again.
+ * comments below record what it cost. Then the generic resolved to a system
+ * family (DejaVu Sans on a Debian stack), which moved every figure once; now it
+ * resolves to the vendored face, which moved them again and downwards — DejaVu's
+ * bold is a 24-29% heavy outlier against every mainstream sans.
  *
  * ## 2. Row locality, on the committed example scenes
  *
@@ -135,25 +145,34 @@ describe('feature size on real glyphs', () => {
   // 46px, +15%)". Measured, after `src/node/canvas.ts` started resolving
   // `sans-serif`:
   //
-  //   - **There is no real 900 face.** DejaVu Sans, Liberation Sans and Noto
-  //     Sans each declare exactly two weights, 400 and 700, and Chromium
-  //     renders `900 240px <any of them>` byte-identically to `bold` — same ink
-  //     count, same pixel hash. What `@napi-rs/canvas` gives instead is
-  //     SYNTHESISED weight: +15.2% / +16.2% on DejaVu Sans and +22.9% / +21.2%
-  //     on Liberation Sans at 240 / 360px.
+  //   - **There was no real 900 face anywhere.** DejaVu Sans, Liberation Sans
+  //     and Noto Sans each declare exactly two weights, 400 and 700, and
+  //     Chromium renders `900 240px <any of them>` byte-identically to `bold` —
+  //     same ink count, same pixel hash. What `@napi-rs/canvas` gave instead
+  //     was SYNTHESISED weight: +15.2% / +16.2% on DejaVu Sans and +22.9% /
+  //     +21.2% on Liberation Sans at 240 / 360px.
   //   - **The local "saturation" was the bug.** Before the fix `sans-serif`
   //     resolved to nothing and fell through to the first registered family,
   //     `D050000L` (URW Dingbats), which renders `bold` and `900` identically
   //     to the pixel. The depth maps matched because the glyphs were dingbats.
   //   - **So CI was not special, it was just a different fallback.** The CI
   //     numbers 46px and 53px are *exactly* DejaVu Sans bold and 900 at 240px
-  //     as measured here now. Its fontconfig put a real sans first; ours put a
-  //     dingbat font first. One unresolved generic, two silent substitutions.
+  //     as measured after that fix. Its fontconfig put a real sans first; ours
+  //     put a dingbat font first. One unresolved generic, two silent
+  //     substitutions.
+  //
+  // **And the premise has now been removed rather than worked around.** The
+  // vendored face declares a real 900, so the gain is selection and not
+  // synthesis: +36% at 90px and +35% at 240px here, and 23px → 31px at 150px
+  // measured in a headless Chromium through the site's own legibility panel —
+  // the first time the two rasterisers have agreed about this at all. The
+  // "(saturated)" branch in the report below is consequently unreachable with
+  // the vendored face and is kept only because it becomes reachable again the
+  // moment the registration fails and the system chain takes over.
   //
   // The assertion stays MONOTONICITY rather than a ratio, because the ratio is
-  // a property of the rasteriser (0% in Chromium, +15–25% here) even now that
-  // the family is deterministic. What is true everywhere is that asking for
-  // more weight must never give you LESS stroke.
+  // still a property of the font file rather than of this code, and because the
+  // degraded path must pass too.
   it('a weight heavier than bold never reduces stroke width', async () => {
     const pairs = await Promise.all([240, 360].map(async size => {
       const bold = await strokeMedian('STATIC', size, 'bold')
@@ -193,8 +212,10 @@ describe('feature size on real glyphs', () => {
     //
     // Stated on the median rather than the maximum, because the maximum is a
     // *horizontal* bar — the crossbar of a T, the top of an S — and those can
-    // clear the floor. Measured on 150px bold "STATIC", DejaVu Sans: median
-    // 29px, max 102px, floor 108px, so **no** crossing clears it.
+    // clear the floor. Measured on 150px bold "STATIC" through the vendored
+    // face: median 24px, max 90px, floor 108px, so **no** crossing clears it.
+    // (29 / 102 / 108 on DejaVu Sans, which is what this read before the face
+    // was vendored — the conclusion is the same and the margin is wider.)
     //
     // The figures here used to read "median 13px, max 114px, with only 1% of
     // crossings at or above the floor", and that was the unresolved
