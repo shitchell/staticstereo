@@ -1028,6 +1028,27 @@ implementation; all are cheap to change.
       one that started the project. Measured: r=10 → 17px (still short), r=11 → 18px
       (exactly the budget, grade `tight`), r=12 → 21px. Any of those keeps the spacing
       and the eat timings untouched.
+17. **The legibility rule is wrong in kind, not just miscalibrated** — see
+    [`docs/2026-10-12-legibility-findings.md`](../2026-10-12-legibility-findings.md).
+    Twelve blinded reads established that the threshold is an **absolute** stroke width
+    (≈12–14px), *not* `sepFar - sepNear`: a 14px stroke read correctly at budgets from 10px
+    to 30px, 4/4. A 16px stroke — below the shipped 18px budget — was read easily, which
+    refutes "a feature narrower than the budget will not fuse however long you stare"
+    outright.
+
+    The budget governs a **different** axis: fusion comfort. Shaun's own sweep found a cliff
+    at `sepNear` 78 (budget 32) and a flat plateau from 88 to 110. The two axes point in
+    opposite directions, so the current panel effectively advises *widening* the budget to
+    fix legibility — which does nothing for resolving letters and makes fusion harder. That
+    is worse than silence, and is the one item here worth fixing before a more precise
+    number exists.
+
+    Also superseded: my proposal to measure minimum counter aperture. Shaun's
+    counter-argument is better and our own data supports it — the one observed failure was
+    `HARBOR` read as `MARBOR`, a **confusion** between neighbouring letterforms rather than
+    a visibility failure. Aperture would predict `O` fails and `H` survives, which is
+    backwards. The right quantity is discriminability within the alphabet, computable as a
+    pairwise glyph-distance matrix.
 
 ---
 
