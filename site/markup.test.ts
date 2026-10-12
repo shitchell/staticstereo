@@ -165,6 +165,71 @@ describe('the markup keeps the promises the page cannot test in node', () => {
     }
   })
 
+  /**
+   * **The display scale, pinned at the source level.**
+   *
+   * `site/scale.test.ts` proves the arithmetic and proves what non-integer
+   * scaling does to a plate. Neither can see whether the page *applies* it —
+   * that needs a browser, and the 96-case headless sweep that does it is not
+   * part of `npm test`. So the two halves that connect the arithmetic to the
+   * pixels are pinned here, the same way the font load is above.
+   *
+   * Both are one-line deletions that leave every other test in the repo green,
+   * and both put the original defect straight back.
+   */
+  it('sets the canvas width from JS, rather than leaving it to CSS', () => {
+    expect(main).toMatch(/ui\.stereoCanvas\.style\.width\s*=/)
+    expect(main).toMatch(/ui\.stereoCanvas\.style\.height\s*=/)
+    expect(main).toContain('viewLayout(')
+  })
+
+  it('never gives the stereogram canvas a percentage width', () => {
+    // `canvas { width: 100% }` plus `image-rendering: pixelated` IS the bug:
+    // an arbitrary non-integer nearest-neighbour ratio, and below 1:1 it drops
+    // source columns outright. Measured at 0.39x on the default scene before
+    // the fix. A percentage width must never come back for this element.
+    // Comments are stripped FIRST, and that is not tidiness. The docblock above
+    // the rule quotes `canvas { width: 100% }` as the thing that went wrong, so
+    // a regex run over the raw file matches prose, finds braces inside it, and
+    // mis-parses every rule after it. The first version of this test did
+    // exactly that: it passed with `width: 100%` restored on the live rule,
+    // because its "did the regex match anything" guard was satisfied by comment
+    // text. Hence the explicit `#stereo-canvas` guard below rather than a count.
+    const css = readFileSync(join(SITE, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const rules = [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map(([, selector, body]) => ({ selector: selector!.trim(), body: body! }))
+    const stereo = rules.filter(r => /(^|[\s,])(canvas|#stereo-canvas)([\s,]|$)/.test(r.selector))
+    expect(
+      stereo.map(r => r.selector),
+      'neither the generic canvas rule nor #stereo-canvas was found — the regex is broken',
+    ).toContain('#stereo-canvas')
+    const offenders = stereo.filter(r => /\bwidth:\s*[\d.]+%/.test(r.body)).map(r => r.selector)
+    expect(offenders).toEqual([])
+  })
+
+  it('lets an over-wide plate scroll, and lets .stacked actually stack', () => {
+    // The two halves of "never downscale". If the scroller stops scrolling,
+    // the columns past the edge are not shrunk — they are unreachable, which
+    // is worse. If `.stacked` keeps two columns, the row/column decision
+    // computed in `scale.ts` has nowhere to land.
+    const css = readFileSync(join(SITE, 'styles.css'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
+    const rules = Object.fromEntries(
+      [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map(([, s, b]) => [s!.trim(), b!]),
+    )
+    expect(Object.keys(rules), 'the rule regex matched nothing').toContain('.canvas-scroll')
+    expect(rules['.canvas-scroll']).toMatch(/overflow-x:\s*(auto|scroll)/)
+    expect(rules['.views.stacked']).toMatch(/grid-template-columns:\s*minmax\(0, 1fr\)/)
+  })
+
+  it('re-snaps the scale when the window or the devicePixelRatio moves', () => {
+    // An integer scale chosen once is wrong the moment the window is dragged
+    // or the page moves to a monitor with a different scale factor, and the
+    // second of those fires no resize event at all.
+    expect(main).toMatch(/addEventListener\('resize', invalidateDisplayScale\)/)
+    expect(main).toMatch(/matchMedia\(`\(resolution: \$\{dpr\}dppx\)`\)/)
+    expect(main).toMatch(/new ResizeObserver\(/)
+  })
+
   it('declares the licence the package declares', () => {
     // Design §9.4 was settled as WTFPL after an earlier MIT. Three files say
     // so and they are easy to change in ones and twos.

@@ -32,6 +32,7 @@ import { describeLegibility, measureInk, soloLayerScene } from './legibility.js'
 import { DEFAULT_EXAMPLE, EXAMPLES } from './examples.js'
 import { loadVendoredFont } from './fonts.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
+import { scaleNote, viewLayout } from './scale.js'
 import { validateScene } from './scene.js'
 import { stageGuideLabel, stageGuideStyle } from './stageguide.js'
 
@@ -80,9 +81,13 @@ function el<T extends HTMLElement>(id: string): T {
 function collectElements() {
   return {
   error: el<HTMLParagraphElement>('error'),
+  views: el<HTMLElement>('views'),
+  canvasScroll: el<HTMLDivElement>('canvas-scroll'),
   stereoCanvas: el<HTMLCanvasElement>('stereo-canvas'),
   stageGuide: el<HTMLDivElement>('stage-guide'),
   stageGuideToggle: el<HTMLInputElement>('stageGuide'),
+  fullWidth: el<HTMLInputElement>('fullWidth'),
+  scaleNote: el<HTMLParagraphElement>('scale-note'),
   guideNote: el<HTMLParagraphElement>('guide-note'),
   depthCanvas: el<HTMLCanvasElement>('depth-canvas'),
   depthView: el<HTMLSelectElement>('depth-view'),
@@ -184,15 +189,125 @@ let depthRgba = new Uint8ClampedArray(0)
 
 function drawStereo(frame: PlateFrame): void {
   const { width, height, pixels } = frame
-  if (ui.stereoCanvas.width !== width) ui.stereoCanvas.width = width
-  if (ui.stereoCanvas.height !== height) ui.stereoCanvas.height = height
+  if (ui.stereoCanvas.width !== width) {
+    ui.stereoCanvas.width = width
+    displayDirty = true
+  }
+  if (ui.stereoCanvas.height !== height) {
+    ui.stereoCanvas.height = height
+    displayDirty = true
+  }
   const need = width * height * 4
   if (stereoRgba.length !== need) stereoRgba = new Uint8ClampedArray(need)
   greyToRgba(pixels, stereoRgba)
   const ctx = ui.stereoCanvas.getContext('2d')
   if (!ctx) throw new Error('the stereogram canvas has no 2d context')
   ctx.putImageData(new ImageData(stereoRgba, width, height), 0, 0)
+  applyDisplayScale()
   drawStageGuide(frame)
+}
+
+/* ----------------------------------------------------------- display scale */
+
+/**
+ * Size the stereogram canvas so that **one plate pixel is a whole number of
+ * device pixels**, and stack the two views when two plates no longer fit side
+ * by side.
+ *
+ * All the arithmetic is in `site/scale.ts` and unit-tested; what is here is the
+ * part that needs a DOM — reading the container, `devicePixelRatio` and the
+ * grid gap, and writing the result back.
+ *
+ * **Why the width is written in px rather than left to CSS.** `canvas { width:
+ * 100% }` plus `image-rendering: pixelated` is a non-integer nearest-neighbour
+ * resample, which gives paired pixels unequal display widths and breaks fusion
+ * in periodic columns — and at `100%` of a 592px column a 1500px plate is
+ * *downscaled* 0.39x, which drops source columns outright. See the header of
+ * `site/scale.ts` for the measurements.
+ *
+ * **Why it is gated on a dirty flag.** This forces layout (`clientWidth`,
+ * `getComputedStyle`), and `drawStereo` runs once per frame during playback.
+ * Nothing it reads changes between frames of one scene, so it recomputes only
+ * after a resize, a `devicePixelRatio` change, a control toggle, or a change of
+ * backing-store size.
+ */
+let displayDirty = true
+let lastViewsWidth = -1
+
+function applyDisplayScale(): void {
+  if (!displayDirty) return
+  const plateWidth = ui.stereoCanvas.width
+  const plateHeight = ui.stereoCanvas.height
+  // A detached or not-yet-laid-out canvas. Nothing to do and nothing to report;
+  // the next paint will be dirty too.
+  if (!(plateWidth > 0) || !(plateHeight > 0)) return
+  displayDirty = false
+
+  const dpr = window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
+  const containerWidth = ui.views.clientWidth
+  lastViewsWidth = containerWidth
+  const layout = viewLayout({
+    plateWidth,
+    plateHeight,
+    containerWidth,
+    // Read rather than hard-coded: the gap is `1rem` in the stylesheet and a
+    // duplicated 16 here would silently drift from it.
+    gap: Number.parseFloat(getComputedStyle(ui.views).columnGap),
+    dpr,
+    fullWidth: ui.fullWidth.checked,
+  })
+
+  ui.views.classList.toggle('stacked', layout.stacked)
+  ui.stereoCanvas.style.width = `${layout.cssWidth}px`
+  ui.stereoCanvas.style.height = `${layout.cssHeight}px`
+  ui.scaleNote.textContent = scaleNote(layout, dpr)
+}
+
+/*
+ * **What is deliberately NOT here: a sub-pixel nudge of the canvas's origin.**
+ *
+ * The page's own `body { padding: clamp(0.75rem, 3vw, 2.5rem) }` puts the
+ * canvas's content box at a fractional CSS offset — 39.390625px at a 1280px
+ * viewport — so its *device* origin is fractional at every `devicePixelRatio`,
+ * and Chromium snaps each painted rect to the device grid independently. A
+ * version of this file corrected for it with a negative `margin-left` of
+ * `-frac/dpr`, which does land the content box on a whole device pixel at
+ * integral dpr. It was measured across 96 (viewport, dpr, mode) combinations
+ * with and without the correction and the two results were **byte-identical**,
+ * so it was removed rather than kept on the strength of the argument. The
+ * residual it was aimed at is documented in `site/scale.ts`: after the canvas's
+ * border moved to `.canvas-wrap`, 95 of those 96 cases replicate the backing
+ * store exactly, and the one that does not has five fixed vertical seams rather
+ * than anything periodic.
+ */
+
+/** Recompute on the next opportunity, and take it now if there is a frame up. */
+function invalidateDisplayScale(): void {
+  displayDirty = true
+  applyDisplayScale()
+}
+
+/**
+ * `devicePixelRatio` changes without a resize event — a window dragged to a
+ * monitor with a different scale factor, or browser zoom in engines that report
+ * zoom through dpr rather than through the viewport.
+ *
+ * `(resolution: Ndppx)` matches exactly, so the query stops matching the moment
+ * the ratio moves and has to be re-armed against the new one. A `resize`
+ * listener alone would miss the monitor case entirely.
+ */
+let dprQuery: MediaQueryList | undefined
+
+function onDprChange(): void {
+  watchDpr()
+  invalidateDisplayScale()
+}
+
+function watchDpr(): void {
+  const dpr = window.devicePixelRatio > 0 ? window.devicePixelRatio : 1
+  dprQuery?.removeEventListener('change', onDprChange)
+  dprQuery = window.matchMedia(`(resolution: ${dpr}dppx)`)
+  dprQuery.addEventListener('change', onDprChange)
 }
 
 /**
@@ -731,6 +846,34 @@ function wire(): void {
   ui.stageGuideToggle.addEventListener('change', () => {
     ui.stageGuide.hidden = !ui.stageGuideToggle.checked
   })
+
+  /**
+   * Full width, and the row→column reflow that comes with it.
+   *
+   * Not a `dispatch` and deliberately **not** in the share link, matching the
+   * stage guide and the diagnostics band: it changes no pixel, and the hash is
+   * `v1.<base64 of the Scene>` with nothing else in it. Carrying a viewer
+   * preference would mean either adding a field to `Scene` — which `stst` and
+   * every exported GIF would then also see — or inventing a second hash segment
+   * and bumping `HASH_VERSION`, which makes every link already in the wild
+   * report itself as made by a different version of the page. Neither is cheap,
+   * and neither is worth it for a display toggle.
+   */
+  ui.fullWidth.addEventListener('change', invalidateDisplayScale)
+
+  // Three triggers, because they fire in different situations and each one
+  // alone leaves a hole: `resize` misses a dpr change with no size change, the
+  // media query misses a plain window resize, and both miss a layout change
+  // that was not the window's doing (a panel growing, a scrollbar appearing).
+  window.addEventListener('resize', invalidateDisplayScale)
+  watchDpr()
+  new ResizeObserver(entries => {
+    // Width only. Stacking the views changes their *height*, and reacting to
+    // that would be reacting to our own last write.
+    for (const entry of entries) {
+      if (Math.abs(entry.contentRect.width - lastViewsWidth) > 0.5) invalidateDisplayScale()
+    }
+  }).observe(ui.views)
 
   ui.width.addEventListener('change', () => {
     dispatch({ type: 'size', value: [coerceInt(ui.width.value, state.scene.size[0]), state.scene.size[1]] })

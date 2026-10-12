@@ -39,13 +39,29 @@
     <p class="banner" id="error" role="alert" hidden></p>
 
     <main>
-      <section class="views">
+      <!--
+        The row/column decision is made in JS, not here. It depends on whether
+        TWO PLATES AT THE CHOSEN DISPLAY SCALE fit side by side — which depends
+        on the plate width, on noiseScale and on devicePixelRatio, none of which
+        a media query can see. `site/scale.ts` owns it and toggles `.stacked`.
+      -->
+      <section class="views" id="views">
         <figure class="view">
           <figcaption>
             Stereogram
             <label class="check inline">
               <input id="stageGuide" type="checkbox" checked />
               stage guide
+            </label>
+            <!--
+              "Full width" means the largest WHOLE-NUMBER scale that fits the
+              row, not `width: 100%`. There is deliberately no fit-to-width
+              mode: shrinking a stereogram drops source columns and silently
+              produces an image that cannot be fused.
+            -->
+            <label class="check inline">
+              <input id="fullWidth" type="checkbox" />
+              full width
             </label>
           </figcaption>
           <!--
@@ -56,10 +72,21 @@
             rescue. `overflow: hidden` on this wrapper is what clips the
             shade-everything-outside box-shadow in styles.css.
           -->
-          <div class="canvas-wrap">
-            <canvas id="stereo-canvas" width="16" height="9"></canvas>
-            <div id="stage-guide" class="stage-guide" aria-hidden="true"></div>
+          <!--
+            Two wrappers, and they are not interchangeable. `.canvas-scroll` is
+            the horizontal scroller for a plate wider than the window — the
+            plate is never downscaled to fit, so something has to scroll.
+            `.canvas-wrap` is inside it and hugs the canvas, because the stage
+            guide is positioned against it and would not scroll with the pixels
+            if the scroller were also its containing block.
+          -->
+          <div class="canvas-scroll" id="canvas-scroll">
+            <div class="canvas-wrap">
+              <canvas id="stereo-canvas" width="16" height="9"></canvas>
+              <div id="stage-guide" class="stage-guide" aria-hidden="true"></div>
+            </div>
           </div>
+          <p class="note" id="scale-note"></p>
           <p class="note" id="guide-note"></p>
         </figure>
         <figure class="view">

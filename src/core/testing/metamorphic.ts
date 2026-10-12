@@ -393,6 +393,49 @@ export function coherentColumns(
   return cols
 }
 
+/**
+ * Nearest-neighbour horizontal resample — **the browser's own display mapping**,
+ * reproduced so a property can be asserted about it.
+ *
+ * `site/styles.css` renders the plate with `image-rendering: pixelated`, which
+ * is the only correct filter for a dot field (anything smoothing blends
+ * neighbouring dots and destroys the correlation that *is* the signal). But
+ * nearest-neighbour at a **non-integer** ratio maps source columns to *unequal*
+ * numbers of display columns, and that is not cosmetic: the pair
+ * `(out[x], out[x+sep])` stops being a copy of a source pair, so fusion breaks
+ * in a periodic pattern whose period is set by the fractional part. Below a
+ * ratio of 1 it is worse again — source columns are *dropped*, so the partner
+ * pixel a percept needs is not on screen at all.
+ *
+ * The mapping is centre-sampled (`floor((X + 0.5) * srcW / dstW)`), which is
+ * what Chromium does for `pixelated`; the artifact exists under the simpler
+ * `floor(X * srcW / dstW)` too, and at integer ratios the two agree exactly.
+ *
+ * **x only.** The encoders are row-wise and a percept is formed from a
+ * horizontal pair, so vertical resampling duplicates or drops whole rows
+ * without touching any correspondence. Scaling y would add cost and measure
+ * nothing.
+ */
+export function nearestScaleX(
+  img: ArrayLike<number>, w: number, h: number, dstW: number,
+): Uint8Array {
+  if (!Number.isInteger(dstW) || dstW <= 0) {
+    throw new Error(`nearestScaleX: dstW must be a positive integer, got ${dstW}`)
+  }
+  const out = new Uint8Array(dstW * h)
+  const map = new Int32Array(dstW)
+  for (let X = 0; X < dstW; X++) {
+    const sx = Math.floor(((X + 0.5) * w) / dstW)
+    map[X] = sx < 0 ? 0 : sx >= w ? w - 1 : sx
+  }
+  for (let y = 0; y < h; y++) {
+    const src = y * w
+    const dst = y * dstW
+    for (let X = 0; X < dstW; X++) out[dst + X] = img[src + map[X]!]! as number
+  }
+  return out
+}
+
 export interface Run {
   readonly start: number
   readonly end: number

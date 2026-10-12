@@ -65,6 +65,17 @@
   box-sizing: border-box;
 }
 
+/*
+  The display scale is recomputed from the container's width, and stacking the
+  views makes the page taller. Without a stable gutter, the vertical scrollbar
+  appearing or disappearing would change that width *as a result of* the
+  decision that depends on it, which is a layout loop waiting for the one page
+  length where it oscillates.
+*/
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   margin: 0;
   padding: 1.25rem clamp(0.75rem, 3vw, 2.5rem) 3rem;
@@ -123,11 +134,34 @@ h3 {
   white-space: pre-wrap;
 }
 
+/*
+  Two columns, or one, and **JavaScript decides which** — `site/scale.ts`
+  toggles `.stacked`.
+
+  This used to be `repeat(auto-fit, minmax(min(100%, 320px), 1fr))`, which
+  reflowed on *viewport* width. That is the wrong trigger. What decides whether
+  the stereogram and the depth map fit side by side is whether two plates **at
+  the chosen display scale** do, and that depends on the plate width, on
+  `noiseScale` and on `devicePixelRatio` — none of which a media query can see.
+  The default scene's plate is 1500px of backing store, so there is no desktop
+  width at which a row is possible, and `auto-fit` cheerfully gave it a 592px
+  column and let the canvas shrink into it.
+
+  `minmax(0, 1fr)` rather than `1fr`: `1fr` is `minmax(auto, 1fr)`, whose `auto`
+  floor is the track's min-content width, and that would let a wide canvas blow
+  the track out past the container instead of scrolling inside it. With 0 the
+  track widths depend only on the container, which is what makes
+  `viewLayout`'s arithmetic a safe substitute for measuring the DOM.
+*/
 .views {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   margin: 0;
+}
+
+.views.stacked {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .view {
@@ -138,7 +172,6 @@ h3 {
 .view figcaption {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.5rem;
   margin-bottom: 0.35rem;
   font-size: 0.78rem;
@@ -147,10 +180,28 @@ h3 {
   color: var(--dim);
 }
 
+/*
+  `margin-right: auto` on the label rather than `justify-content:
+  space-between` on the row. Both look the same with two children; with three
+  — the caption and two checkboxes — space-between spreads the checkboxes to
+  opposite ends of a canvas that is now up to 1500px wide, and the pair stops
+  reading as a pair.
+*/
+.view figcaption > :first-child {
+  margin-right: auto;
+}
+
+/*
+  Against the blanket `width: 100%` on form controls. That rule is for the
+  stacked controls in the panels; here the select is a flex item in a caption
+  that is as wide as the canvas, and 100% of that is absurd.
+*/
+.view figcaption select {
+  width: auto;
+}
+
 canvas {
   display: block;
-  width: 100%;
-  height: auto;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: #000;
@@ -160,6 +211,79 @@ canvas {
     is being asked to fuse, so scaling must be nearest-neighbour.
   */
   image-rendering: pixelated;
+}
+
+/*
+  **`width: 100%` used to be on this rule, and it was a live display bug.**
+
+  Combined with `image-rendering: pixelated` it handed the plate an arbitrary,
+  almost always non-integer ratio from backing store to screen. Nearest
+  neighbour then maps source columns to *unequal* runs of display columns, so
+  `out[x]` can be three columns wide while its partner `out[x + sep]` is two and
+  that pair stops fusing — recurring with a period set by the fractional part,
+  which is why it reads as vertical columns of raised and lowered texture.
+  Measured on a rendered plate: 0.9254 / 0.9224 / 0.9219 background
+  correspondence at the scales a 1280 / 1600 / 1920px window produced, against
+  1.0000 at every whole-number scale.
+
+  Worse, `100%` of the left column of a 1280px page is 592px, and the default
+  scene's plate is 1500px of backing store — so the live page was *downscaling*
+  by 0.39x, dropping whole source columns. Correspondence there measures 0.80,
+  and no amount of staring recovers it.
+
+  So the width is set from JS instead, in px, by `site/scale.ts`, which solves
+  for `cssWidth x devicePixelRatio = whole number x canvas.width`. `auto` is the
+  no-JS fallback: 1 CSS px per plate px, which is at least right at dpr 1 and
+  never shrinks. `height` is set alongside it rather than left to `auto`, so the
+  vertical scale is the same whole number and the browser has no aspect-ratio
+  rounding to do.
+*/
+#stereo-canvas {
+  /*
+    **`content-box`, against the `* { box-sizing: border-box }` reset, and it is
+    load-bearing.** Under `border-box` a border is taken out of the width that
+    is set here, so `style.width = 1500px` with the 1px border this element used
+    to carry gave the pixels a 1498px content box — a 0.9987 scale, two dropped
+    columns, and the artifact back in full. Measured in headless Chromium before
+    this line existed; nothing else in the repo could have seen it. The border
+    has since moved to `.canvas-wrap` for a second reason (see there), which
+    makes this belt as well as braces — and it stays, because the next person to
+    add a border here should not resurrect the bug.
+  */
+  box-sizing: content-box;
+  border: 0;
+  border-radius: 0;
+  width: auto;
+  height: auto;
+  max-width: none;
+}
+
+/*
+  The depth map is a *visualisation*, not a stereogram: nothing about it has to
+  fuse, so an uneven nearest-neighbour scale costs it nothing. It is shown at
+  its natural size and allowed to shrink, rather than stretched to whatever the
+  track is — upscaling a 640px depth map to 1500px adds no information, and when
+  the views stack it would otherwise become page-wide.
+*/
+#depth-canvas {
+  width: auto;
+  height: auto;
+  max-width: 100%;
+}
+
+/*
+  The horizontal scroller for a plate wider than the space available.
+
+  There is no fit-to-width mode on purpose — below 1:1 the plate loses columns
+  and stops being fusable at all — so when the plate does not fit, it scrolls.
+  `overflow-y: hidden` keeps the vertical clip that the stage guide's
+  shade-everything-outside box-shadow relies on; `hidden` next to `auto` is a
+  legal pair (it is `visible` that gets coerced).
+*/
+.canvas-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
 }
 
 /*
@@ -175,9 +299,28 @@ canvas {
   than white ones and the strips are still fusible — and the whole overlay is
   behind a checkbox for anyone who wants it out of the way entirely.
 */
+/*
+  `max-content` so this hugs the canvas rather than filling the scroller. It has
+  to be the stage guide's containing block *inside* the scroller: if the
+  scroller were also the positioning context, the guide would stay put while the
+  pixels scrolled under it.
+
+  **The border lives here and not on the canvas**, so that this element's
+  padding box is *exactly* the canvas's pixel area. `stageGuideStyle` positions
+  the guide in percentages, and a percentage resolves against the containing
+  block's padding box — with the border on the canvas, that box was the canvas's
+  border box and the guide came out 1.7px wide of the stage it was marking.
+  Measured: 110.15 / 1281.70 against a true 110 / 1280 at 1:1.
+
+  `content-box`, like the canvas, so `width: max-content` is the canvas's own
+  width and the border is added outside it rather than eating into it.
+*/
 .canvas-wrap {
   position: relative;
+  box-sizing: content-box;
   overflow: hidden;
+  width: max-content;
+  border: 1px solid var(--line);
   border-radius: 6px;
 }
 
