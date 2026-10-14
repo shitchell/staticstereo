@@ -31,14 +31,31 @@ const SCENE: Scene = {
   stereo: { sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7 },
   layers: [
     // Was `{kind: 'marquee', speed: 60}`. P0 deleted `marquee`; `presets.ts`
-    // records its recomposition — "a `move` with a `speed`" — and `move`
-    // rejects a `speed` over a zero-length travel, so the endpoints are
-    // written out. The animator is incidental to every assertion here; what
-    // matters is that the fixture stays a scene `validateScene` accepts, which
-    // is what the round-trip assertions below are measuring.
+    // records its recomposition — "a `move` with a `speed`" — so the
+    // endpoints are written out as the full crossing `marquee` performed,
+    // entering off-plate left and leaving off-plate right.
+    //
+    // **`speed` is 320 and not `marquee`'s 60, so the fixture agrees with its
+    // own `duration`.** `move` derives the track length from the distance
+    // between the endpoints, and 640 scene px at 60 px/sec is a 10.67 s
+    // animation inside a 2 s scene: a crossing cut off under a fifth of the
+    // way across, which is not a scene anybody would author. 640/320 = 2
+    // completes it exactly once.
+    //
+    // **What checks the animator here, measured rather than assumed, because
+    // the comment this replaces assumed wrongly.** It said `move`'s rejection
+    // of a `speed` over a zero travel is what forced the endpoints. `move`
+    // does reject that, but nothing in this file resolves a preset:
+    // `parseSceneHash` decodes, and `validateScene` — which the round-trip
+    // below does assert does not throw — checks only that the `kind` is one
+    // the registry has. Measured: it rejects `{kind: 'marquee'}` and accepts
+    // `{kind: 'move', speed: 60}` with no endpoints at all, the degenerate
+    // case. `planFit` then reads only `size` and `stereo`. So the kind is
+    // guarded and every parameter is not, and the coherence of the rest is a
+    // property of the fixture held by this comment alone.
     {
       type: 'text', text: 'HELLO', size: 60, depth: 0.6,
-      anim: { kind: 'move', from: [-320, 0], to: [320, 0], speed: 60 },
+      anim: { kind: 'move', from: [-320, 0], to: [320, 0], speed: 320 },
     },
   ],
 }

@@ -28,13 +28,19 @@ const SCENE: Scene = {
   stereo: { sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7 },
   layers: [
     // Was `{kind: 'marquee', speed: 60}`; see `fit.test.ts`'s copy for why it
-    // is now a `move` with explicit endpoints. P0 deleted `marquee`, and the
-    // animator is incidental to every assertion here — `planFit` reads only
-    // `size` and `stereo` — but `validateScene` is not, and it rejects a kind
-    // no registry implements.
+    // is now a `move` with explicit endpoints, and for why `speed` is 320:
+    // `move` derives the track length from the distance between the
+    // endpoints, and 640 scene px at `marquee`'s 60 px/sec is a 10.67 s
+    // animation inside a 2 s scene. 640/320 = 2 crosses exactly once.
+    //
+    // The round-trip below asserts `validateScene` accepts it, and that check
+    // reaches the preset's `kind` and nothing else — measured in
+    // `fit.test.ts`'s copy, which has the detail. `planFit` reads only `size`
+    // and `stereo`. So the coherence of the animator is a property of the
+    // fixture held by these comments alone.
     {
       type: 'text', text: 'HELLO', size: 60, depth: 0.6,
-      anim: { kind: 'move', from: [-320, 0], to: [320, 0], speed: 60 },
+      anim: { kind: 'move', from: [-320, 0], to: [320, 0], speed: 320 },
     },
   ],
 }
