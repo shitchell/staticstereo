@@ -669,10 +669,41 @@ describe('scaleScene — the preset allow-list', () => {
 
   it('refuses every registered kind that is not on the allow-list', () => {
     // Driven off the live registry, so a preset added upstream is refused by
-    // default rather than mis-scaled by default. `slide`, `bounce`, `bob` and
-    // `marquee` all carry scene-px parameters today.
+    // default rather than mis-scaled by default. Today that is `move`,
+    // `rotate`, `scale` and `flip` — four of the registry's five verbs, all
+    // but `push` — and the names are not written into the assertion because
+    // P0 has already replaced this vocabulary once.
     const refusable = Object.keys(PRESETS).filter(k => !SCALE_FREE_PRESET_KINDS.has(k))
-    expect(refusable.length).toBeGreaterThanOrEqual(4)
+    /*
+     * **Derived, where it used to be the literal `>= 4`.**
+     *
+     * That literal was written when the registry had nine verbs and it ended
+     * up sitting *exactly* at its floor: five kinds minus a one-member
+     * allow-list is precisely four refusable kinds. At the floor a literal is
+     * the wrong instrument in both directions — P0 deleting a sixth verb would
+     * red a test about the allow-list for a reason that has nothing to do with
+     * the allow-list, and anything added to the allow-list silently buys back
+     * the slack, which is the failure actually available here.
+     *
+     * The equality says the one thing worth saying: every allow-listed kind is
+     * a kind the registry implements, so the two sets partition it and nothing
+     * is being skipped by this loop. That is the same claim "accepts every
+     * allow-listed kind, and each one really exists" makes below, from the
+     * other side — and this side is the one that catches it while *this* loop
+     * is the loop being shortened. Measured: with a `glide` that no registry
+     * implements added to the allow-list, the old floor read `4 >= 4` and
+     * passed; this reds.
+     *
+     * The `>= 1` is the vacuity floor and not the guard. The equality already
+     * reds for an empty registry against a non-empty allow-list; both empty at
+     * once is what it cannot see, and that is an empty loop.
+     */
+    expect(refusable.length).toBeGreaterThanOrEqual(1)
+    expect(
+      refusable.length,
+      'an allow-listed kind is not in PRESETS, so this loop silently covers fewer kinds than ' +
+      'the registry has',
+    ).toBe(Object.keys(PRESETS).length - SCALE_FREE_PRESET_KINDS.size)
     for (const kind of refusable) {
       const scene = sceneOf({ type: 'shape', shape: 'circle', r: 8, anim: { kind } })
       expect(scaleScene(scene, planAt(scene, 0.5)).ok, kind).toBe(false)
