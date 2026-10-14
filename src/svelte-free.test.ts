@@ -14,6 +14,32 @@
  * from `src/` resolves and compiles under the test runner today. The hole this
  * closes is open, not hypothetical.
  *
+ * ## **"Build 0" is not evidence of purity** — correcting this file's own commit
+ *
+ * `b6f10f9`, the commit that added this file, says of an unused `svelte` import
+ * under `src/` that "only `src/core/purity.test.ts` catches it, only after a
+ * build". **That is false in both halves, and the correction matters more than
+ * the original claim did**, because what it actually means is that *nothing*
+ * but this file stands here.
+ *
+ * `tsc` **elides an import whose bindings are never used**, so the dependency
+ * sits in the source and never reaches the output. Re-measured here rather than
+ * carried over as a rumour — `import { mount } from 'svelte'` prepended to
+ * `src/core/index.ts`:
+ *
+ * - `npm run build` → **0**, and `grep -rl svelte dist/` matches **no file**;
+ * - `npm run typecheck` → **0**, `0 ERRORS`;
+ * - `src/core/purity.test.ts` → **8 passed**. It parses `dist/core`, and
+ *   `dist/core` is clean, so it is not merely late — it is **blind**, and no
+ *   amount of building makes it see this;
+ * - this file → **red**, naming `src/core/index.ts imports svelte`.
+ *
+ * A green build over a source tree is a statement about what was *emitted*. The
+ * question "what does `src/` depend on" is only answerable by reading `src/`,
+ * which is why this sensor reads sources and why §9 records "do not weaken,
+ * gate or relocate it" against it. The floors below are part of that: they are
+ * what stops the read from silently becoming a read of almost nothing.
+ *
  * ## Why a new file rather than four more lines in `purity.test.ts`
  *
  * Every assertion in that file's purity block sits behind
@@ -27,9 +53,13 @@
  * Not a list, not `vitest.config.ts`'s glob, not tsc's input set — a walk is
  * the only derivation under which a file that does not exist yet is
  * automatically in scope. The alternatives also disagree about what `src/` even
- * contains: `tsc -p tsconfig.typecheck.json --listFilesOnly` reports ~121 repo
- * `.ts` files against the 78 here, because it is answering a different
- * question.
+ * contains: `tsc -p tsconfig.typecheck.json --listFilesOnly` reports more than
+ * half as many repo files again as this walk does, because it answers a different
+ * question — it reports what the two tsconfigs *pull in*, `site/` included,
+ * and it reports no file that is not reachable TypeScript. (Stated as a ratio
+ * on purpose. An earlier revision wrote the two counts out as `~121` against
+ * `78`; both were already wrong by the end of the cluster that shipped them,
+ * for the same reason the floors below are no longer literals.)
  *
  * There is deliberately **no `/\.ts$/` filter** either. That filter is the
  * defect `fda30d3` had just fixed one directory over — `site/query.test.ts`
@@ -72,6 +102,15 @@ import { importSpecifiers } from './core/testing/imports.js'
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 const SRC = join(ROOT, 'src')
+/**
+ * The largest subtree of `SRC`, used as the **derived** floor below.
+ *
+ * Anchored to `ROOT` and deliberately **not** to `SRC` — `join(SRC, 'core')`
+ * would follow `SRC` wherever it moved, and a mis-rooted walk would then be
+ * compared against a mis-rooted baseline. Two independent anchors are what
+ * make the comparison mean anything.
+ */
+const CORE = join(ROOT, 'src', 'core')
 /** The positive control's tree. See `svelte-free-fixture/README.md`. */
 const FIXTURE = join(ROOT, 'svelte-free-fixture')
 
@@ -153,21 +192,46 @@ describe('src/ is Svelte-free', () => {
   })
 
   it('looked at enough of the tree for those two nulls to mean anything', () => {
-    // Both floors are set just above the largest single subtree, so a walk that
-    // lost its root or stopped recursing cannot meet them: `src/core` is 42 of
-    // the 78 files and 154 of the 330 specifiers today. A floor derived that
-    // way moves with the tree in the direction that matters and does not go red
-    // when a file is deleted.
+    // These were literals — `> 50` files and `> 160` specifiers, "set just
+    // above the largest single subtree". §9: a numeric floor chosen from
+    // today's count is not a check, it is a hand-written list in numeric form.
+    // This one was overtaken *inside the cluster that wrote it*: two new
+    // `src/core` test files took that subtree past 160 specifiers, so a walk
+    // mis-rooted at `src/core` cleared the specifier floor and was caught by
+    // the file floor alone. Every `src/core` file added pushed it further.
+    //
+    // So the floor is now the subtree itself, measured on the same run. `src/`
+    // strictly contains `src/core`, which is a structural fact no amount of
+    // growth can overtake, and comparing the two populations rather than their
+    // sizes is what keeps this from being self-referential in the way a
+    // count-against-its-own-count would be:
+    //
+    // - **mis-rooted at `src/core`** — the two scans return the same set, so
+    //   the strict inequality fails. (Mis-rooted anywhere else, containment
+    //   fails instead, or `CORE` does not exist and `readdirSync` throws.)
+    // - **stopped recursing**, at any depth — `src`'s walk then returns files
+    //   shallower than `core`'s does, and cannot contain them. This is the case
+    //   a pair of counts handles worst and containment handles best: a broken
+    //   recursion shrinks *both* counts, so a ratio can survive it, whereas the
+    //   two file *sets* stop overlapping outright.
+    // - **everything vanished** — containment holds vacuously, and `0 > 0` is
+    //   what catches it.
+    const core = scan(CORE)
+    expect(
+      src.files,
+      'the walk never reached src/core, so it lost its root or stopped recursing — the two ' +
+      'nulls above are over a tree this walk did not actually enter',
+    ).toEqual(expect.arrayContaining([...core.files]))
     expect(
       src.files.length,
-      'the walk found almost nothing, so "no Svelte under src/" is only true of the empty ' +
-      'set — SRC, or the recursion, has moved',
-    ).toBeGreaterThan(50)
+      'the walk found nothing in src/ beyond src/core itself, so SRC has collapsed onto a ' +
+      'subtree and "no Svelte under src/" is a claim about that subtree only',
+    ).toBeGreaterThan(core.files.length)
     expect(
       src.specifiers,
-      'the walk found files but parsed almost no imports out of them, which is how a purity ' +
-      'test rots: the parser, not the tree, is what changed',
-    ).toBeGreaterThan(160)
+      'all of src/ parsed to no more imports than src/core alone, which is how a purity test ' +
+      'rots: the parser, not the tree, is what changed',
+    ).toBeGreaterThan(core.specifiers)
   })
 })
 

@@ -31,6 +31,32 @@
  * worthless here (nothing reads the values) and a `readonly [0, 0]` is not
  * assignable to `at?: [number, number]`, so the annotation that does the work
  * would have had to be weakened to accept it.
+ *
+ * ## Weakening `Required<>` to `Partial<>` is invisible here, and that is fine
+ *
+ * Measured, because it was raised as a possible hole and is not one.
+ * `Required<LayerOf<T>>` → `Partial<LayerOf<T>>` leaves `npm run typecheck` at
+ * 0 and this file green, and no `AssertNever` can change that: `keyof
+ * Partial<X>` is `keyof X`, so the annotation *type* still carries every key
+ * and only the obligation on the object *literal* is lost.
+ *
+ * It is not a hole because that obligation is not what the first test reads.
+ * `disagreements()` compares the keys the samples **actually carry** against
+ * `LAYER_KEYS`, in both directions, so every way the lost obligation could
+ * matter is still named on the spot: drop `weight` from the `text` sample under
+ * `Partial<>` and the first test fails with `text.weight is in LAYER_KEYS, not
+ * on the type`; add a key to a variant and to the roster but not to the sample,
+ * and it fails the same way; add it to the variant alone and `types.ts`'s
+ * `_No…KeyMissing` fails typecheck before this file is reached. `Required<>`
+ * buys a second, earlier error for the first case, not the only one.
+ *
+ * This is the structural difference from `site/keydrift.test.ts`, which needs a
+ * separate "the samples really do carry every key in" clause (`:205-218`) and
+ * is **not** a precedent to copy here. Its primary test compares what survives
+ * `validateScene` against the roster, and a key the sample never supplied
+ * cannot be dropped by the rebuild — so there the comparison goes *vacuously*
+ * green and needs a second clause to say so. Here the primary test is already
+ * over the supplied keys, so that clause would be a literal restatement of it.
  */
 import { describe, expect, it } from 'vitest'
 import { LAYER_KEYS } from './types.js'
@@ -128,10 +154,27 @@ describe('LAYER_KEYS', () => {
 
 /**
  * Not a duplicate of the above: that one proves the roster matches the type,
- * this proves the roster is not vacuous in the way a `Record` cannot catch —
- * every variant carries the five keys `LayerBase` contributes plus its own
- * discriminant, so an entry reduced to `[]` is visible even though `readonly
- * LayerKey[]` admits the empty array.
+ * these prove the entries are not malformed in the two ways a `Record` cannot
+ * catch. `readonly LayerKey[]` admits the empty array and it admits a member
+ * written twice, so neither an entry reduced to `[]` nor an entry carrying
+ * `'text'` twice is a type error — and `Exclude` is set-valued, so the ten
+ * `AssertNever` pairs in `types.ts` cannot see a duplicate either.
+ *
+ * ## The duplicate clause arrived here second, and that is the interesting part
+ *
+ * `scenekeys.test.ts:80-86` is the precedent and carries the rationale: a
+ * duplicate in a roster the editor iterates is a control rendered twice, which
+ * is the kind of defect that gets blamed on the layout. That clause was written
+ * for `SCENE_KEYS` one commit after this file shipped without it, so for the
+ * length of a cluster **the same guard existed at two levels of the same type
+ * tree, complete over `Scene`'s six flat keys and incomplete over the five
+ * per-variant rosters underneath them** — and the incomplete level is the one
+ * with five rosters to get wrong rather than one. Nothing recorded the
+ * asymmetry as deliberate; `0c4e210`'s message does not mention duplicates at
+ * all, which is what an omission looks like from the outside. The general shape
+ * is worth more than this instance: when a guard is written twice at two levels,
+ * the level that got it second is evidence about the level that got it first,
+ * not the other way round.
  */
 describe('LAYER_KEYS entries', () => {
   it('each carry the discriminant and the base keys', () => {
@@ -139,5 +182,21 @@ describe('LAYER_KEYS entries', () => {
     for (const [variant, keys] of Object.entries(LAYER_KEYS)) {
       expect(base.filter(k => !(keys as readonly string[]).includes(k)), variant).toEqual([])
     }
+  })
+
+  it('each carry every key exactly once', () => {
+    // Reported per variant rather than as one flattened comparison: the five
+    // rosters share `LAYER_BASE_KEYS`, so a flattened set would show every base
+    // key five times and the clause would have to special-case its way back out.
+    const repeated = Object.entries(LAYER_KEYS).flatMap(([variant, keys]) =>
+      (keys as readonly string[])
+        .filter((k, i, all) => all.indexOf(k) !== i)
+        .map(k => `${variant}.${k} is listed more than once`))
+    expect(
+      repeated.sort(),
+      'a duplicate in a roster the editor iterates is a control rendered twice (R6), and ' +
+      'nothing else in the repo can see it: `Exclude` is set-valued, so the AssertNever ' +
+      'pairs in types.ts are blind to it, and `readonly LayerKey[]` admits the repeat.',
+    ).toEqual([])
   })
 })

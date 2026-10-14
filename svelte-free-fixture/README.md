@@ -1,6 +1,9 @@
 # `svelte-free-fixture/` — the paired control for `src/svelte-free.test.ts`
 
-Six files that a **working** scan must report and a **blind** one must miss. They are read
+Seven files: **six** that a working scan must report, and one — `clean.ts` — that it must
+**not**. A blind scan misses some of the six; a scan that has rotted from parsing into
+grepping names the seventh as well, and both failures are pinned exactly rather than as
+"found something". They are read
 as text by `src/svelte-free.test.ts` and are never imported, compiled, bundled or
 typechecked: nothing here is on `tsconfig.typecheck.json`'s `include` (`["src","site"]`),
 on `tsconfig.json`'s (`["src"]`), in either vite config's module graph (both are rooted at
@@ -34,4 +37,17 @@ guard:
 The last two are the discriminating cases. `src/web/index.test.ts`'s `specifiersOf` is two
 line-anchored `matchAll`s over `from '…'` and bare `import '…'`, and it reports neither of
 them; the AST walk this fixture controls reports both. That is why `src/svelte-free.test.ts`
-reuses `importSpecifiers` from `src/core/purity.test.ts` instead of writing a regex.
+reuses `importSpecifiers` instead of writing a regex.
+
+It reuses it from **`src/core/testing/imports.ts`**, and specifically **not** from
+`src/core/purity.test.ts`, where the function was originally written and where its
+self-tests still live. (An earlier revision of this file said the opposite. It was wrong,
+and the reason it is wrong is the same reason `imports.ts` exists at all.) Importing a
+`.test.ts` registers that file's top-level `describe`s into whichever suite imports it, so
+pointing at `purity.test.js` runs its whole suite a second time under
+`svelte-free.test.ts`'s name — measured, **14 tests reported where 6 were written**. That
+is not merely noisy: a second, silently-renamed copy of another file's assertions is
+exactly the kind of count nobody reconciles. `src/core/testing/` is also excluded from
+`tsconfig.json`'s build, so the shared helper cannot reach `dist/` — `purity.test.ts`
+asserts that no emitted path has a `testing` segment, which a `src/testing/` would have
+turned red.
