@@ -21,8 +21,17 @@
 
       Phrased without a literal leading-slash example on purpose: vite keeps
       HTML comments in the production build, so an example here would land in
-      dist-player/player.html and give a false hit to anyone grepping the
-      built page by eye.
+      the emitted document and give a false hit to anyone grepping the built
+      page by eye.
+
+      This file is player.html and the build emits it as dist-player/index.html.
+      The names differ because they answer different questions: the source name
+      has to be distinct from the editor's site/index.html under the shared
+      vite root, and the output name has to be index.html or the deployed
+      directory URL /staticstereo/player/ — the one an embedder writes into an
+      iframe src (R14) — has nothing to answer with. vite.player.config.ts
+      performs the rename and records why it is done in the build rather than
+      in the deploy workflow.
     -->
     <link rel="stylesheet" href="./playerpage.css" />
     <link rel="stylesheet" href="./player.css" />

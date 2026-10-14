@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 
 /**
- * The **player** build: `site/player.html` → `dist-player/`.
+ * The **player** build: `site/player.html` → `dist-player/index.html`.
  *
  * ## Why a sibling config and not a second entry in `vite.site.config.ts`
  *
@@ -29,14 +29,84 @@ import { defineConfig } from 'vite'
  *
  * ## Both directories are built by `npm run build:site`
  *
- * Not by a `build:player` script of its own. The CI gate runs `typecheck`,
- * `build`, `build:site`, `test` and nothing else, and `dist.test.ts`'s
- * freshness gate treats an absent or stale directory as *not built* rather
- * than as a failure — so a player left to a script CI never calls would make
- * every player assertion skip silently while the suite reported green. The
- * assertion that never ran reads exactly like the one that passed.
+ * `build:player` exists as a script (`package.json`) and is what `build:site`
+ * delegates to, but **nothing in CI ever calls it directly**: the gate runs
+ * `typecheck`, `build`, `build:site`, `test` and nothing else. That is the
+ * property with teeth, because `dist.test.ts`'s freshness gate treats an
+ * absent or stale directory as *not built* rather than as a failure — so a
+ * player reachable only through a script CI never calls would make every
+ * player assertion skip silently while the suite reported green. The assertion
+ * that never ran reads exactly like the one that passed.
+ *
+ * ## The entry is emitted as `index.html`, and the source cannot be
+ *
+ * The player's deliverable is not a bundle, it is a URL a stranger pastes into
+ * an `<iframe src>` (R14) — and that URL is the bare directory
+ * `/staticstereo/player/`, because the deploy nests this whole directory under
+ * the site's (`.github/workflows/pages.yml`). A static host answers a bare
+ * directory URL with `index.html` inside it and with nothing else, so an entry
+ * emitted as `player.html` is an entry at no usable URL: built, tested,
+ * deployed, 404. That was the state of this file until now, and the relative
+ * paths `base: './'` guarantees were all correct the whole time — they say
+ * where a reference resolves *from the document*, and said nothing about
+ * whether the document was reachable.
+ *
+ * The obvious fix — rename the source to `site/index.html` — is unavailable:
+ * `root` is `site`, and `site/index.html` is already the **editor's** entry.
+ * So the source keeps its distinguishing name and the *output* is renamed, by
+ * {@link directoryIndexEntry} below.
  */
+
+/**
+ * Emit the single HTML entry as `index.html` whatever the source is called.
+ *
+ * Done here, in the build, and deliberately **not** as an `mv` in the deploy
+ * workflow. A rename at upload time is a second place where the build's idea
+ * of the artifact and the deploy's can disagree — and two places disagreeing
+ * is the entire cause of the defect this plugin fixes. Keeping it in the
+ * config means `dist-player/` is already the thing that gets published, so
+ * every assertion `site/dist.test.ts` makes about the built directory is an
+ * assertion about the deployed one.
+ *
+ * Vite names an HTML output after its input path relative to `root`, with no
+ * option to override it: `entryFileNames` governs JS chunks, and the document
+ * is emitted as an asset. Renaming the emitted asset is therefore the whole
+ * mechanism. It is safe because the name changes but the *depth* does not —
+ * both names sit at the top of `dist-player/`, so every `./assets/...`
+ * reference `base: './'` produced resolves identically from either.
+ *
+ * `enforce: 'post'` so this runs after vite's own `vite:build-html`, which is
+ * what rewrites the document's references and emits it under the source name.
+ * The throw is not defensive padding: if a vite upgrade changed the emitted
+ * name, silently doing nothing here would restore the 404 with the suite's
+ * production half green.
+ */
+function directoryIndexEntry(from: string, to: string): Plugin {
+  return {
+    name: 'staticstereo:directory-index-entry',
+    enforce: 'post',
+    generateBundle(_options, bundle) {
+      const emitted = bundle[from]
+      if (!emitted) {
+        throw new Error(
+          `directoryIndexEntry: no ${from} in the bundle, so the player entry was not ` +
+          `renamed to ${to} and the deploy's directory URL will 404. Emitted: ` +
+          `${Object.keys(bundle).join(', ')}`,
+        )
+      }
+      if (bundle[to]) {
+        throw new Error(`directoryIndexEntry: ${to} already exists; refusing to overwrite it`)
+      }
+      delete bundle[from]
+      emitted.fileName = to
+      bundle[to] = emitted
+    },
+  }
+}
+
 export default defineConfig({
+  plugins: [directoryIndexEntry('player.html', 'index.html')],
+
   root: 'site',
 
   /**
@@ -51,7 +121,7 @@ export default defineConfig({
    * which the absolute form is right at all — it is loaded as an `<iframe
    * src>` from pages on hosts we will never see (R14).
    *
-   * Observed, not assumed: removing this line makes `dist-player/player.html`
+   * Observed, not assumed: removing this line makes the emitted entry
    * reference `/assets/player-<hash>.js` and `/assets/player-<hash>.css`, and
    * the emitted stylesheet reference the three woff2 files the same way.
    * `site/dist.test.ts` asserts all of that against the built output.

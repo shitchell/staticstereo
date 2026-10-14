@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   cpSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   readdirSync,
@@ -9,6 +10,8 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { createServer } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -61,8 +64,39 @@ const built = existsSync(join(DIST, 'index.html'))
  * directories make the set exact: every file under here is the player's.
  */
 const DIST_PLAYER = join(ROOT, 'dist-player')
-const PLAYER_ENTRY = 'player.html'
-const builtPlayer = existsSync(join(DIST_PLAYER, PLAYER_ENTRY))
+
+/**
+ * The source entry and the emitted entry have **different names on purpose**,
+ * and the two constants exist so that neither can be mistaken for the other.
+ *
+ * `site/index.html` is already the editor's entry under the shared
+ * `root: 'site'`, so the player's source cannot be called `index.html`. But
+ * the *emitted* name is what a URL resolves to, and a static host answers a
+ * bare directory URL with `index.html` and with nothing else. Published at
+ * `dist-site/player/`, an entry called `player.html` means
+ * `/staticstereo/player/` is a 404 — and that bare directory URL is precisely
+ * what a human writes into an `<iframe src>`, which is R14's whole purpose.
+ * `vite.player.config.ts` closes the gap by renaming the emitted document.
+ */
+const PLAYER_SOURCE_ENTRY = 'player.html'
+const PLAYER_ENTRY = 'index.html'
+
+/**
+ * "Did the player build at all", keyed on *any* emitted document rather than
+ * on the entry's name — and that distinction is load-bearing rather than
+ * defensive.
+ *
+ * Every block below is `skipIf(!freshPlayer)`. If this flag asked for
+ * `index.html` by name, then a regression that renamed the emitted entry back
+ * would make the player look *unbuilt*, skip every assertion that exists to
+ * catch it, and report green with a trailing "skipped because dist-player is
+ * absent". The entry's name is therefore an assertion ("emits its entry as the
+ * directory index", below) and never a gate. The phase has already lost one
+ * suite to a silent skip — `1130 passed | 20 skipped`, with every
+ * Pages-critical check not running — and that is the shape it took.
+ */
+const builtPlayer =
+  existsSync(DIST_PLAYER) && filesUnder(DIST_PLAYER).some(f => f.endsWith('.html'))
 
 function filesUnder(dir: string): string[] {
   const out: string[] = []
@@ -231,8 +265,27 @@ describe.skipIf(!fresh)('the built site', () => {
 /* ===================================================================== */
 
 describe.skipIf(!freshPlayer)('the built player', () => {
-  const html = freshPlayer ? readFileSync(join(DIST_PLAYER, PLAYER_ENTRY), 'utf8') : ''
+  const entry = join(DIST_PLAYER, PLAYER_ENTRY)
+  // Read defensively rather than at describe-collection time: if the entry is
+  // emitted under another name the assertion below is the diagnosis, and a
+  // bare ENOENT thrown while collecting this file would bury it.
+  const html = freshPlayer && existsSync(entry) ? readFileSync(entry, 'utf8') : ''
   const files = freshPlayer ? filesUnder(DIST_PLAYER) : []
+
+  it('emits its entry as the directory index, not as a named page', () => {
+    // The cheap half of the pair whose expensive half is the served-URL block
+    // further down. Cheap, but not redundant: this one names the mechanism, so
+    // a config change that renames the emitted document fails here with the
+    // reason attached rather than only as a 404 three hundred lines later.
+    const documents = files.filter(f => f.endsWith('.html')).map(f => relative(DIST_PLAYER, f))
+    expect(documents, 'the player build emitted no HTML at all').not.toEqual([])
+    expect(
+      documents,
+      `the player's entry must be emitted as ${PLAYER_ENTRY}: a static host answers the ` +
+      `bare directory URL /staticstereo/${PLAYER_DEPLOY_DIR}/ with the directory index and ` +
+      `with nothing else, and that URL is the one an embedder writes into an iframe (R14)`,
+    ).toContain(PLAYER_ENTRY)
+  })
 
   it('references no asset by an absolute path', () => {
     // Same reason as the site, and the player needs it more: it is designed to
@@ -336,14 +389,14 @@ describe.skipIf(!freshPlayer)('the built player', () => {
  */
 describe('the player entry links the renderer’s own stylesheet', () => {
   it('references the file PLAYER_STYLESHEET names', () => {
-    const entry = readFileSync(join(ROOT, 'site', PLAYER_ENTRY), 'utf8')
+    const entry = readFileSync(join(ROOT, 'site', PLAYER_SOURCE_ENTRY), 'utf8')
     const refs = assetRefs(entry)
     // Vacuity floor: an entry that referenced nothing, or a regex that
     // stopped matching, must not read as a pass.
     expect(refs.length, 'no asset references found in the entry at all').toBeGreaterThan(1)
     expect(
       refs,
-      `site/${PLAYER_ENTRY} does not link ${PLAYER_STYLESHEET}, so the transport ships ` +
+      `site/${PLAYER_SOURCE_ENTRY} does not link ${PLAYER_STYLESHEET}, so the transport ships ` +
       `without its pointer-events and eats every click aimed at the plate (design §8.2)`,
     ).toContain(`./${PLAYER_STYLESHEET}`)
   })
@@ -478,6 +531,163 @@ describe.skipIf(!freshPlayer)('the player still resolves once nested a directory
         ref => !ref.startsWith('./') || !existsSync(join(deployed, ref.slice(2))),
       )
       expect(absolute).toHaveLength(2)
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
+  })
+})
+
+/* ===================================================================== */
+/*  the player has a URL, and it is a directory URL                       */
+/* ===================================================================== */
+
+/**
+ * The subpath a GitHub **project** Page is served from — `<user>.github.io/<repo>/`.
+ * Hard-coded rather than derived: it is a fact about the deployment, and the
+ * point of the block below is to resolve references against the real prefix
+ * rather than against a root the production site never has.
+ */
+const PAGES_BASE_PATH = '/staticstereo'
+
+/**
+ * A static host, in as few rules as it takes to be the one rule that matters.
+ *
+ * Everything above this point resolves references by joining paths, which
+ * cannot see the defect R14 was actually left open by: a path join is happy to
+ * find `dist-site/player/player.html` on disk, and a browser asking for
+ * `/staticstereo/player/` is not. The gap between "the file is there" and "the
+ * URL answers" is the whole of this block, so it is served rather than joined.
+ *
+ * The directory rule — a path ending in `/` is answered with `index.html`
+ * inside it, or with a 404 — is the behaviour of GitHub Pages and of every
+ * other static host, and it is deliberately the *only* convenience modelled
+ * here. In particular there is **no** `/dir` → `/dir/` redirect: real hosts do
+ * issue one, modelling it would make this suite pass for a reason it had not
+ * checked, and the slash-terminated form is the one an embed should carry
+ * anyway. An embedder who writes the slashless form gets the host's redirect,
+ * which is not ours to assert.
+ */
+interface StaticHost {
+  readonly origin: string
+  close(): Promise<void>
+}
+
+async function serveUploadRoot(root: string, mountedAt: string): Promise<StaticHost> {
+  const server = createServer((req, res) => {
+    const path = decodeURIComponent(new URL(req.url ?? '/', 'http://host').pathname)
+    const inMount = path === mountedAt || path.startsWith(`${mountedAt}/`)
+    // Outside the project's subpath there is nothing at all — which is exactly
+    // why an absolute `/assets/...` reference 404s in production while working
+    // perfectly on a localhost dev server rooted at `/`.
+    if (!inMount) return void res.writeHead(404).end()
+
+    const rest = path.slice(mountedAt.length)
+    const file = resolve(root, `.${rest.endsWith('/') || rest === '' ? `${rest}/index.html` : rest}`)
+    if (!file.startsWith(resolve(root))) return void res.writeHead(403).end()
+    if (!existsSync(file) || statSync(file).isDirectory()) return void res.writeHead(404).end()
+    res.writeHead(200).end(readFileSync(file))
+  })
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
+  const { port } = server.address() as AddressInfo
+  return {
+    origin: `http://127.0.0.1:${port}`,
+    close: () => new Promise<void>(done => server.close(() => done())),
+  }
+}
+
+describe.skipIf(!freshPlayer)('the player answers at the bare directory URL (R14)', () => {
+  /**
+   * R14's deliverable is not a bundle, it is a URL a stranger can put in an
+   * `<iframe src>`. For most of this phase the bundle was correct and the URL
+   * did not exist: the entry was emitted as `player.html`, the deploy nested it
+   * at `dist-site/player/`, and `/staticstereo/player/` returned a 404 while
+   * every assertion in this file — including the nested-path one directly
+   * above, which re-resolves each reference at the deploy depth — stayed green.
+   * They were all asking whether the files resolve *relative to the document*,
+   * and the document was unreachable.
+   *
+   * So this block asks the other question, the only way it can be asked
+   * honestly: stand the deployed tree up behind a static host at the subpath
+   * Pages serves it from, request the directory, and follow every reference the
+   * response makes as a *URL* resolved against the request's URL rather than as
+   * a path joined onto a directory.
+   */
+  it('serves the player document, its script, its stylesheets and its fonts', async () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'stst-url-'))
+    try {
+      const uploadRoot = join(scratch, 'dist-site')
+      mkdirSync(uploadRoot, { recursive: true })
+      // The deploy, as `.github/workflows/pages.yml` performs it.
+      cpSync(DIST_PLAYER, join(uploadRoot, PLAYER_DEPLOY_DIR), { recursive: true })
+
+      const host = await serveUploadRoot(uploadRoot, PAGES_BASE_PATH)
+      try {
+        const dirUrl = `${host.origin}${PAGES_BASE_PATH}/${PLAYER_DEPLOY_DIR}/`
+        const res = await fetch(dirUrl)
+        expect(
+          res.status,
+          `${PAGES_BASE_PATH}/${PLAYER_DEPLOY_DIR}/ does not answer. The player is built, ` +
+          `tested and deployed, and the URL an embedder writes into an iframe is a 404 — ` +
+          `which is what an entry emitted under any name but ${PLAYER_ENTRY} produces`,
+        ).toBe(200)
+
+        const html = await res.text()
+        // Not "a document": *the player's* document. A directory index that
+        // happened to be the editor, or a host error page, would satisfy a
+        // bare 200 and satisfy nothing else. These two ids are the contract
+        // `site/player.ts` resolves by `getElementById` and throws without.
+        expect(html).toContain('id="player"')
+        expect(html).toContain('id="notices"')
+
+        const refs = assetRefs(html).filter(ref => !isExternal(ref))
+        expect(refs.length, 'the served document references nothing').toBeGreaterThan(1)
+
+        const sheetUrls: string[] = []
+        let scripts = 0
+        for (const ref of refs) {
+          const url = new URL(ref, dirUrl)
+          const asset = await fetch(url)
+          expect(asset.status, `${ref} → ${url.pathname}`).toBe(200)
+          if (ref.endsWith('.js')) scripts += 1
+          if (ref.endsWith('.css')) sheetUrls.push(url.href)
+        }
+        expect(scripts, 'no script was served, so the page is inert').toBeGreaterThan(0)
+        expect(sheetUrls.length, 'no stylesheet was served').toBeGreaterThan(0)
+
+        // The fonts are a directory deeper again and resolved against the
+        // *stylesheet's* URL, not the document's — the one hop the HTML half
+        // structurally cannot see.
+        let fonts = 0
+        for (const sheetUrl of sheetUrls) {
+          const css = await (await fetch(sheetUrl)).text()
+          for (const match of css.matchAll(/url\(\s*['"]?([^'")]+)/g)) {
+            const ref = match[1]!
+            if (isExternal(ref)) continue
+            const url = new URL(ref, sheetUrl)
+            expect((await fetch(url)).status, `${sheetUrl}: ${ref}`).toBe(200)
+            if (ref.endsWith('.woff2')) fonts += 1
+          }
+        }
+        expect(fonts, 'the three vendored weights are not reachable from the served sheet')
+          .toBe(3)
+
+        // The positive control, and it is the production failure mode rather
+        // than a synthetic one: take a reference the host just served and ask
+        // for its absolute form, the spelling `base: './'` exists to prevent.
+        // It must 404 — if it did not, this host would be rooted at `/` like a
+        // dev server and every 200 above would prove nothing about Pages.
+        const script = refs.find(ref => ref.endsWith('.js'))!
+        const absolute = new URL(script.replace(/^\.\//, '/'), host.origin)
+        expect(
+          (await fetch(absolute)).status,
+          `${absolute.pathname} was served, so this host is not modelling a project subpath`,
+        ).toBe(404)
+        // ...and a name that was never emitted, so a host answering 200 to
+        // everything cannot pass either.
+        expect((await fetch(new URL('definitely-not-emitted.js', dirUrl))).status).toBe(404)
+      } finally {
+        await host.close()
+      }
     } finally {
       rmSync(scratch, { recursive: true, force: true })
     }
