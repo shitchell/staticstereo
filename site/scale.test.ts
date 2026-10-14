@@ -663,12 +663,19 @@ describe('renderFit', () => {
     }
 
     // ...so solving for the scale has to subtract the dead strips FIRST. A
-    // 3000 CSS px box at dpr 1 holds 1500 plate px at noiseScale 2; 110 of them
-    // are margin, leaving 1390 for a 640px stage.
+    // 3000 CSS px box at dpr 1 holds 1500 plate px at noiseScale 2, and the
+    // margins come out of that before the division.
     const r = renderFit({
       scene: DEFAULT_SCENE, availableWidth: 3000, availableHeight: 1e6, dpr: 1,
     })
-    expect(r.sceneScale).toBeCloseTo((3000 / 2 - 110) / 640, 12)
+    // `dead` is read back off the result rather than written as 110, which is
+    // `sepFar`: hardcoding it would make this test pin a perceptual constant by
+    // accident, so that retuning `sepFar` — a decision about eyes — would turn
+    // an arithmetic test red. The derived spelling is the one `share` uses in
+    // the margin test below.
+    const dead = r.margins.left + r.margins.right
+    expect(dead).toBeGreaterThan(0)
+    expect(r.sceneScale).toBeCloseTo((3000 / 2 - dead) / 640, 12)
     // And the naive answer — container ÷ today's plate — is a different number.
     // If margins ever became proportional the two would coincide and this is
     // the assertion that would catch it.
@@ -831,14 +838,25 @@ describe('renderFit', () => {
     const one = renderFit({ scene: DEFAULT_SCENE, ...box, dpr: 1 })
     const two = renderFit({ scene: DEFAULT_SCENE, ...box, dpr: 2 })
     // Twice the device pixels for the same CSS box: the stage budget doubles
-    // AFTER the constant margins are taken out, so the scale does not.
-    expect(two.sceneScale).toBeCloseTo((1200 * 2 / 2 - 110) / 640, 12)
-    expect(one.sceneScale).toBeCloseTo((1200 / 2 - 110) / 640, 12)
+    // AFTER the constant margins are taken out, so the scale does not. `dead`
+    // is read off the result for the reason given above — it is `sepFar`, a
+    // perceptual constant, and this is not a test about eyes.
+    const dead = one.margins.left + one.margins.right
+    expect(dead).toBeGreaterThan(0)
+    expect(two.margins).toEqual(one.margins)
+    expect(two.sceneScale).toBeCloseTo((1200 * 2 / 2 - dead) / 640, 12)
+    expect(one.sceneScale).toBeCloseTo((1200 / 2 - dead) / 640, 12)
 
     const coarse = renderFit({ scene: sceneOf([640, 360], { noiseScale: 1 }), ...box, dpr: 1 })
     expect(coarse.noiseScale).toBe(1)
     expect(one.noiseScale).toBe(2)
-    expect(coarse.sceneScale).toBeCloseTo((1200 / 1 - 110) / 640, 12)
+    // Same plate margins at a different `noiseScale`: they are plate px and
+    // `noiseScale` is the step after them. Asserted rather than assumed,
+    // because the line below uses this scene's own margins and the equality is
+    // what makes that the same claim as the two above.
+    expect(coarse.margins).toEqual(one.margins)
+    const coarseDead = coarse.margins.left + coarse.margins.right
+    expect(coarse.sceneScale).toBeCloseTo((1200 / 1 - coarseDead) / 640, 12)
   })
 
   it('margins do not scale, so they eat a growing share of a shrinking plate', () => {
