@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { agreement, encoderFor, nearestScaleX, report, slabDepth } from '../src/core/testing/metamorphic.js'
-import { OFFSET_SEARCH, fitNote, fitScale, scaleNote, snapOffset, snapScale, viewLayout } from './scale.js'
+import {
+  OFFSET_SEARCH, containFit, fitNote, fitScale, scaleNote, snapOffset, snapScale, viewLayout,
+} from './scale.js'
 import type { SirdsOpts } from '../src/core/types.js'
 
 /**
@@ -407,6 +409,203 @@ describe('fitScale', () => {
   })
 })
 
+/* ----------------------------------------------------------- containFit */
+
+/**
+ * The mode that is allowed to shrink, and the one relationship that pins it
+ * against the mode that is not.
+ *
+ * Every assertion here is swept or structural rather than a hand-picked point,
+ * for the same reason the `fitScale` block above is: the interesting cases are
+ * fractional dpr and a plate larger than its box, and a table of expected
+ * numbers would pin today's arithmetic instead of the guarantee.
+ */
+describe('containFit', () => {
+  const PLATES = [
+    { plateWidth: 1500, plateHeight: 720 },
+    { plateWidth: 751, plateHeight: 361 },
+    { plateWidth: 820, plateHeight: 320 },
+    { plateWidth: 16, plateHeight: 16 },
+  ]
+  const WIDTHS = [1, 200, 320, 760, 1280, 1920, 2560, 3840]
+  const HEIGHTS = [1, 200, 480, 720, 1080, 2160]
+  const DPRS = [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]
+
+  const sweep = (
+    f: (plate: { plateWidth: number; plateHeight: number },
+        availableWidth: number, availableHeight: number, dpr: number, where: string) => void,
+  ): void => {
+    for (const plate of PLATES) {
+      for (const availableWidth of WIDTHS) {
+        for (const availableHeight of HEIGHTS) {
+          for (const dpr of DPRS) {
+            f(plate, availableWidth, availableHeight, dpr,
+              `${plate.plateWidth}x${plate.plateHeight} in ` +
+              `${availableWidth}x${availableHeight} @ ${dpr}`)
+          }
+        }
+      }
+    }
+  }
+
+  it('never exceeds the box on either axis, and exactly fills one of them', () => {
+    sweep((plate, availableWidth, availableHeight, dpr, where) => {
+      const c = containFit({ ...plate, availableWidth, availableHeight, dpr })
+      expect(c.cssWidth, where).toBeLessThanOrEqual(availableWidth + 1e-6)
+      expect(c.cssHeight, where).toBeLessThanOrEqual(availableHeight + 1e-6)
+      // Maximality, stated as the thing it means: the binding axis is filled
+      // to the pixel. If neither were, the scale could grow.
+      const fillsW = Math.abs(c.cssWidth - availableWidth) < 1e-6
+      const fillsH = Math.abs(c.cssHeight - availableHeight) < 1e-6
+      expect(fillsW || fillsH, `${where} → ${c.cssWidth}x${c.cssHeight}`).toBe(true)
+      expect(c.overflows, where).toBe(false)
+    })
+  })
+
+  it('is the maximum that fits — any epsilon more overflows an axis', () => {
+    // The same guarantee from the other side, so a scale that merely fits
+    // cannot pass: scaled up by a millionth it must break out of the box.
+    sweep((plate, availableWidth, availableHeight, dpr, where) => {
+      const c = containFit({ ...plate, availableWidth, availableHeight, dpr })
+      const bigger = c.scale * (1 + 1e-6)
+      const w = (bigger * plate.plateWidth) / dpr
+      const h = (bigger * plate.plateHeight) / dpr
+      expect(w > availableWidth + 1e-9 || h > availableHeight + 1e-9, where).toBe(true)
+    })
+  })
+
+  it('preserves the plate aspect ratio exactly', () => {
+    sweep((plate, availableWidth, availableHeight, dpr, where) => {
+      const c = containFit({ ...plate, availableWidth, availableHeight, dpr })
+      expect(c.cssHeight / c.cssWidth, where)
+        .toBeCloseTo(plate.plateHeight / plate.plateWidth, 12)
+      expect(c.deviceHeight / c.deviceWidth, where)
+        .toBeCloseTo(plate.plateHeight / plate.plateWidth, 12)
+      // One scale for both axes, in DEVICE px, like `fitScale` — the ratio is
+      // what changes, not the space it is measured in.
+      expect(c.deviceWidth, where).toBeCloseTo(c.scale * plate.plateWidth, 9)
+      expect(c.cssWidth * dpr, where).toBeCloseTo(c.deviceWidth, 9)
+      expect(c.cssHeight * dpr, where).toBeCloseTo(c.deviceHeight, 9)
+    })
+  })
+
+  it('is NOT floored at 1 and is NOT an integer — which is the whole difference', () => {
+    const small = containFit({
+      plateWidth: 1500, plateHeight: 720, availableWidth: 390, availableHeight: 844, dpr: 3,
+    })
+    expect(small.scale).toBeLessThan(1)
+    expect(small.scale).toBeGreaterThan(0)
+    expect(Number.isInteger(small.scale)).toBe(false)
+    // Same box, same plate, the mode that refuses to shrink: 1:1 and it scrolls.
+    const snapped = fitScale({
+      plateWidth: 1500, plateHeight: 720, availableWidth: 390, availableHeight: 844, dpr: 3,
+    })
+    expect(snapped.scale).toBe(1)
+    expect(snapped.overflows).toBe(true)
+    expect(small.overflows).toBe(false)
+  })
+
+  it('is >= fitScale when fitScale is not floored, and < 1 exactly when it is', () => {
+    // The relationship that pins `contain` against `snap`. Not a sample: the
+    // two modes agree up to a floor above 1:1, and disagree only — but always —
+    // where `snap` would rather overflow than shrink.
+    sweep((plate, availableWidth, availableHeight, dpr, where) => {
+      const c = containFit({ ...plate, availableWidth, availableHeight, dpr })
+      const f = fitScale({ ...plate, availableWidth, availableHeight, dpr })
+      if (c.scale >= 1) {
+        expect(c.scale + 1e-9, where).toBeGreaterThanOrEqual(f.scale)
+        // Tighter: above 1:1 `snap` is exactly `contain` floored.
+        expect(f.scale, where).toBe(Math.floor(c.scale + 1e-9))
+      }
+      expect(c.scale < 1, where).toBe(f.scale === 1 && f.overflows)
+    })
+  })
+
+  it('is monotonically non-decreasing in each dimension and in dpr', () => {
+    let previous = -1
+    for (let availableWidth = 0; availableWidth <= 6000; availableWidth += 7) {
+      const { scale } = containFit({
+        plateWidth: 1500, plateHeight: 720, availableWidth, availableHeight: 1e6, dpr: 1.5,
+      })
+      expect(scale).toBeGreaterThanOrEqual(previous)
+      previous = scale
+    }
+    expect(previous).toBeGreaterThan(1)
+
+    previous = -1
+    for (let availableHeight = 0; availableHeight <= 6000; availableHeight += 7) {
+      const { scale } = containFit({
+        plateWidth: 1500, plateHeight: 720, availableWidth: 1e6, availableHeight, dpr: 1.5,
+      })
+      expect(scale).toBeGreaterThanOrEqual(previous)
+      previous = scale
+    }
+    expect(previous).toBeGreaterThan(1)
+
+    previous = -1
+    for (const dpr of [0.5, 1, 1.25, 1.5, 2, 2.5, 3, 4]) {
+      const { scale } = containFit({
+        plateWidth: 1500, plateHeight: 720, availableWidth: 1920, availableHeight: 1080, dpr,
+      })
+      expect(scale).toBeGreaterThanOrEqual(previous)
+      previous = scale
+    }
+  })
+
+  it('is idempotent: re-fitting a plate into its own result changes nothing', () => {
+    sweep((plate, availableWidth, availableHeight, dpr, where) => {
+      const once = containFit({ ...plate, availableWidth, availableHeight, dpr })
+      const twice = containFit({
+        ...plate, availableWidth: once.cssWidth, availableHeight: once.cssHeight, dpr,
+      })
+      expect(twice.scale, where).toBeCloseTo(once.scale, 9)
+      expect(twice.cssWidth, where).toBeCloseTo(once.cssWidth, 9)
+      expect(twice.cssHeight, where).toBeCloseTo(once.cssHeight, 9)
+    })
+  })
+
+  it('names the binding axis, including when neither binds alone', () => {
+    const square = { plateWidth: 100, plateHeight: 100 }
+    expect(containFit({ ...square, availableWidth: 250, availableHeight: 250, dpr: 1 }).limit)
+      .toBe('both')
+    expect(containFit({ ...square, availableWidth: 250, availableHeight: 999, dpr: 1 }).limit)
+      .toBe('width')
+    expect(containFit({ ...square, availableWidth: 999, availableHeight: 250, dpr: 1 }).limit)
+      .toBe('height')
+    // A tie at a fractional scale is still a tie: the two quotients are
+    // computed by different divisions and need not agree bit for bit.
+    expect(containFit({
+      plateWidth: 1500, plateHeight: 720, availableWidth: 1000, availableHeight: 480, dpr: 1,
+    }).limit).toBe('both')
+  })
+
+  it('survives a box that has not been laid out yet', () => {
+    // A detached or `display: none` element measures 0, and a resize handler
+    // must not throw on it. Nothing is drawn, and nothing claims to fit.
+    for (const availableWidth of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const c = containFit({
+        plateWidth: 1500, plateHeight: 720, availableWidth, availableHeight: 0, dpr: 1,
+      })
+      expect(c.scale, `availableWidth ${availableWidth}`).toBe(0)
+      expect(c.cssWidth).toBe(0)
+      expect(c.offsetX).toBe(0)
+    }
+  })
+
+  it('rejects a plate size that is not a real measurement', () => {
+    for (const plateHeight of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => containFit({
+        plateWidth: 100, plateHeight, availableWidth: 800, availableHeight: 600,
+      })).toThrow(/containFit: plateHeight/)
+    }
+    for (const plateWidth of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() => containFit({
+        plateWidth, plateHeight: 100, availableWidth: 800, availableHeight: 600,
+      })).toThrow(/containFit: plateWidth/)
+    }
+  })
+})
+
 /* ------------------------------------------------------------ snapOffset */
 
 describe('snapOffset', () => {
@@ -507,6 +706,32 @@ describe('snapOffset', () => {
           // And the plate still sits inside the box it was given.
           if (!fit.overflowsWidth) expect(fit.offsetX + fit.cssWidth).toBeLessThanOrEqual(w + 1e-6)
           if (!fit.overflowsHeight) expect(fit.offsetY + fit.cssHeight).toBeLessThanOrEqual(h + 1e-6)
+        }
+      }
+    }
+  })
+
+  it('gives a contain-fitted plate a whole-device-pixel origin too', () => {
+    // `contain` gives up a pixel-exact *scale*; it does not give up a
+    // whole-device-pixel *origin*. The measurement above is about where the
+    // element sits, not about how much it was scaled, so the same snapping
+    // applies — and the letterbox axis is where all the slack is.
+    for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 2.625]) {
+      for (const [w, h] of [
+        [3825, 2160], [3826, 2160], [1920, 1080], [320, 240], [412, 600],
+      ] as const) {
+        for (const plate of [
+          { plateWidth: 420, plateHeight: 600 }, { plateWidth: 1500, plateHeight: 720 },
+        ]) {
+          const c = containFit({ ...plate, availableWidth: w, availableHeight: h, dpr })
+          const where = `${plate.plateWidth}x${plate.plateHeight} in ${w}x${h} @ ${dpr}`
+          expect(usable(c.offsetX, dpr), `${where} offsetX ${c.offsetX}`).toBe(true)
+          expect(usable(c.offsetY, dpr), `${where} offsetY ${c.offsetY}`).toBe(true)
+          expect(c.offsetX + c.cssWidth, where).toBeLessThanOrEqual(w + 1e-6)
+          expect(c.offsetY + c.cssHeight, where).toBeLessThanOrEqual(h + 1e-6)
+          // The binding axis is filled, so one of the two offsets is 0 — the
+          // letterbox is on the other axis, and that is where centring happens.
+          expect(c.offsetX === 0 || c.offsetY === 0, where).toBe(true)
         }
       }
     }

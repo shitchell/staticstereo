@@ -63,6 +63,45 @@
  * vertically anyway, while a presented plate has a fixed height to fit inside
  * too.
  *
+ * ### Amendment — `contain` knowingly overrides the section above (R20)
+ *
+ * Everything above this line still stands as measurement and still governs
+ * {@link snapScale}, {@link fitScale} and {@link viewLayout}. What has changed
+ * is not the measurement but the **ordering of two goods**, decided by Shaun
+ * and recorded as requirement R20 after the embed case (R14) was specified:
+ *
+ * > "i'd say any issues that arise from taking a stereogram intended to be
+ * > shown at 1080x720 resolution and then fitting it into a 200x100 box... are
+ * > not our problem :p i would rather preserve the integrity of the original
+ * > pixels produced at the intended resolution as much as possible (softening
+ * > and blurring and pixels compressing into each other acknowledged and
+ * > accepted) rather than try to preserve the effect."
+ *
+ * **Fidelity to the authored artifact now outranks fidelity to the fused
+ * percept** — for the embed, and only for the embed. The context matters and is
+ * part of the rationale: a third party pastes an `<iframe src>` into a page we
+ * will never see and sizes it to their own layout (R14). The choice there is not
+ * between a fusable plate and a blurred one; it is between a blurred one and a
+ * plate that bursts out of a 300px column. That is a different question from the
+ * one the section above answers, which is what a *visitor to this site* should
+ * be shown, and {@link containFit} is the only function that answers it.
+ *
+ * So the division of labour, exactly:
+ *
+ * | mode | function | the 1:1 floor |
+ * |---|---|---|
+ * | `snap` | {@link fitScale} | **honoured** — never downscales, scrolls instead |
+ * | `contain` | {@link containFit} | **waived**, per R20, for the embed case |
+ * | `render` | `renderFit` | **honoured** — re-renders smaller geometry rather than resampling, so no column is ever dropped |
+ *
+ * `contain` is therefore the one place in this file where a scale below 1 can
+ * be returned, and the measurements above are the honest statement of what it
+ * costs: at 0.23x more than half the columns are gone and nothing will fuse.
+ * R20 accepts that outcome rather than preferring it. `REJECTED_FIT_MODES` in
+ * `site/fit.ts` records the one thing R20 does **not** buy — `cover`, which
+ * crops the margins and so destroys edge fusion by construction rather than by
+ * degradation.
+ *
  * ## The known residual, measured
  *
  * A whole-number scale is necessary but it is not quite the end of it. Swept
@@ -202,13 +241,23 @@ export interface FitInput {
 export type FitLimit = 'width' | 'height' | 'both'
 
 export interface Fit {
-  /** Backing store → device pixels. A positive **integer**, never 0. */
+  /**
+   * **Backing-store px → device px.** Not CSS px: `cssWidth` is this divided by
+   * `dpr`, and the ratio `site/smooth.ts` calls `displayScale` (CSS px shown ÷
+   * backing-store px) is therefore `scale / dpr`, not `scale`. Two of the four
+   * pixel spaces are named here on purpose — the two functions returning this
+   * shape differ in the *value*, never in the space.
+   *
+   * {@link fitScale} returns a positive **integer**, never 0.
+   * {@link containFit} returns any non-negative real, and 0 only for a box that
+   * has not been laid out. Each function's own contract is the authority.
+   */
   readonly scale: number
   readonly cssWidth: number
   readonly cssHeight: number
-  /** `scale * plateWidth`. Integer by construction. */
+  /** `scale * plateWidth`, in device px. Integer when `scale` is. */
   readonly deviceWidth: number
-  /** `scale * plateHeight`. Integer by construction. */
+  /** `scale * plateHeight`, in device px. Integer when `scale` is. */
   readonly deviceHeight: number
   readonly overflowsWidth: boolean
   readonly overflowsHeight: boolean
@@ -382,6 +431,128 @@ export function fitScale({
     overflows: cssWidth > availW + 1e-6 || cssHeight > availH + 1e-6,
     limit:
       byWidth.scale === byHeight.scale ? 'both' : byWidth.scale < byHeight.scale ? 'width' : 'height',
+    offsetX: snapOffset(availW - cssWidth, ratio),
+    offsetY: snapOffset(availH - cssHeight, ratio),
+  }
+}
+
+/* --------------------------------------------------- contain (embed, R20) */
+
+/**
+ * The largest scale that fits **both** axes with the aspect ratio preserved —
+ * **not** floored at 1 and **not** snapped to an integer.
+ *
+ * This is design §8.1's `fit=contain`, the default for the embedded player, and
+ * it is the one function in this file permitted to return a scale below 1. The
+ * reason it is permitted, and the measurements it is overriding, are in the file
+ * header under *"Amendment — `contain` knowingly overrides the section above
+ * (R20)"*. In one line: for an `<iframe>` whose size a third party chose, R20
+ * orders fidelity to the authored pixels above fidelity to the fused percept,
+ * and accepts "softening and blurring and pixels compressing into each other".
+ *
+ * ## Which ratio this returns, and in which pixel spaces
+ *
+ * `scale` is **backing-store px → device px**, exactly as in {@link fitScale},
+ * so the two are interchangeable at a call site and a caller that swaps one for
+ * the other does not have to re-derive anything. Concretely:
+ *
+ *     scale   = min(availableWidth * dpr / plateWidth,
+ *                   availableHeight * dpr / plateHeight)     // device ÷ backing
+ *     cssWidth  = scale * plateWidth / dpr                   // CSS px
+ *
+ * The `dpr` in the numerator is load-bearing and is the one thing easy to get
+ * backwards. `min(availableWidth / plateWidth, …)` — the obvious spelling, and
+ * the one the task brief uses — is the **display** scale: CSS px ÷ backing-store
+ * px, which is what `imageRenderingFor` in `site/smooth.ts` takes. It is this
+ * function's `scale / dpr`. Returning *that* in the `scale` field would make a
+ * plate come out `1 / dpr` of the size it was asked for on every HiDPI panel —
+ * correct-looking at dpr 1 and a quarter-size picture at dpr 2 — so the field
+ * carries the device-space ratio and a caller wanting the display scale divides.
+ *
+ * Contract:
+ *
+ * - `cssWidth <= availableWidth` and `cssHeight <= availableHeight`, and at
+ *   least one holds with equality: the scale is the **maximum** that fits, so
+ *   the binding axis is filled to the pixel and `overflows` is always false for
+ *   a box with a positive size.
+ * - `cssHeight / cssWidth === plateHeight / plateWidth`. One scale drives both
+ *   axes, so the aspect ratio is the plate's own and the browser is never asked
+ *   to letterbox by distorting.
+ * - `scale` is monotonically non-decreasing in either available dimension and in
+ *   `dpr`, and is idempotent: fitting a plate into the box this function just
+ *   gave it returns the same scale.
+ * - `scale >= 0`, and `0` **only** for a box that measures 0 — a detached or
+ *   `display: none` element, which a resize handler must survive rather than
+ *   throw on. A zero scale here is not the "shrink to fit" failure the header
+ *   warns about; it is "there is nowhere to draw yet".
+ * - `plateWidth`/`plateHeight` must be finite and positive, and anything else
+ *   throws: those are a programming error, not a measurement off the DOM.
+ *
+ * ## The centring offsets still go through {@link snapOffset}
+ *
+ * Deliberately, and it is not an oversight that a mode which has given up
+ * pixel-exact scaling still pays for a whole-device-pixel origin. Design §8.3's
+ * measurement is about the canvas element's **fractional device-pixel origin** —
+ * a property of where the element sits, not of how much it is scaled — and
+ * `snapOffset`'s own contract takes a `spare` in CSS px and a `dpr`. It never
+ * sees the scale, so a non-integer one is nothing it has to accept: there is no
+ * shipped behaviour here to change. `contain` gives up pixel-exact *scaling*
+ * because R20 says to; it has no reason to also give up a whole-pixel *origin*,
+ * which is free, and which keeps the letterboxed axis from landing the plate on
+ * a half pixel on top of everything else.
+ */
+export function containFit({
+  plateWidth,
+  plateHeight,
+  availableWidth,
+  availableHeight,
+  dpr = 1,
+}: FitInput): Fit {
+  if (!Number.isFinite(plateWidth) || plateWidth <= 0) {
+    throw new Error(
+      `containFit: plateWidth must be a finite positive number of pixels, got ` +
+      `${JSON.stringify(plateWidth)}`,
+    )
+  }
+  if (!Number.isFinite(plateHeight) || plateHeight <= 0) {
+    throw new Error(
+      `containFit: plateHeight must be a finite positive number of pixels, got ` +
+      `${JSON.stringify(plateHeight)}`,
+    )
+  }
+  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
+  const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
+
+  // The per-axis quotients, in device px ÷ backing-store px. Same two
+  // expressions `snapScale` floors; here they are kept whole, which is the
+  // entire difference between the two modes.
+  const byWidth = (availW * ratio) / plateWidth
+  const byHeight = (availH * ratio) / plateHeight
+  const scale = Math.min(byWidth, byHeight)
+
+  const deviceWidth = scale * plateWidth
+  const deviceHeight = scale * plateHeight
+  const cssWidth = deviceWidth / ratio
+  const cssHeight = deviceHeight / ratio
+  // A tolerance rather than `===` because the two quotients come from different
+  // divisions: a box that is exactly the plate's aspect ratio can still produce
+  // two doubles a ulp apart, and labelling that tie 'width' would put a false
+  // "width is the binding constraint" into a note a reader is meant to trust.
+  const tied = Math.abs(byWidth - byHeight) <= NEAR * Math.max(1, byWidth, byHeight)
+  return {
+    scale,
+    cssWidth,
+    cssHeight,
+    deviceWidth,
+    deviceHeight,
+    // Always false for a box with a size — kept in the shape, and computed by
+    // the same predicate as `fitScale`, so a caller switching modes at runtime
+    // reads one field rather than branching on which mode produced it.
+    overflowsWidth: cssWidth > availW + 1e-6,
+    overflowsHeight: cssHeight > availH + 1e-6,
+    overflows: cssWidth > availW + 1e-6 || cssHeight > availH + 1e-6,
+    limit: tied ? 'both' : byWidth < byHeight ? 'width' : 'height',
     offsetX: snapOffset(availW - cssWidth, ratio),
     offsetY: snapOffset(availH - cssHeight, ratio),
   }
