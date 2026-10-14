@@ -13,7 +13,7 @@ import {
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   CLASS_CONTROL,
@@ -106,6 +106,34 @@ function filesUnder(dir: string): string[] {
     else out.push(path)
   }
   return out
+}
+
+/**
+ * The woff2 files a build **emitted**, by basename — the structural stand-in
+ * for the literal `3`, and the only side of a font assertion that is not
+ * derived from the thing being asserted.
+ *
+ * Both font checks below ask "is every vendored weight reachable", which needs
+ * two independent sides: the references found by grepping the emitted CSS, and
+ * the files vite actually wrote. Comparing references against references is
+ * what the nested block did after it stopped pinning `3`, and it cannot fail —
+ * same bytes, same predicate, so a dropped `url()` disappears from both sides
+ * at once. Measured: with one `src:url(...)` replaced by `src:local(Inter)` in
+ * `dist-player/assets/player-*.css`, the nested block reported **1 passed**
+ * while the file it claimed to be checking was unreferenced; the pinned `3` one
+ * block down was the only assertion in this file that went red
+ * (`expected 2 to be 3`).
+ *
+ * Keyed on the directory so each block reads the tree it is actually about, and
+ * returned sorted so a set comparison does not depend on readdir order. It
+ * tracks a fourth vendored weight without an edit, which is the property the
+ * pinned count was traded away for — this keeps that and restores the guard.
+ */
+function emittedFontNames(dir: string): string[] {
+  return filesUnder(dir)
+    .filter(f => f.endsWith('.woff2'))
+    .map(f => basename(f))
+    .sort()
 }
 
 function newestMtime(paths: string[]): number {
@@ -529,25 +557,33 @@ describe.skipIf(!freshPlayer)('the player still resolves once nested a directory
             .toBe(true)
         }
       }
-      // Compared against the **flat** count rather than pinned at today's
-      // three. This test's subject is relative resolution, so the guarantee
-      // is "nesting loses no reference" — a second copy of the woff2 count
-      // belongs where it already is (`toHaveLength(3)` against `dist-site/`,
-      // which exists precisely to pin that number), and here it would red for
-      // an innocent reason the day a fourth vendored weight ships.
-      const flat: string[] = []
-      for (const sheet of filesUnder(DIST_PLAYER).filter(f => f.endsWith('.css'))) {
-        for (const match of readFileSync(sheet, 'utf8').matchAll(/url\(\s*['"]?([^'")]+)/g)) {
-          if (!isExternal(match[1]!)) flat.push(match[1]!)
-        }
-      }
-      expect(flat.length, 'no url() found — the fonts stopped being referenced')
-        .toBeGreaterThan(0)
-      expect(urls.length, 'the nested layout references fewer assets than the flat one')
-        .toBe(flat.length)
-      // ...and the references are the same ones, not merely the same number:
-      // a rewrite that swapped one url for another would keep the count.
-      expect([...urls].sort()).toEqual([...flat].sort())
+      // Compared against the **files on disk** rather than against a second
+      // collection from the same bytes, and not pinned at today's three.
+      //
+      // This block used to compare `urls` against a `flat` list gathered from
+      // `DIST_PLAYER` with this same regex and this same filter — and
+      // `deployed` is a byte-for-byte `cpSync` of `DIST_PLAYER`, so the two
+      // sides were the same bytes read through the same predicate. Neither the
+      // count nor the sorted-set comparison could fail for any input: a
+      // dropped `url()` vanishes from both sides, and so does a rewrite that
+      // swapped one url for another, which is the case the comment claimed the
+      // set comparison caught. Measured: with one `src:url(...)` replaced by
+      // `src:local(Inter)` in the emitted sheet, this test reported **1
+      // passed** and the pinned `3` in the served-URL block below was the only
+      // thing in this file that noticed.
+      //
+      // The emitted woff2 files are the independent side. They are the source
+      // of the guarantee — vite wrote them because something referenced them,
+      // so an unreferenced one is a reference that got lost — and they survive
+      // a fourth vendored weight shipping, which is what the pinned count was
+      // traded away for.
+      const fontUrls = urls.filter(u => u.endsWith('.woff2')).map(u => basename(u)).sort()
+      const emitted = emittedFontNames(DIST_PLAYER)
+      expect(emitted.length, 'the player build emitted no woff2 at all').toBeGreaterThan(0)
+      expect(
+        fontUrls,
+        'a vendored weight is on disk in dist-player/ and referenced by no nested stylesheet',
+      ).toEqual(emitted)
 
       // The positive control, run at the nested path so it proves the
       // predicate *there*: an absolute reference is caught rather than
@@ -682,7 +718,7 @@ describe.skipIf(!freshPlayer)('the player answers at the bare directory URL (R14
         // The fonts are a directory deeper again and resolved against the
         // *stylesheet's* URL, not the document's — the one hop the HTML half
         // structurally cannot see.
-        let fonts = 0
+        const servedFonts: string[] = []
         for (const sheetUrl of sheetUrls) {
           const css = await (await fetch(sheetUrl)).text()
           for (const match of css.matchAll(/url\(\s*['"]?([^'")]+)/g)) {
@@ -690,11 +726,27 @@ describe.skipIf(!freshPlayer)('the player answers at the bare directory URL (R14
             if (isExternal(ref)) continue
             const url = new URL(ref, sheetUrl)
             expect((await fetch(url)).status, `${sheetUrl}: ${ref}`).toBe(200)
-            if (ref.endsWith('.woff2')) fonts += 1
+            if (ref.endsWith('.woff2')) servedFonts.push(basename(ref))
           }
         }
-        expect(fonts, 'the three vendored weights are not reachable from the served sheet')
-          .toBe(3)
+        // Against the emitted files and not against the literal `3`, for
+        // invariant 4's reason and not as a loosening: this used to read
+        // `expect(fonts, …).toBe(3)` while the block above it had already been
+        // converted away from a pinned count — the same defect, left in place
+        // one block down by the commit that fixed it. It is converted together
+        // with that block rather than after it, because until the block above
+        // compared against something independent this pinned `3` was the only
+        // assertion in the file that caught a lost font reference: loosening it
+        // first would have left a window with no guard at all.
+        //
+        // Basenames, because the reference is resolved against the
+        // *stylesheet's* URL one directory deeper than the document — the hop
+        // the HTML half structurally cannot see — so what the host answered on
+        // is a full URL and what vite emitted is a file.
+        expect(
+          [...servedFonts].sort(),
+          'a vendored weight is in dist-player/ and is not reachable from the served sheet',
+        ).toEqual(emittedFontNames(DIST_PLAYER))
 
         // The positive control, and it is the production failure mode rather
         // than a synthetic one: take a reference the host just served and ask
