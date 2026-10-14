@@ -748,11 +748,80 @@ export interface RenderFit {
   /** Which axis bound the ideal scale, before any clamp. */
   readonly limit: FitLimit
   /**
-   * The box could not hold even a one-pixel stage, so `sceneScale` is the
-   * minimum renderable one rather than the solve. `overflows` will be true.
+   * `sceneScale` is **not** the solve: one of the two bounds took over.
+   *
+   * Two bounds, one flag, and they behave oppositely — which is worth knowing
+   * before reading it:
+   *
+   * - the **floor** (a box too small to hold even a one-pixel stage) hands back
+   *   a plate *bigger* than the box, so `overflows` is true with it;
+   * - the **cap** ({@link MAX_SCENE_SCALE}, a box far larger than the authored
+   *   plate) hands back a *smaller* one, so `overflows` is false and the plate
+   *   letterboxes inside the container.
+   *
+   * One flag rather than two because a caller's question is the same either
+   * way — "is this the size I asked for?" — and the direction is recoverable
+   * from `overflows` and from `sceneScale` against the cap.
    */
   readonly clamped: boolean
 }
+
+/**
+ * The largest `sceneScale` {@link renderFit} will solve for, **64**.
+ *
+ * ## Why there is an upper bound at all
+ *
+ * `renderFit`'s solve is driven by the container, and under `fit=render` the
+ * container is a length *a third party chose*: R14's whole case is a host page
+ * pasting an `<iframe src>` into a layout we will never see, and `width:
+ * 100000px` is legal CSS. The result of the solve is then handed to a
+ * rasteriser as `scene.size` and as `canvas.width`/`height`. Before this bound
+ * existed there was none — the floor at a one-pixel scene is a *lower* bound
+ * and `clamped` reported only that — so a 1e6 CSS px container asked the
+ * default scene for a `sceneScale` of **781078**, i.e. a 500-megapixel-wide
+ * stage. This is a resource bound, not a quality judgement: nothing about the
+ * picture is wrong at 781078x, there is simply no machine that will draw it.
+ *
+ * ## Why the bound is a scene multiplier and not a pixel count
+ *
+ * `scene.size` is the one length in the whole chain that a host page cannot
+ * inflate. Bounding `sceneScale` therefore bounds the rasteriser's input to a
+ * multiple of **what the author actually authored**, which is the only quantity
+ * here anyone has a claim over.
+ *
+ * ## Why 64, and the honest statement of what it is
+ *
+ * **64 is a judgement, not a measurement.** Nobody has measured where
+ * `renderFrame` stops being able to allocate, and a threshold presented as
+ * measured when it is not would be worse than none.
+ *
+ * What can be said precisely is where it engages. The widest device-pixel
+ * budget real hardware offers is of the order of 6000 px (a 2560 CSS px panel
+ * at `devicePixelRatio` 2, or a 3840 CSS px desktop at 1.5), which at the
+ * default `noiseScale` **2** is about 3000 plate px. 64x therefore needs an
+ * authored stage narrower than roughly 45 plate px, and `site/scale.test.ts`
+ * asserts that no scene from 300x160 upward reaches the cap in a 3840x2160 box
+ * at any dpr in its sweep. So the bound cannot change what an ordinary embed of
+ * a realistically authored scene does; it engages only for a deliberately tiny
+ * scene or a deliberately absurd container.
+ *
+ * Lower was considered and rejected: a 16x16 scene in an ordinary 1280x800 box
+ * at dpr 3 solves to 75, so a cap of 8 or 16 would letterbox small scenes as a
+ * matter of routine, which is a layout decision this constant has no business
+ * making.
+ *
+ * ## The limitation, recorded rather than papered over
+ *
+ * A cap in scene-multiples is necessarily looser for a large scene than for a
+ * small one: at 64x the committed 640x360 default would still reach an
+ * 82140x46080 backing store, which no allocator will serve. Reaching it needs a
+ * container of ~82000 CSS px, so it is only reachable by a host page that has
+ * asked for it — but it is reachable. A bound that was uniform in memory would
+ * have to cap `backingWidth * backingHeight`, and that needs the measurement
+ * nobody has taken. This is the weaker bound that can be stated honestly today,
+ * and it is strictly better than the none that was here before.
+ */
+export const MAX_SCENE_SCALE = 64
 
 /**
  * The plan for `fit=render`: how much to scale a scene's geometry so that the
@@ -816,8 +885,13 @@ export interface RenderFit {
  * - `sceneScale > 0` always. A box too small to hold even the margins has no
  *   solution — the unclamped formula goes to zero and then negative — and the
  *   answer is the smallest renderable scene plus `overflows`, not a zero or
- *   negative scale handed to a rasteriser. That clamp is flat, which is the one
- *   place strict growth fails.
+ *   negative scale handed to a rasteriser.
+ * - `sceneScale` never exceeds {@link MAX_SCENE_SCALE}, because the container is
+ *   a length a third party chose and the solve would otherwise follow it
+ *   anywhere. See that constant for why there is a ceiling and why it is 64.
+ * - **Both clamps are flat**, which is where strict growth fails and the only
+ *   place it does. They are reported by the one `clamped` flag and they differ
+ *   in sign: the floor overflows the box, the cap letterboxes inside it.
  * - A scene whose `stereo` cannot produce margins throws from `plateLayoutOf`,
  *   where that rule lives. This function does not second-guess it.
  */
@@ -859,8 +933,15 @@ export function renderFit({
   // The smallest scale that still floors to a whole pixel on BOTH axes, which
   // is the smallest scene a rasteriser will accept.
   const minScale = Math.max(1 / sceneW, 1 / sceneH)
-  const sceneScale = Math.max(minScale, ideal)
-  const clamped = sceneScale > ideal
+  // Both bounds, in the order that makes the floor win. They can only conflict
+  // for a scene authored smaller than one pixel on an axis (`scene.size` is
+  // finite and positive but need not be integral), and there the floor has to
+  // win: "renderable at all" outranks "within the resource bound".
+  const sceneScale = Math.max(minScale, Math.min(ideal, MAX_SCENE_SCALE))
+  // `!==` rather than `>`, because the clamp now works in both directions. An
+  // exact comparison is right: `sceneScale` IS `ideal`, bit for bit, whenever
+  // neither bound engaged.
+  const clamped = sceneScale !== ideal
 
   const sceneWidth = Math.floor(sceneScale * sceneW + EPS)
   const sceneHeight = Math.floor(sceneScale * sceneH + EPS)

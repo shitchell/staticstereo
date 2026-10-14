@@ -4,8 +4,8 @@ import { plateLayoutOf } from '../src/core/index.js'
 import { FIT_MODES } from './fit.js'
 import type { FitMode } from './fit.js'
 import {
-  OFFSET_SEARCH, backingStoreOf, containFit, fitNote, fitScale, isUsableDpr, planFit, renderFit,
-  scaleNote, snapOffset, snapScale, usableDpr, viewLayout,
+  MAX_SCENE_SCALE, OFFSET_SEARCH, backingStoreOf, containFit, fitNote, fitScale, isUsableDpr,
+  planFit, renderFit, scaleNote, snapOffset, snapScale, usableDpr, viewLayout,
 } from './scale.js'
 import type { RenderFit } from './scale.js'
 import type { Scene, SirdsOpts, StereoOpts } from '../src/core/types.js'
@@ -712,17 +712,38 @@ describe('renderFit', () => {
   }
 
   it('never exceeds the box, and is displayed one backing px per DEVICE px', () => {
+    // Three of the five assertions below sit behind `if (!r.clamped)`, and a
+    // gate with no counter is a gate that can close completely in silence: if
+    // every sweep point became clamped the three would simply stop executing
+    // and this test would still pass. `MAX_SCENE_SCALE` made that sharply more
+    // likely by adding a second way for a point to clamp, so both branches are
+    // counted and both have a floor — the idiom `playerplan.test.ts` already
+    // uses for its own sweeps.
+    let unclamped = 0
+    let clamped = 0
     sweepRender((r, _size, box, dpr, where) => {
       // The pixel-exactness claim, which is the whole reason the mode exists:
-      // the backing store lands on device pixels 1:1, never resampled.
+      // the backing store lands on device pixels 1:1, never resampled. True on
+      // both sides of the gate, which is why it is outside it.
       expect(r.cssWidth * dpr, where).toBeCloseTo(r.backingWidth, 9)
       expect(r.cssHeight * dpr, where).toBeCloseTo(r.backingHeight, 9)
       if (!r.clamped) {
         expect(r.cssWidth, where).toBeLessThanOrEqual(box[0] + 1e-6)
         expect(r.cssHeight, where).toBeLessThanOrEqual(box[1] + 1e-6)
         expect(r.overflows, where).toBe(false)
+        unclamped++
+      } else {
+        clamped++
       }
     })
+    expect(unclamped + clamped).toBe(SCENES.length * BOXES.length * DPRS.length)
+    // The floor on the gated branch, which is the one that can vanish.
+    expect(unclamped).toBeGreaterThan(200)
+    // ...and a floor on the other branch too, so that a clamp which stopped
+    // firing altogether — a cap raised out of reach, a floor that stopped
+    // engaging — shows up here rather than as three assertions quietly
+    // becoming unconditional.
+    expect(clamped).toBeGreaterThan(20)
   })
 
   it('reports a plate that is exactly margins + scaled stage, in whole scene px', () => {
@@ -777,6 +798,7 @@ describe('renderFit', () => {
   it('is strictly greater for a box twice as large on both axes', () => {
     // Non-decreasing is not enough: a function that ignored the box entirely
     // would satisfy it. Doubling the box must really buy a bigger scene.
+    let checked = 0
     for (const size of SCENES) {
       for (const box of BOXES) {
         for (const dpr of DPRS) {
@@ -786,13 +808,22 @@ describe('renderFit', () => {
           const one = at(1)
           const two = at(2)
           const where = `${size[0]}x${size[1]} in ${box[0]}x${box[1]} @ ${dpr}`
-          // Only where the smaller plan was a real solve. A box too small to
-          // hold even a 1px-wide stage is reported clamped, and two clamped
-          // plans are equal by construction — asserted on its own below.
-          if (!one.clamped) expect(two.sceneScale, where).toBeGreaterThan(one.sceneScale)
+          // Only where BOTH plans are real solves. Either clamp is flat, so a
+          // pair with one in it is equal or smaller by construction rather than
+          // by defect — the floor is asserted on its own below and the cap in
+          // its own test. Both are named in the gate because `MAX_SCENE_SCALE`
+          // made the doubled box the one more likely to be clamped.
+          if (!one.clamped && !two.clamped) {
+            expect(two.sceneScale, where).toBeGreaterThan(one.sceneScale)
+            checked++
+          }
         }
       }
     }
+    // The gate's own floor: with no counter, a sweep in which every pair ended
+    // up clamped would assert nothing and still pass.
+    expect(checked).toBeGreaterThan(200)
+    expect(checked).toBeLessThan(SCENES.length * BOXES.length * DPRS.length)
   })
 
   it('scales with dpr and inversely with noiseScale, because both are in the chain', () => {
@@ -838,6 +869,78 @@ describe('renderFit', () => {
       scene: DEFAULT_SCENE, availableWidth: 1, availableHeight: 1, dpr: 1,
     })
     expect(tinier.sceneScale).toBe(r.sceneScale)
+  })
+
+  it('caps sceneScale at the other end, and reports that through `clamped` too', () => {
+    // The box is a length a third party chose. A host page pastes an `<iframe
+    // src>` (R14) and `width: 100000px` is legal CSS, so without an upper bound
+    // the solve grows with the container and the product is handed to a
+    // rasteriser. The floor and the cap are both clamps and both say so.
+    const huge = renderFit({
+      scene: DEFAULT_SCENE, availableWidth: 1e6, availableHeight: 1e6, dpr: 1,
+    })
+    expect(huge.sceneScale).toBe(MAX_SCENE_SCALE)
+    expect(huge.clamped).toBe(true)
+    // The two clamps differ in one visible way, and it is worth pinning: the
+    // floor hands back a plate BIGGER than the box and overflows, the cap hands
+    // back a smaller one and letterboxes.
+    expect(huge.overflows).toBe(false)
+    expect(huge.cssWidth).toBeLessThan(1e6)
+    expect(huge.cssHeight).toBeLessThan(1e6)
+    // ...and the cap is flat, exactly as the floor is: a container ten times
+    // larger buys nothing at all.
+    const huger = renderFit({
+      scene: DEFAULT_SCENE, availableWidth: 1e7, availableHeight: 1e7, dpr: 1,
+    })
+    expect(huger.sceneScale).toBe(huge.sceneScale)
+    expect(huger.backingWidth).toBe(huge.backingWidth)
+    expect(huger.backingHeight).toBe(huge.backingHeight)
+  })
+
+  it('bounds the rasteriser input by a multiple of the AUTHORED scene, at every dpr', () => {
+    // Why the bound is a scene multiplier and not a pixel count: `scene.size`
+    // is the one length in the chain a host page cannot inflate. `dpr`
+    // multiplies the budget as well, so it is swept rather than argued.
+    let capped = 0
+    for (const size of SCENES) {
+      for (const dpr of DPRS) {
+        const r = renderFit({
+          scene: sceneOf(size), availableWidth: 1e9, availableHeight: 1e9, dpr,
+        })
+        const where = `${size[0]}x${size[1]} @ ${dpr}`
+        expect(r.sceneScale, where).toBe(MAX_SCENE_SCALE)
+        expect(r.clamped, where).toBe(true)
+        // Floored, so one px of slack on each axis rather than an equality.
+        expect(r.sceneWidth, where).toBeLessThanOrEqual(MAX_SCENE_SCALE * size[0] + 1)
+        expect(r.sceneHeight, where).toBeLessThanOrEqual(MAX_SCENE_SCALE * size[1] + 1)
+        capped++
+      }
+    }
+    expect(capped).toBe(SCENES.length * DPRS.length)
+    expect(capped).toBeGreaterThan(30)
+  })
+
+  it('does not engage for any container a real display can offer', () => {
+    // The cap is a resource bound and it must not become a layout rule by
+    // accident. The widest device-pixel budget real hardware offers is of the
+    // order of 6000 px, which at the default `noiseScale` 2 is 3000 plate px,
+    // so a realistically authored scene cannot reach the cap — asserted here
+    // rather than only claimed in the constant's docblock.
+    expect(Number.isFinite(MAX_SCENE_SCALE)).toBe(true)
+    expect(MAX_SCENE_SCALE).toBeGreaterThan(1)
+    let unclamped = 0
+    for (const size of [[300, 160], [640, 360], [800, 450], [1920, 1080]] as Array<[number, number]>) {
+      for (const dpr of DPRS) {
+        const r = renderFit({
+          scene: sceneOf(size), availableWidth: 3840, availableHeight: 2160, dpr,
+        })
+        const where = `${size[0]}x${size[1]} @ ${dpr}`
+        expect(r.sceneScale, where).toBeLessThan(MAX_SCENE_SCALE)
+        expect(r.clamped, where).toBe(false)
+        unclamped++
+      }
+    }
+    expect(unclamped).toBe(4 * DPRS.length)
   })
 
   it('survives a box that has not been laid out yet', () => {
