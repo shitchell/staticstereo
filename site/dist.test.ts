@@ -118,7 +118,39 @@ const PLAYER_ENTRY = 'index.html'
  *
  * Written down because it is load-bearing and invisible: collapse those into
  * one step, or make the build non-fatal, and this file goes quiet about the
- * player without a single assertion changing.
+ * player without a single assertion changing. That is now asserted — see "the
+ * builds are their own steps, ahead of the suite that gates them" below.
+ *
+ * ## Two commits' §2.1 evidence is MUTATION, not rollback. Do not read their
+ * green as the same claim as the rest of the phase.
+ *
+ * §2.1 of this phase's plan requires a commit's tests to have been observed
+ * failing before its production code existed. For sixteen of the eighteen
+ * implementation commits that is reproducible by rolling the production half
+ * back and watching the suite go red. For two it is not, and the reason is
+ * this flag:
+ *
+ * - **`40a411d` — "the player entry: a second vite build that actually
+ *   renders"**, the commit that created `vite.player.config.ts`, `player.ts`,
+ *   `player.html` and this file's player half. Roll its production back and
+ *   `dist-player/` does not exist, so every `skipIf(!freshPlayer)` block
+ *   skips and the file is **green**. Measured by moving the directory aside:
+ *   **19 passed | 14 skipped, exit 0.** That is `describe.skipIf` working
+ *   exactly as designed and as the policy above requires — a clean checkout
+ *   must be green — and it means a rollback cannot produce a RED here even in
+ *   principle.
+ * - **`98d1860` — "no editor code in the player bundle, proven from both
+ *   sides"** is test-only; it has no production half to roll back. (Verified:
+ *   the commit touches this file and nothing else.)
+ *
+ * For both, the evidence that the assertions bite is **mutation of the thing
+ * asserted** rather than removal of the code under test — breaking the bundle
+ * and watching this file catch it — which a verifier supplied in both
+ * directions. Mutation is the stronger evidence for a grep of a build output,
+ * because the failure mode these blocks exist to catch is a *wrong* bundle and
+ * not an absent one. It is simply not the same claim as "the test was red
+ * before the code existed", and a later reader comparing commits should not
+ * treat it as one.
  */
 const builtPlayer =
   existsSync(DIST_PLAYER) && filesUnder(DIST_PLAYER).some(f => f.endsWith('.html'))

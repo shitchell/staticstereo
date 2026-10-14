@@ -152,6 +152,29 @@ describe('the framings are enumerable, and every one of them has a spec', () => 
  * measurement, and reds when they part. Adding a role now forces an explicit
  * answer to "does the smallest conformant tree contain it", which is the
  * question the slack was hiding.
+ *
+ * ## A later phase: SPLIT THE DERIVATION, do not bump the literal
+ *
+ * The derivation rests on one assumption, and it is an assumption rather than
+ * a theorem: **every declared role belongs in the minimal tree.** It holds
+ * today because all six do — a wrapper, a canvas, a transport and three
+ * controls each required in prose by R15 or R16 — and `chromeSpec` gives all
+ * four framings all six.
+ *
+ * A phase that adds a role which is *legitimately optional* — a caption
+ * present only in `embed`, say, or a control only `fullscreen` has — makes
+ * that assumption false, and this block goes red with the message below
+ * naming a count that is not wrong. **That is the intended outcome**, and it
+ * is the same forcing function the fixed literal was replaced to get: it
+ * demands an explicit answer to "is this role part of the smallest conformant
+ * tree", which is exactly the question the old slack was hiding.
+ *
+ * The answer is to split the derivation — required roles against optional
+ * ones, with the optional set enumerated and justified in `playerchrome.ts`
+ * beside the roles themselves — and to compare `MIN_CHROME_NODES` against the
+ * required half. **Not** to bump the literal to the new role count, which
+ * restores precisely the slack this block exists to deny: a floor that counts
+ * an optional node permits the deletion of a required one.
  */
 describe('the node floor tracks the module’s roles, rather than being remembered', () => {
   const roleValues = Object.entries(chrome as unknown as Record<string, unknown>)
