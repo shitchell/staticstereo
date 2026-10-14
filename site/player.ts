@@ -17,7 +17,7 @@ import {
 } from './playerchrome.js'
 import type { ChromeActivity } from './playerchrome.js'
 import { playerPlan } from './playerplan.js'
-import type { PlayerPlan } from './playerplan.js'
+import type { ContainerSize, PlayerPlan } from './playerplan.js'
 import { frameIndexAt, frameTimesOf, timeOfFrame } from './transport.js'
 import { runTransport } from './transportdriver.js'
 import type { TransportDriver } from './transportdriver.js'
@@ -277,6 +277,57 @@ function fullscreen(): boolean {
 }
 
 /**
+ * The mount's content box in CSS px, as last reported by the observer —
+ * **fractional**, which is the whole point of the field.
+ *
+ * ## Why `clientWidth` is not good enough, measured
+ *
+ * `clientWidth`/`clientHeight` return an integer, rounded **to nearest**. A
+ * mount that is 977.6000366210938 CSS px wide reports 978, and every fit in
+ * `scale.ts` is then solving for a box 0.4 px wider than the one that exists:
+ * `contain` fills the binding axis exactly, so the plate lands 0.4 px past the
+ * content box and the mount — `overflow: auto`, because `snap` deliberately
+ * lets an over-large plate scroll rather than shrink — grows a scrollbar for
+ * the fraction. Measured in headful Chromium on the built player, sweeping the
+ * window: a scrollbar appeared in exactly the cases where the measurement
+ * rounded **up**, on both axes, and in none where it rounded down. The table
+ * is in `playerplan.test.ts`, beside the guard that keeps the read out of this
+ * file.
+ *
+ * No arithmetic downstream can undo it. By the time the fraction has been
+ * rounded away it is **gone**, and 978 is as good an upper bound on the box as
+ * the shell can state; subtracting a safety half-pixel instead would be a lie
+ * in the other direction, and at `fit=snap` — where the scale is an integer —
+ * half a pixel off an exact fit is the difference between scale 2 and scale 1,
+ * i.e. half the plate. The only fix is to measure without rounding.
+ *
+ * `ResizeObserver` is that measurement: `contentRect` is the content box, in
+ * fractional CSS px, with the scrollbar gutter already excluded — which is why
+ * the alternative of `getBoundingClientRect()` is not used here. That rect is
+ * the **border** box and includes the scrollbar, so on the one layout that
+ * matters (a plate too tall for the mount, vertical scrollbar showing) it
+ * over-reports by the gutter: 15 CSS px, not 0.4. `contentRect` and not
+ * `contentBoxSize[0].inlineSize` because the latter is in *logical* axes and
+ * would be the height under a vertical writing mode.
+ *
+ * `undefined` until the observer first fires, and on an engine that has none.
+ */
+let measured: ContainerSize | undefined
+
+/**
+ * The box to plan against: the observed one, or the rounding read as a
+ * fallback.
+ *
+ * The fallback keeps the defect above, and knowingly — it is the best figure
+ * available before the first observer callback and the only one at all without
+ * `ResizeObserver`, and a plate half a pixel too wide is a scrollbar, while no
+ * plate at all is a blank page.
+ */
+function containerBox(): ContainerSize {
+  return measured ?? { width: mount.clientWidth, height: mount.clientHeight }
+}
+
+/**
  * The plan currently in force.
  *
  * Planned eagerly at module scope rather than left undefined until `boot`:
@@ -310,8 +361,8 @@ function planNow(): PlayerPlan {
     hash: location.hash,
     // CSS px, measured off the mount — `playerpage.css` gives it the viewport
     // minus the notice strip, and an embedder gives the `<iframe>` whatever
-    // size they like.
-    container: { width: mount.clientWidth, height: mount.clientHeight },
+    // size they like. Fractional, and it has to be: see {@link measured}.
+    container: containerBox(),
     dpr: window.devicePixelRatio,
     embedded: embedded(),
     fullscreen: fullscreen(),
@@ -556,9 +607,17 @@ function showNotices(): void {
  * appears), so without this an oversized plate would ping-pong the observer
  * forever. Everything in the key is an input to `playerPlan`; the URL is not,
  * because a fragment change is a different scene and is not a reflow.
+ *
+ * It reads {@link containerBox} and not the mount directly, which is not
+ * tidiness: the key has to be **as precise as the plan is**. Spelled with
+ * `clientWidth` it would be identical before and after the observer's first
+ * callback refines 978 into 977.6000366210938 — so the one reflow that
+ * installs the exact measurement would be skipped as "the environment did not
+ * move", and the fix would be inert on the only page load that matters.
  */
 function environmentKey(): string {
-  return `${mount.clientWidth}x${mount.clientHeight}@${window.devicePixelRatio}:${fullscreen()}`
+  const box = containerBox()
+  return `${box.width}x${box.height}@${window.devicePixelRatio}:${fullscreen()}`
 }
 
 function reflow(): void {
@@ -627,10 +686,29 @@ function watchDpr(): void {
  * often as it is a window (R14), and an iframe resized by its host's layout
  * fires no window `resize` in every engine. The window listener is kept as the
  * fallback for an engine without the observer.
+ *
+ * **The entry is read, not discarded.** It used to be — `new
+ * ResizeObserver(() => reflow())` — and the callback then measured the mount
+ * again through `clientWidth`, which rounds. The observer is handed the exact
+ * content box; throwing it away and asking a rounding API for the same number
+ * is where the half-pixel scrollbar came from ({@link measured}).
+ *
+ * The **last** entry, because notifications coalesce: several resizes between
+ * two frames arrive in one callback and only the most recent describes the box
+ * that is on screen now.
  */
 function watchSize(): void {
-  if (typeof ResizeObserver === 'function') new ResizeObserver(() => reflow()).observe(mount)
-  else window.addEventListener('resize', reflow)
+  if (typeof ResizeObserver === 'function') {
+    new ResizeObserver(entries => {
+      const last = entries[entries.length - 1]
+      if (last !== undefined) {
+        measured = { width: last.contentRect.width, height: last.contentRect.height }
+      }
+      reflow()
+    }).observe(mount)
+  } else {
+    window.addEventListener('resize', reflow)
+  }
 }
 
 /* ------------------------------------------------------------------ boot */

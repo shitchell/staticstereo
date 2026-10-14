@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   NOTICE_HEADLINES,
@@ -753,5 +754,127 @@ describe('it is a pure function', () => {
     const plan = playerPlan(at({ container }))
     container.width = 1
     expect(playerPlan(at({ container: { width: 800, height: 600 } }))).toEqual(plan)
+  })
+})
+
+/* ------------------------------------------------- where the container came from */
+
+/**
+ * `container` is a **measurement**, and the shipped defect was in the measuring
+ * rather than in anything this function does with it.
+ *
+ * ## What was measured, in a browser, on the built player
+ *
+ * `site/player.ts` read `mount.clientWidth` / `mount.clientHeight`. Both are
+ * specified to return an integer, and Chromium rounds **to nearest**, so a
+ * container that is 977.6000366210938 CSS px wide is reported as 978. The fit
+ * is then correct about a box that does not exist: `contain` fills the binding
+ * axis exactly, the plate is laid out 0.4 CSS px wider than the content box,
+ * and the mount — `overflow: auto`, by design, so an over-large plate can
+ * scroll — grows a scrollbar for the fraction.
+ *
+ * Reproduced in headful Chromium 1234 under Xvfb on `dist-player/index.html`,
+ * sweeping the window width at `--force-device-scale-factor=1`, reading the
+ * scrollbar as `offsetHeight - clientHeight` on the mount:
+ *
+ * | window | mount content box | `clientWidth` | canvas `style.width` | scrollbar |
+ * | --- | --- | --- | --- | --- |
+ * | 1001 | 977.6000366210938 | 978 (**up**) | 978px | **15px** |
+ * | 1005 | 981.6000366210938 | 982 (**up**) | 982px | **15px** |
+ * | 1024 | 1000 | 1000 | 1000px | none |
+ *
+ * and the same sweep on the height axis (`?present=1`, so the transport is
+ * overlaid and the only thing in flow is the plate), window 1400 x H:
+ *
+ * | H | mount content box | `clientHeight` | canvas `style.height` | scrollbar |
+ * | --- | --- | --- | --- | --- |
+ * | 500 | 388 | 388 | 388px | none |
+ * | 501 | 389.6000061035156 | 390 (**up**) | 390px | **15px** |
+ * | 502 | 390.3999938964844 | 390 (down) | 390px | none |
+ * | 505 | 393.6000061035156 | 394 (**up**) | 394px | **15px** |
+ * | 506 | 394.3999938964844 | 394 (down) | 394px | none |
+ *
+ * Two in eight scrolled, and they are exactly the two where the measurement
+ * rounded up — which is the control for the other six: the same code path, the
+ * same kind of fraction, no scrollbar. **The height is affected, and that is a
+ * measurement and not the inference it was reported as.**
+ *
+ * ## Why the guard is a grep and not a behavioural test
+ *
+ * Because the defect is in DOM code, and design §12 excludes component DOM from
+ * testing outright — the environment is plain node. The same constraint
+ * produced the same shape of guard in `chromedom.test.ts` ("the shell spells
+ * neither label itself"), and the comment-stripping and the floors below are
+ * copied from it rather than reinvented. What a grep can state is the rule that
+ * was broken: **the box handed to `playerPlan` must be measured without
+ * rounding.** `ResizeObserver` is the measurement that satisfies it — its
+ * `contentRect` is the content box in fractional CSS px, scrollbars already
+ * excluded — and the player already runs one on the mount, so the fix was to
+ * stop discarding the entry rather than to add machinery.
+ */
+describe('the container is measured without rounding', () => {
+  const stripped = (name: string): string =>
+    readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+
+  /**
+   * The rounding measurements, as they are spelled when *used*.
+   *
+   * A property read, not the bare word: `clientWidth` has to appear in
+   * `player.ts`'s prose for the next reader to know why it is banned, and in a
+   * fallback for an engine with no `ResizeObserver`, which is the one place it
+   * is still the best available answer. Matching `.clientWidth` on a receiver
+   * catches the use and not the explanation — and the comment strip above
+   * means the prose is gone before the regex runs either way.
+   */
+  const ROUNDING_READ = /\.client(?:Width|Height)\b/g
+
+  /** How many such reads are allowed, and where. */
+  const ALLOWED = 2
+
+  it('does not plan against clientWidth/clientHeight, which round to the nearest integer', () => {
+    const shell = stripped('player.ts')
+    // Floors first: a comment strip that ate the file, or a file that stopped
+    // measuring its mount at all, would prove this absence vacuously.
+    expect(shell.length, 'the comment strip ate site/player.ts').toBeGreaterThan(5_000)
+    expect(shell, 'player.ts no longer measures its mount at all').toContain('ResizeObserver')
+    expect(shell, 'player.ts no longer hands a container to playerPlan').toContain('container:')
+
+    const reads = [...shell.matchAll(ROUNDING_READ)].map(m => m[0])
+    expect(
+      reads.length,
+      `site/player.ts reads ${JSON.stringify(reads)}; clientWidth and clientHeight round to ` +
+      'the nearest integer, so a container 0.5 CSS px narrower than the integer they report ' +
+      'is planned against a box that does not exist and the mount scrolls for the fraction. ' +
+      'Measure the content box with the ResizeObserver entry instead — the one place these ' +
+      `are allowed is the no-ResizeObserver fallback, which is why the budget is ${ALLOWED}.`,
+    ).toBeLessThanOrEqual(ALLOWED)
+
+    // Positive control: the needle really does match the shape it bans, so a
+    // regex that was quietly broken cannot pass this by matching nothing.
+    expect('mount.clientWidth'.match(ROUNDING_READ)).toEqual(['.clientWidth'])
+    expect('p.clientHeight'.match(ROUNDING_READ)).toEqual(['.clientHeight'])
+  })
+
+  it('and nothing between the measurement and the canvas puts the fraction back', () => {
+    // The null measurement the title claims — `playerPlan` adds no rounding of
+    // its own — stated as the thing that would move if it did: a box 0.4 CSS
+    // px narrower produces a *different*, narrower plate. If anything in the
+    // chain rounded, these two would be equal, which is what the control below
+    // asserts is detectable.
+    const exact = playerPlan(at({ container: { width: 977.6000366210938, height: 600 } }))
+    const rounded = playerPlan(at({ container: { width: 978, height: 600 } }))
+    const box = (p: PlayerPlan): number => {
+      const fit = p.fit
+      if (fit === undefined) throw new Error('the fixture produced no fit')
+      return fit.kind === 'rerender' ? fit.plan.cssWidth : fit.fit.cssWidth
+    }
+    expect(box(exact)).toBeLessThan(box(rounded))
+    // ...and it never exceeds what it was given, which is the whole invariant
+    // the measurement feeds. Both sides, so the assertion is about the plan and
+    // not about the fixture being lucky.
+    expect(box(exact)).toBeLessThanOrEqual(977.6000366210938 + 1e-6)
+    expect(box(rounded)).toBeLessThanOrEqual(978 + 1e-6)
   })
 })
