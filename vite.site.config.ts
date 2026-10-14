@@ -1,3 +1,4 @@
+import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { defineConfig } from 'vite'
 
 /**
@@ -17,6 +18,27 @@ import { defineConfig } from 'vite'
  * already has scars from.
  */
 export default defineConfig({
+  /**
+   * The editor becomes a Svelte 5 app (design §3.1, §3.2); this is the half of
+   * that which the *build* needs. The test runner needs its own copy — see
+   * `vitest.config.ts`, which this file shares nothing with.
+   *
+   * **It is registered here and deliberately not in `vite.player.config.ts`.**
+   * Svelte exists only in the editor (design §3.2: "the editor imports the
+   * player, never the reverse"), and `dist.test.ts` asserts the player bundle
+   * carries no editor code. A plugin the player build does not have is the
+   * cheapest possible enforcement of that: a `.svelte` import reached from
+   * `site/player.ts` does not degrade, it fails the build.
+   *
+   * **It does not change what this build builds.** There is still no
+   * `build.rollupOptions.input` here, so the entry is vite's default
+   * `<root>/index.html` — i.e. `site/index.html` — exactly as before. Checked
+   * by comparing the emitted file set of `dist-site/` across the change: six
+   * files, same names modulo content hash. The plugin only adds a transform
+   * for an extension nothing in the graph uses yet.
+   */
+  plugins: [svelte()],
+
   root: 'site',
 
   /**
