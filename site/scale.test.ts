@@ -1111,16 +1111,30 @@ describe('planFit', () => {
    *
    * Which ratio each quantity actually feeds, since that is the part a reader
    * needs: `fit.scale` → `devicePerBackingScale` → `imageRenderingFor`;
-   * `fit.scale / dpr` → `displayScale` → `style.width` and the stylesheet.
+   * `fit.scale / dpr` → `cssPerBackingScale` → `style.width` and the stylesheet.
    *
    * The assertions below never changed and never needed to — they pinned
-   * `displayScale === fit.scale / dpr`, which is still exactly right. Only the
-   * sentence about what the field is *for* was wrong, which is why it is
-   * rewritten rather than deleted: a reader who finds only the corrected rule
-   * has no reason to check it, and the division is a no-op at dpr 1 so nothing
-   * but a second dpr ever shows the difference. The policy's own end-to-end
-   * assertion lives in `playerplan.test.ts`; what is asserted here is that both
-   * ratios are carried and that they differ by exactly `dpr`.
+   * `fit.scale / dpr`, which is still exactly right. Only the sentence about
+   * what the field is *for* was wrong, which is why it is rewritten rather than
+   * deleted: a reader who finds only the corrected rule has no reason to check
+   * it, and the division is a no-op at dpr 1 so nothing but a second dpr ever
+   * shows the difference. The policy's own end-to-end assertion lives in
+   * `playerplan.test.ts`; what is asserted here is that both ratios are carried
+   * and that they differ by exactly `dpr`.
+   *
+   * ## The field the assertions name is now `cssPerBackingScale`
+   *
+   * It was `displayScale`, immediately above `devicePerBackingScale` on the same
+   * interface. One of those two names states both of the pixel spaces it spans
+   * and the other states **neither** — "display" is not one of this project's
+   * four spaces — so a call site had two `number` fields whose names gave a
+   * reader no way to know they differ by `dpr`. That asymmetry is invariant 7's,
+   * and it is the shape of the defect this very docblock records: the wrong one
+   * was handed to the smoothing policy and nothing complained.
+   *
+   * This file is the only thing that pins the CSS reading, which is why the
+   * field lives here and not on `PlayerPlan` — that copy had no production
+   * consumer at all and was deleted in the same change.
    */
   it('tags re-render apart from rescale, and carries both ratios for both', () => {
     for (const size of SCENES) {
@@ -1133,8 +1147,9 @@ describe('planFit', () => {
           for (const mode of ['snap', 'contain', 'render'] as FitMode[]) {
             const plan = planFit(mode, input)
             if (plan.kind === 'rescale') {
-              expect(plan.displayScale, `${where} ${mode}`).toBeCloseTo(plan.fit.scale / dpr, 9)
-              expect(plan.displayScale, `${where} ${mode}`)
+              expect(plan.cssPerBackingScale, `${where} ${mode}`)
+                .toBeCloseTo(plan.fit.scale / dpr, 9)
+              expect(plan.cssPerBackingScale, `${where} ${mode}`)
                 .toBeCloseTo(plan.fit.cssWidth / plan.backingWidth, 9)
               // The device ratio, carried under its own name so the call site
               // that bridges fit and smoothing does not have to choose by
@@ -1143,12 +1158,12 @@ describe('planFit', () => {
               // is the defect this file has already been through once.
               expect(plan.devicePerBackingScale, `${where} ${mode}`).toBe(plan.fit.scale)
               expect(plan.devicePerBackingScale, `${where} ${mode}`)
-                .toBeCloseTo(plan.displayScale * dpr, 9)
+                .toBeCloseTo(plan.cssPerBackingScale * dpr, 9)
             } else {
               // A re-render is 1:1 in DEVICE px by construction, so its display
               // scale is 1/dpr and never anything else.
-              expect(plan.displayScale, `${where} ${mode}`).toBeCloseTo(1 / dpr, 12)
-              expect(plan.displayScale, `${where} ${mode}`)
+              expect(plan.cssPerBackingScale, `${where} ${mode}`).toBeCloseTo(1 / dpr, 12)
+              expect(plan.cssPerBackingScale, `${where} ${mode}`)
                 .toBeCloseTo(plan.plan.cssWidth / plan.plan.backingWidth, 9)
               // ...and in device px it is 1 at every dpr, which is the clearest
               // single demonstration that the two readings are not the same

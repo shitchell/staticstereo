@@ -196,50 +196,43 @@ export interface PlayerPlan {
    */
   readonly fit: FitPlan | undefined
   /**
-   * **CSS px shown ÷ backing-store px.** How big the canvas is in the unit the
-   * stylesheet is written in — a layout ratio, and only that.
-   *
-   * Read from `FitPlan.displayScale` and never recomputed here; `scale.ts`
-   * carries the field so this function does not do the division.
-   *
-   * With no fit plan it is `1 / dpr`: nothing is being drawn, so nothing is
-   * being laid out, and one backing pixel per device pixel is the honest
-   * statement of that.
-   *
-   * ## It is NOT "the ratio `imageRenderingFor` takes". That claim stood here.
-   *
-   * This docblock's first line used to read *"**CSS px shown ÷ backing-store
-   * px.** The ratio `imageRenderingFor` takes"*, and went on: *"`Fit.scale` is
-   * device px ÷ backing-store px and the two differ by a factor of `dpr`, which
-   * is the single most likely mistake at this call site."* The second sentence
-   * is true and is exactly what happened — the division was performed in the
-   * wrong direction and this field was then handed to the smoothing policy.
-   *
-   * The browser resamples backing store onto the **device** grid, never into
-   * CSS px, so the hint follows {@link devicePerBackingScale}. At dpr 2 the old
-   * reading smoothed every CSS ratio in (0.5, 1), which is every 1x `snap` plan
-   * and every re-render — the two modes that exist to be pixel-exact.
-   *
-   * Left in rather than deleted because the warning was right about *where* the
-   * danger was and wrong about *which way*, and a reader who sees only the
-   * corrected rule has nothing telling them this is a question that has already
-   * caught somebody.
-   */
-  readonly displayScale: number
-  /**
    * **Device px drawn ÷ backing-store px.** The ratio `imageRenderingFor`
    * takes, and the one the browser actually resamples by.
    *
-   * Read from `FitPlan.devicePerBackingScale` and never recomputed here, for
-   * the reason {@link displayScale}'s own note gives: the two ratios differ by
-   * exactly `dpr` and `scale.ts` carries both so that this call site does not
-   * have to choose by doing arithmetic.
+   * Read from `FitPlan.devicePerBackingScale` and never recomputed here: the
+   * two readings of this ratio differ by exactly `dpr`, `scale.ts` is where the
+   * division belongs, and the division being done at *this* call site is
+   * literally the defect this plan shipped with.
    *
    * With no fit plan it is `1`: nothing is being drawn, so nothing is being
    * resampled, and one backing pixel per device pixel is the honest statement
    * of that — the same statement a re-render makes, in the same space. Defined
    * rather than absent because a CSS property set from `undefined` is a silent
    * no-op, which stops pixelating without telling anyone.
+   *
+   * ## There is deliberately no second ratio on this interface
+   *
+   * A `displayScale` field — **CSS px shown ÷ backing-store px**, this quantity
+   * divided by `dpr` — sat directly above this one, with a long docblock
+   * recording that the old code had handed *it* to the smoothing policy and
+   * been wrong to. It is gone, because it had **zero production consumers**: it
+   * was assigned here, exported on this type, and read only by
+   * `playerplan.test.ts`. Nothing in `player.ts` or anywhere else ever used it.
+   *
+   * The property the field's own comment claimed to protect was that "the one
+   * call site bridging fit and smoothing cannot get the pixel space wrong".
+   * Two ratios on the public plan type, one of them dead, is strictly *weaker*
+   * than one: it is precisely what let the wrong one be picked. Measured, on
+   * the version before this change — swapping this argument for `displayScale`
+   * at the `imageRenderingFor` call below **typechecked clean** (both fields are
+   * `number`, both in scope) and only reddened tests. With the field gone there
+   * is no name to pick, and `scale.ts`'s own ratio is now spelled
+   * `cssPerBackingScale`, so the mistake is not merely caught, it is unspellable
+   * at this call site.
+   *
+   * The CSS-px ratio is still carried where something pins it —
+   * `FitPlan.cssPerBackingScale`, which `scale.test.ts` sweeps — and a caller
+   * that genuinely wants it reads it off {@link fit}.
    */
   readonly devicePerBackingScale: number
   /** What `?smooth=` asked for. */
@@ -453,7 +446,6 @@ export function playerPlan(input: PlayerPlanInput): PlayerPlan {
     if (chosen.notice !== undefined) notices.push(chosen.notice)
   }
 
-  const displayScale = fit?.displayScale ?? 1 / dpr
   const devicePerBackingScale = fit?.devicePerBackingScale ?? 1
   // One `framingOf`, not two: the chrome and the reported framing must be the
   // same answer, and two calls to a function with no reason to disagree is
@@ -464,7 +456,6 @@ export function playerPlan(input: PlayerPlanInput): PlayerPlan {
     scene,
     requestedFit,
     fit,
-    displayScale,
     devicePerBackingScale,
     smooth,
     imageRendering: imageRenderingFor(smooth, devicePerBackingScale),

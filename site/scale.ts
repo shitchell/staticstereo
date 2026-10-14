@@ -312,7 +312,7 @@ export interface Fit {
    * `imageRenderingFor` in `site/smooth.ts` takes; it reaches it as
    * {@link RescalePlan.devicePerBackingScale}. This docblock used to attribute
    * the CSS-px ratio to that function instead, which is the mistake recorded in
-   * full at {@link RescalePlan.displayScale}.
+   * full at {@link RescalePlan.cssPerBackingScale}.
    *
    * {@link fitScale} returns a positive **integer**, never 0.
    * {@link containFit} returns any non-negative real, and 0 only for a box that
@@ -537,7 +537,7 @@ export function fitScale({
  *
  * This paragraph also used to say the display scale "is what `imageRenderingFor`
  * in `site/smooth.ts` takes". It is not, and the correction is recorded at
- * {@link RescalePlan.displayScale}: the browser resamples backing store onto
+ * {@link RescalePlan.cssPerBackingScale}: the browser resamples backing store onto
  * the **device** grid, so `scale` is the ratio the smoothing policy wants and
  * the division is the thing that would be wrong there.
  *
@@ -1040,6 +1040,23 @@ export interface RescalePlan {
    * container are written in. That is all it is, and it is kept because that
    * question is a real one and `scale.test.ts` pins the answer.
    *
+   * ## The name states both spaces, and it did not use to
+   *
+   * This field was `displayScale`, sitting directly above
+   * {@link devicePerBackingScale} — a name that states *both* of the pixel
+   * spaces it spans — while naming **neither**. "Display" is not one of this
+   * project's four spaces (scene px, plate px, backing-store px, device px), so
+   * a reader at a call site had `displayScale` and `devicePerBackingScale` side
+   * by side, both typed `number`, with no way to tell from the names that they
+   * differ by `dpr`. That is invariant 7's asymmetry, and it is the exact shape
+   * of the smoothing defect recorded below: the wrong one of the two was handed
+   * to the smoothing policy and it typechecked.
+   *
+   * Renamed so the pair is self-describing and the wrong choice reads as wrong
+   * where it is written. `PlayerPlan` used to re-export the CSS reading as a
+   * second public ratio with no production consumer at all; it no longer does,
+   * so this is the only place the quantity exists.
+   *
    * ## It is NOT the ratio `imageRenderingFor` takes. That was argued here, and
    * it was wrong.
    *
@@ -1050,7 +1067,7 @@ export interface RescalePlan {
    * would call a 1x plate on a dpr-2 panel an upscale and pixelate a picture
    * that is in fact being halved."*
    *
-   * The picture is not being halved. At `displayScale` 1 on a dpr-2 panel each
+   * The picture is not being halved. At `cssPerBackingScale` 1 on a dpr-2 panel each
    * backing pixel covers a **2x2 block of device pixels** — it is being
    * doubled, and `pixelated` is exactly right for it. The step the browser
    * resamples at is backing store → **device grid**; CSS px are a layout unit
@@ -1065,14 +1082,14 @@ export interface RescalePlan {
    * only the rule has no reason to check it. The division is a no-op at dpr 1,
    * so nothing but a second dpr in a test will ever show the difference.
    */
-  readonly displayScale: number
+  readonly cssPerBackingScale: number
   /**
    * **Device px drawn ÷ backing-store px** — `fit.scale`, carried under a name
    * that says both spaces.
    *
    * This is the ratio the browser resamples by and therefore the one
    * `imageRenderingFor` in `site/smooth.ts` takes. It is a field rather than a
-   * division at the call site for the reason {@link displayScale} was: the one
+   * division at the call site for the reason {@link cssPerBackingScale} was: the one
    * place that bridges fit and smoothing should not have to re-derive a ratio
    * whose two readings differ by a factor nobody can see at dpr 1.
    */
@@ -1096,12 +1113,12 @@ export interface RerenderPlan {
    * `1 / dpr`, always: a re-render is displayed one backing pixel per **device**
    * pixel by construction, so in CSS px it is `1 / dpr` and nothing else.
    *
-   * A layout ratio, like {@link RescalePlan.displayScale}, and like that field
+   * A layout ratio, like {@link RescalePlan.cssPerBackingScale}, and like that field
    * **not** what the smoothing policy is given — see the refuted argument
    * recorded there. {@link devicePerBackingScale} is the resampling ratio, and
    * for this plan it is 1 at every dpr.
    */
-  readonly displayScale: number
+  readonly cssPerBackingScale: number
   /**
    * **`1`, always** — the same quantity as {@link RescalePlan.devicePerBackingScale}
    * and the mode's defining choice, stated in the space it is a choice about.
@@ -1142,7 +1159,7 @@ export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
     fit,
     backingWidth: backing.width,
     backingHeight: backing.height,
-    displayScale: fit.scale / ratio,
+    cssPerBackingScale: fit.scale / ratio,
     devicePerBackingScale: fit.scale,
   })
   switch (mode) {
@@ -1164,7 +1181,7 @@ export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
         kind: 'rerender',
         mode: 'render',
         plan,
-        displayScale: 1 / ratio,
+        cssPerBackingScale: 1 / ratio,
         devicePerBackingScale: 1,
       }
     }

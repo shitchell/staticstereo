@@ -255,12 +255,27 @@ describe('the fit plan', () => {
  * stayed green: at dpr 1 the two ratios are the same number.
  *
  * Both ratios are still swept, and neither expectation is read out of the plan
- * field it is checking — that would be `x === x`. {@link displayScaleFromDefinition}
+ * field it is checking — that would be `x === x`. {@link cssPerBackingFromDefinition}
  * recomputes the CSS one and {@link devicePerBackingFromDefinition} the device
  * one, each from the widths and the caller's own `dpr`, which is the only route
  * that catches a `dpr` dropped or applied twice inside `scale.ts`.
+ *
+ * ## `PlayerPlan` no longer carries the CSS ratio, and this is where that shows
+ *
+ * It used to, as `PlayerPlan.displayScale`, and **this file was its only
+ * reader** — assigned in `playerPlan`, exported on the type, consumed by no
+ * production code anywhere. A dead second ratio on the public plan type is not
+ * a safeguard against picking the wrong one; it is the thing that makes picking
+ * the wrong one possible, which is how the defect above shipped. So it is gone,
+ * `scale.ts`'s surviving copy is renamed `cssPerBackingScale` to name both of
+ * its spaces the way `devicePerBackingScale` does, and the CSS ratio is
+ * recomputed here from the plan's widths rather than read off a field.
+ *
+ * What that buys, measured: before the change, swapping `devicePerBackingScale`
+ * for `displayScale` at `playerPlan`'s own `imageRenderingFor` call typechecked
+ * clean. After it, there is no such name in scope and the swap does not compile.
  */
-function displayScaleFromDefinition(plan: ReturnType<typeof playerPlan>): number {
+function cssPerBackingFromDefinition(plan: ReturnType<typeof playerPlan>): number {
   const fit = plan.fit
   if (fit === undefined) throw new Error('no fit plan to measure')
   return fit.kind === 'rescale'
@@ -273,7 +288,7 @@ function displayScaleFromDefinition(plan: ReturnType<typeof playerPlan>): number
  * by, and therefore the one `imageRenderingFor` is given.
  *
  * Recomputed from the definition for the same reason as
- * {@link displayScaleFromDefinition}, and never read back out of the plan's own
+ * {@link cssPerBackingFromDefinition}, and never read back out of the plan's own
  * `devicePerBackingScale`, which would make the assertion `x === x`. The route
  * taken here crosses three of the four named pixel spaces one step at a time —
  * the **CSS px** width the plan asks for, multiplied by the **dpr the caller
@@ -319,12 +334,14 @@ describe('the image-rendering hint', () => {
             const search = `${smooth === '' ? '?' : `${smooth}&`}fit=${mode}`
             const plan = playerPlan(at({ search, container, dpr }))
             const where = `${mode} ${container.width}x${container.height} @${dpr} ${smooth}`
-            const cssRatio = displayScaleFromDefinition(plan)
+            const cssRatio = cssPerBackingFromDefinition(plan)
             const deviceRatio = devicePerBackingFromDefinition(plan, dpr)
-            // Both ratios are still carried and they still differ by exactly
-            // `dpr`. That relation is the entire content of the mistake this
-            // sweep exists for, so it is asserted rather than assumed.
-            expect(plan.displayScale, where).toBeCloseTo(cssRatio, 10)
+            // The two readings still differ by exactly `dpr`. That relation is
+            // the entire content of the mistake this sweep exists for, so it is
+            // asserted rather than assumed — and the CSS one is recomputed from
+            // the plan's widths, because the plan no longer carries it as a
+            // field for anyone to read by accident.
+            expect(plan.fit?.cssPerBackingScale, where).toBeCloseTo(cssRatio, 10)
             expect(plan.devicePerBackingScale, where).toBeCloseTo(deviceRatio, 10)
             expect(deviceRatio, where).toBeCloseTo(cssRatio * dpr, 10)
             // ...and the hint is decided in DEVICE px, which is the space the
@@ -375,9 +392,10 @@ describe('the image-rendering hint', () => {
     const one = playerPlan(at({ search: '?fit=render', dpr: 1 }))
     const two = playerPlan(at({ search: '?fit=render', dpr: 2 }))
     // dpr genuinely changes the CSS-px ratio. That much was never in doubt...
-    expect(one.displayScale).toBeCloseTo(1, 10)
-    expect(two.displayScale).toBeCloseTo(0.5, 10)
-    expect(two.displayScale).toBeCloseTo(one.displayScale / 2, 10)
+    expect(cssPerBackingFromDefinition(one)).toBeCloseTo(1, 10)
+    expect(cssPerBackingFromDefinition(two)).toBeCloseTo(0.5, 10)
+    expect(cssPerBackingFromDefinition(two))
+      .toBeCloseTo(cssPerBackingFromDefinition(one) / 2, 10)
     // ...and it is exactly why the CSS-px ratio is the wrong thing to hint
     // with: the ratio the browser resamples by does not move at all.
     expect(one.devicePerBackingScale).toBeCloseTo(1, 10)
@@ -410,7 +428,6 @@ describe('the image-rendering hint', () => {
     for (const hash of ['', '#v1.!!!']) {
       const plan = playerPlan(at({ hash }))
       expect(plan.fit, hash).toBeUndefined()
-      expect(Number.isFinite(plan.displayScale), hash).toBe(true)
       expect(Number.isFinite(plan.devicePerBackingScale), hash).toBe(true)
       expect(['auto', 'pixelated']).toContain(plan.imageRendering)
     }

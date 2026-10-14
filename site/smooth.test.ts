@@ -371,17 +371,17 @@ describe('the ratio imageRenderingFor is given', () => {
           // field under test.
           expect(plan.devicePerBackingScale, where).toBeCloseTo((cssWidth * dpr) / backingWidth, 9)
           // The two readings, and the hint that follows from the right one.
-          expect(plan.displayScale, where).toBeCloseTo(plan.devicePerBackingScale / dpr, 9)
+          expect(plan.cssPerBackingScale, where).toBeCloseTo(plan.devicePerBackingScale / dpr, 9)
           expect(imageRenderingFor('auto', plan.devicePerBackingScale), where)
             .toBe(plan.devicePerBackingScale < 1 ? 'auto' : 'pixelated')
           if (
-            imageRenderingFor('auto', plan.displayScale) !==
+            imageRenderingFor('auto', plan.cssPerBackingScale) !==
             imageRenderingFor('auto', plan.devicePerBackingScale)
           ) {
             // Every disagreement runs the same way round — the CSS reading
             // calls a device 1:1-or-upscale a downscale and asks the browser
             // to blend it. There is no case where it errs toward pixelating.
-            expect(imageRenderingFor('auto', plan.displayScale), where).toBe('auto')
+            expect(imageRenderingFor('auto', plan.cssPerBackingScale), where).toBe('auto')
             expect(imageRenderingFor('auto', plan.devicePerBackingScale), where).toBe('pixelated')
             reversedByDpr++
             if (dpr === 1) reversedAtDprOne++
