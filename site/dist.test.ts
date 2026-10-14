@@ -529,7 +529,25 @@ describe.skipIf(!freshPlayer)('the player still resolves once nested a directory
             .toBe(true)
         }
       }
-      expect(urls.length, 'no url() found — the fonts stopped being referenced').toBe(3)
+      // Compared against the **flat** count rather than pinned at today's
+      // three. This test's subject is relative resolution, so the guarantee
+      // is "nesting loses no reference" — a second copy of the woff2 count
+      // belongs where it already is (`toHaveLength(3)` against `dist-site/`,
+      // which exists precisely to pin that number), and here it would red for
+      // an innocent reason the day a fourth vendored weight ships.
+      const flat: string[] = []
+      for (const sheet of filesUnder(DIST_PLAYER).filter(f => f.endsWith('.css'))) {
+        for (const match of readFileSync(sheet, 'utf8').matchAll(/url\(\s*['"]?([^'")]+)/g)) {
+          if (!isExternal(match[1]!)) flat.push(match[1]!)
+        }
+      }
+      expect(flat.length, 'no url() found — the fonts stopped being referenced')
+        .toBeGreaterThan(0)
+      expect(urls.length, 'the nested layout references fewer assets than the flat one')
+        .toBe(flat.length)
+      // ...and the references are the same ones, not merely the same number:
+      // a rewrite that swapped one url for another would keep the count.
+      expect([...urls].sort()).toEqual([...flat].sort())
 
       // The positive control, run at the nested path so it proves the
       // predicate *there*: an absolute reference is caught rather than
@@ -826,6 +844,33 @@ const EDITOR_NEEDLES: readonly EditorNeedle[] = [
   { needle: 'set an animator', source: 'site/controls.ts' },
 ]
 
+/**
+ * The editor-only modules, from the phase brief's own list plus
+ * `site/controls.ts`.
+ *
+ * Here so that "a needle for every editor-only module" is something this file
+ * **asserts** rather than something written beside a count that does not say
+ * it. The count said `new Set(sources).size >= 7`, which three needles from
+ * one module plus six others satisfies with a module uncovered — nothing is
+ * weakened today, because 8 needles over 7 sources sits exactly on the floor,
+ * but the floor was standing in for a claim it cannot make.
+ *
+ * `site/controls.ts` is on the list for the half of it that is editor-only.
+ * The player genuinely needs the frame grid that module re-exports and takes
+ * it from `site/transport.ts` instead; `UiState`, `reduce` and `presetNote`
+ * are the editor's, and the two needles attributed to this module are from
+ * those.
+ */
+const EDITOR_ONLY_MODULES: readonly string[] = [
+  'site/main.ts',
+  'site/depthmap.ts',
+  'site/diagnostics.ts',
+  'site/legibility.ts',
+  'site/stageguide.ts',
+  'site/examples.ts',
+  'site/controls.ts',
+]
+
 /** Which files under `dir` contain `needle`, as repo-relative paths. */
 function filesContaining(dir: string, needle: string): string[] {
   return filesUnder(dir)
@@ -843,11 +888,28 @@ describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () =>
     // Needles are distinct, which is what the source-uniqueness check used to
     // stand in for. It is no longer the same statement: `controls.ts` now
     // carries two, one for `presetNote` and one for `reduce`, because a
-    // needle covers the *function* holding it rather than the module. So the
-    // two claims are made separately — no duplicate needles, and still a
-    // needle for every editor-only module.
+    // needle covers the *function* holding it rather than the module.
     expect(new Set(EDITOR_NEEDLES.map(n => n.needle)).size).toBe(EDITOR_NEEDLES.length)
-    expect(new Set(EDITOR_NEEDLES.map(n => n.source)).size).toBeGreaterThanOrEqual(7)
+    // ...and the second claim, now said rather than approximated. It was
+    // `new Set(sources).size >= 7` with a comment reading "still a needle for
+    // every editor-only module", which that does not encode: three needles
+    // from one module plus six others satisfies the count with a module
+    // uncovered. Named per module, so the failure says which one lost its
+    // only needle.
+    const covered = new Set(EDITOR_NEEDLES.map(n => n.source))
+    for (const module of EDITOR_ONLY_MODULES) {
+      expect(
+        [...covered],
+        `${module} has no needle, so nothing proves the player left it out`,
+      ).toContain(module)
+    }
+    // And the other direction: a needle attributed to a module that is not
+    // editor-only is a claim about the wrong file, which would make its
+    // absence from the player bundle meaningless rather than reassuring.
+    for (const source of covered) {
+      expect(EDITOR_ONLY_MODULES, `${source} is not an editor-only module`).toContain(source)
+    }
+    expect(EDITOR_ONLY_MODULES).toHaveLength(7)
   })
 
   it('finds every needle in the editor bundle — the grep works', () => {
