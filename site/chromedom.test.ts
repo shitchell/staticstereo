@@ -317,6 +317,37 @@ describe('every role the chrome module can produce has a renderer arm', () => {
         `${declared} is declared in playerchrome.ts and is not in the enumeration`,
       ).toContain(declared)
     }
+
+    // And the other direction, restored and widened. `ed46a23` deleted
+    // `expect(ROLE_NAMES).not.toContain('CONTROL_PREFIX')` from this block
+    // alongside the tautology on the line above it, without replacement and
+    // without mention — its message says "replace a tautological control",
+    // singular, and that line was not the tautology.
+    //
+    // It is not subsumed by the `pretend` object above, which is what made the
+    // deletion look harmless. That control proves `isRoleExport` rejects the
+    // *name* `CONTROL_PREFIX`; this proves the thing actually filtered — the
+    // live namespace — contains no such entry. The two come apart the moment
+    // `ROLES`' filter stops being `isRoleExport`, and the docblock above names
+    // the exact change somebody would plausibly make: filtering on
+    // `typeof value === 'string'` instead of on the name. Measured: make that
+    // substitution and the synthetic control still passes while this reds.
+    //
+    // Widened from the one hand-named exclusion to the claim it was an
+    // instance of, so a second non-role export does not need remembering.
+    const nonRoleExports = Object.keys(chrome).filter(name => !isRoleExport(name))
+    expect(nonRoleExports.length, 'the module exports nothing but roles, so this is vacuous')
+      .toBeGreaterThan(0)
+    // `CONTROL_PREFIX` stays named: it is the module's other string constant
+    // and so the near-miss the predicate exists to exclude, which is why it
+    // was the one written out in the first place.
+    expect(nonRoleExports, 'CONTROL_PREFIX is no longer an export of the module').toContain(
+      'CONTROL_PREFIX',
+    )
+    for (const name of nonRoleExports) {
+      expect(ROLE_NAMES, `${name} is not a role and is in the role enumeration`)
+        .not.toContain(name)
+    }
   })
 
   it('renders each of them, with at least one class and no duplicates', () => {
