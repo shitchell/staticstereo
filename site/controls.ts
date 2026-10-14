@@ -1,5 +1,5 @@
 import { resolveStereo } from '../src/core/index.js'
-import { frameIndexAt, frameTimesOf, lastFrameTime, timeOfFrame } from './transport.js'
+import { frameIndexAt, frameTimesOf, lastFrameTime, snapTime, timeOfFrame } from './transport.js'
 import { validateScene } from './scene.js'
 import type { Anim, Layer, Scene, StereoOpts } from '../src/core/types.js'
 
@@ -173,10 +173,23 @@ export function presetNote(kind: string, layerCount: number): string {
  */
 export { frameIndexAt, frameTimesOf, lastFrameTime, timeOfFrame }
 
-/** Snap a time onto the scene's frame grid. */
-function snap(scene: Scene, seconds: number): number {
-  return timeOfFrame(scene, frameIndexAt(scene, seconds))
-}
+/**
+ * Snap a time onto the scene's frame grid — `transport.ts`'s `snapTime`, under
+ * the short name the three call sites below already use.
+ *
+ * This was `timeOfFrame(scene, frameIndexAt(scene, seconds))`, spelled out
+ * here, which is **byte-identical** to `snapTime`'s body. The re-export above
+ * says a second copy is the thing to avoid and `snapTime`'s own docblock claims
+ * it is "composed from the two moved functions rather than restating their
+ * arithmetic, so there is still exactly one definition of 'nearest frame' in
+ * the project" — true of `frameIndexAt`, and not of the composition, which
+ * survived the move that existed to remove it. Nothing asserted the two agreed.
+ *
+ * An alias and not a re-export: `snapTime` is not in the player's four-name
+ * list above, so exporting it from here would widen this module's surface for
+ * no caller.
+ */
+const snap = snapTime
 
 /**
  * Materialise the stereo settings into the scene.

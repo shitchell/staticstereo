@@ -107,7 +107,14 @@ export function loopDuration(scene: Scene): number {
  * Snap a scene time onto the frame grid.
  *
  * Composed from the two moved functions rather than restating their arithmetic,
- * so there is still exactly one definition of "nearest frame" in the project.
+ * so there is exactly one definition of "nearest frame" in the project.
+ *
+ * That last clause was false about the *composition* until now, which is worth
+ * recording because the move existed to remove exactly this: `controls.ts`
+ * carried a private `snap` whose body was byte-identical to the line below, and
+ * nothing asserted the two agreed — being composed from `frameIndexAt` bought
+ * one definition of the index, not one of the snap. `controls.ts` now aliases
+ * this function instead, so the sentence is true of both halves.
  */
 export function snapTime(scene: Scene, seconds: number): number {
   return timeOfFrame(scene, frameIndexAt(scene, seconds))
