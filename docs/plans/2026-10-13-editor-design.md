@@ -254,7 +254,9 @@ Five of these are decisions rather than transcriptions:
   | `offTop` | `−ctx.contentH` |
 
   The vertical pair carries **no margin term** because `Margins` is `{left, right}` only and
-  `plateLayoutOf` applies no vertical padding (§10.2). A blanket "add the margin" would push
+  `plateLayoutOf` applies no vertical padding (§10.2 **of the 2026-10-09 design** — this
+  document's own §10.2 is fusion comfort, so the bare cross-reference misleads). A blanket
+  "add the margin" would push
   a `from: [0, offTop]` entry a plate-margin above the frame for no reason.
 
   **A token resolves from the stage and the plate, never from the layer's `at`** — the
@@ -301,9 +303,22 @@ Five of these are decisions rather than transcriptions:
   shape: `from: [100, 0]` scales and `from: [offLeft, 0]` does not, **same parameter** — so
   this is a property of the value, not of the descriptor. The descriptor additionally now
   understates the accepted *domain*, so a control generated from it would offer two number
-  inputs and no way to say `offRight`. Nothing in the repo can turn any of this red:
-  `PRESET_PARAMS` has no production consumer and `fit=render` does not exist yet. Deferred
-  to whichever phase builds that consumer, deliberately and with the reasoning here.
+  inputs and no way to say `offRight`.
+
+  **What makes that safe today is a fail-closed allow-list, not an absent feature.** An
+  earlier draft of this paragraph said `fit=render` did not exist yet. It does: it is a live
+  `FitMode` with user-facing copy, and the render plan calls `scaleScene`. What prevents the
+  double-count is that `scaleScene` scales only the preset kinds on an explicit allow-list —
+  `push` alone — and **refuses** anything else, returning `unscalable-preset` and naming the
+  verb. So a token string never reaches a multiplication, and there is no `NaN` route either.
+  `PRESET_PARAMS` having no production consumer is true but is not what is protecting us.
+
+  **That matters because it names the trigger condition.** The obligation goes live the
+  moment `move` joins that allow-list — which the scaler itself already contemplates as its
+  own task — rather than when some absent feature appears. A phase picking this up should
+  check the allow-list first, and should treat the descriptor question as *"what does a
+  scaler need in order to admit `move` safely"*, which is a sharper question than "mark it
+  not scalable". Deferred deliberately, with that reasoning, rather than overlooked.
 
 **`slide` and `emerge` are renames, not delegations.** An earlier revision of this section
 argued for keeping near-identical bodies rather than having `slide` delegate to `move`,
