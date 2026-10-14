@@ -35,11 +35,48 @@ import { DEFAULT_FIT, FIT_PARAM, parseFit } from './fit.js'
 
 const SITE = fileURLToPath(new URL('.', import.meta.url))
 
-/** Every non-test module in `site/`, which is the population the sweep covers. */
-function siteModules(): readonly string[] {
-  return readdirSync(SITE)
-    .filter(name => name.endsWith('.ts') && !name.endsWith('.test.ts'))
-    .sort()
+/**
+ * The words a human types for true and false, declared here rather than counted.
+ *
+ * The table's size used to be floored with `toBeGreaterThan(6)` against eight
+ * entries, which tolerated losing one in silence: dropping `'on'` left that
+ * floor green and was caught only by a separate test that happened to name the
+ * word. A count cannot police a vocabulary — these two lists can, and they are
+ * the same two lists the "covers both vocabularies it replaced" test already
+ * enumerated, so this is the declaration that test was implicitly making.
+ *
+ * `present.ts` had `FALSY = ['0','false','no','off']`; `smooth.ts` had
+ * `ALIASES = {1,true,yes → on; 0,false,no → off}`. Same words, two shapes, two
+ * files, with `on` and `off` in one and not the other. The union is here, once.
+ */
+const TRUE_WORDS = ['1', 'true', 'yes', 'on']
+const FALSE_WORDS = ['0', 'false', 'no', 'off']
+
+/**
+ * Every non-test module in `site/`, which is the population every sweep here
+ * covers.
+ *
+ * **Recursive**, which it was not. It was a flat `readdirSync` filtered to
+ * `.ts`, so a future `site/player/*.ts` would have fallen outside the swept
+ * population with no warning at all: the `> 10` module floor (22 today) cannot
+ * detect a module it never looked at, and a fourth parser in a subdirectory
+ * would have passed every test in this file. `site/` is flat today, so this is
+ * a no-op now and a guard the day it stops being one.
+ *
+ * Names are returned relative to `site/`, so a module in a subdirectory shows
+ * up as `player/foo.ts` — which is what the sweeps report and what
+ * {@link importsOf} then fails to resolve, making the cone test red rather than
+ * quietly admitting it. That is the intended direction: a subdirectory is a
+ * decision somebody should have to make deliberately.
+ */
+function siteModules(dir = SITE, prefix = ''): readonly string[] {
+  const out: string[] = []
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const name = `${prefix}${entry.name}`
+    if (entry.isDirectory()) out.push(...siteModules(join(dir, entry.name), `${name}/`))
+    else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) out.push(name)
+  }
+  return out.sort()
 }
 
 /** The `site/` modules `name` imports, by its own relative specifiers. */
@@ -160,16 +197,19 @@ describe('BOOLEAN_SPELLINGS', () => {
     }
   })
 
-  it('covers both vocabularies it replaced, in both directions', () => {
-    // `present.ts` had `FALSY = ['0','false','no','off']`; `smooth.ts` had
-    // `ALIASES = {1,true,yes → on; 0,false,no → off}`. Same words, two shapes,
-    // two files. The union is asserted so the merge cannot lose a spelling.
-    for (const yes of ['1', 'true', 'yes', 'on']) {
+  it('covers both vocabularies it replaced, in both directions and no further', () => {
+    // Driven off the declared word lists, and closed in BOTH directions: the
+    // loops catch a spelling the merge lost, and the key comparison catches one
+    // it gained. A count could do neither — `size > 6` against eight entries
+    // stayed green when `'on'` was dropped.
+    for (const yes of TRUE_WORDS) {
       expect(booleanSpelling(yes), yes).toBe(true)
     }
-    for (const no of ['0', 'false', 'no', 'off']) {
+    for (const no of FALSE_WORDS) {
       expect(booleanSpelling(no), no).toBe(false)
     }
+    expect([...BOOLEAN_SPELLINGS.keys()].sort())
+      .toEqual([...TRUE_WORDS, ...FALSE_WORDS].sort())
   })
 
   it('is undefined for anything else, including a bare flag', () => {
@@ -203,7 +243,10 @@ describe('both boolean parsers honour the one table', () => {
    * files had picked different subsets of the same six words.
    */
   it('agrees with isPresenting on every spelling in the table', () => {
-    expect(BOOLEAN_SPELLINGS.size).toBeGreaterThan(6)
+    // The table is exactly the declared vocabulary, not merely "more than six
+    // words". A floor of `> 6` against eight entries tolerated losing one in
+    // silence: dropping `'on'` kept it green.
+    expect(BOOLEAN_SPELLINGS.size).toBe(TRUE_WORDS.length + FALSE_WORDS.length)
     for (const [spelling, meaning] of BOOLEAN_SPELLINGS) {
       expect(isPresenting(`?${PRESENT_PARAM}=${spelling}`), spelling).toBe(meaning)
     }
