@@ -349,6 +349,86 @@ export type Layer = LayerBase &
     | { type: 'draw'; fn: string }
   )
 
+/**
+ * One variant of {@link Layer}, by its discriminant.
+ *
+ * Exported because `keyof Layer` is a trap and this is the thing that replaces
+ * it. `Layer` is `LayerBase & (A | B | C | D | E)` and `keyof` over a union
+ * yields the **intersection** of its members' keys, so `keyof Layer` is
+ * `type | id | name | depth | at | anim` and silently omits `text`, `size`,
+ * `font`, `weight`, `src`, `mode`, `mask`, `loop`, `shape`, `r`, `w`, `h`,
+ * `start`, `end`, `fn` — every per-type field, which is most of the model.
+ * Design §9.1 item 1 records this as the reason revision 1's single guard over
+ * `Scene` could not be written. `Extract` is a distributive conditional, so it
+ * recovers one whole variant, intersected base and all.
+ */
+export type LayerOf<T extends Layer['type']> = Extract<Layer, { type: T }>
+
+/** Any key any `Layer` variant admits — the union, not the intersection. */
+export type LayerKey = { [T in Layer['type']]: keyof LayerOf<T> }[Layer['type']]
+
+/**
+ * `LayerBase`'s contribution, spread into every entry of {@link LAYER_KEYS}.
+ *
+ * Module-private: it exists to keep the five rosters below readable, not as a
+ * second list to maintain. A key added to `LayerBase` and not to this one
+ * fails all five missing-key guards at once, which is the right blast radius —
+ * it *is* wrong five times.
+ */
+const LAYER_BASE_KEYS = ['id', 'name', 'depth', 'at', 'anim'] as const
+
+/**
+ * Every key each `Layer` variant admits, per variant.
+ *
+ * **Why a hand-written list exists at all when the type already says this.**
+ * It does not say it to anything that runs. An editor that generates a control
+ * per field (R6, design §9.1) needs the field names as *values*, and TypeScript
+ * erases types: there is no `keyof` at runtime. The two scene validators
+ * already learned this the expensive way — `src/cli/scene.ts` carries
+ * `BASE_LAYER_KEYS`/`TYPE_LAYER_KEYS` and `site/scene.ts` rebuilds the fields
+ * inline, both hand-written, both unguarded, and they disagree about `draw`.
+ *
+ * **What makes this copy different** is the ten `AssertNever` lines below, one
+ * pair per variant, which are the whole point of the exercise: a field added to
+ * one variant without being listed here, or listed here without existing on the
+ * variant, is a COMPILE error rather than a control the editor never offers.
+ * Same mechanism as {@link STEREO_KEYS}, and the same reason.
+ *
+ * **Five entries, not four.** `site/scene.ts:268` refuses `type: 'draw'` in the
+ * browser, so an editor-side list has four. This one is keyed by `Layer['type']`
+ * and must be total over the union or the `Record` does not type — the two
+ * counts are about different things and both are right. `src/cli/scene.ts:356`,
+ * `src/core/raster.ts:386` and `src/shared/layerName.ts:73` all still handle
+ * `draw`.
+ *
+ * Exported rather than module-private for the same reason as
+ * `anim/track.ts`'s `SUMMED_CHANNELS`: `AssertNever` is enforced by
+ * `npm run typecheck` alone, so without a runtime witness the guards below are
+ * invisible to `npm test`. `layerkeys.test.ts` is that witness.
+ */
+export const LAYER_KEYS = {
+  text: ['type', 'text', 'size', 'font', 'weight', ...LAYER_BASE_KEYS],
+  image: ['type', 'src', 'mode', 'mask', ...LAYER_BASE_KEYS],
+  gif: ['type', 'src', 'loop', 'mode', 'mask', ...LAYER_BASE_KEYS],
+  shape: ['type', 'shape', 'r', 'w', 'h', 'start', 'end', ...LAYER_BASE_KEYS],
+  draw: ['type', 'fn', ...LAYER_BASE_KEYS],
+} as const satisfies Record<Layer['type'], readonly LayerKey[]>
+
+// One pair per variant, deliberately not one pair over a mapped type: the
+// generic form reduces to a single `never` and the error then names the mapped
+// type rather than the variant that drifted. Ten lines buys an error that says
+// `"start"` under `_NoShapeLayerKeyMissing`.
+type _NoTextLayerKeyMissing = AssertNever<Exclude<keyof LayerOf<'text'>, typeof LAYER_KEYS.text[number]>>
+type _NoTextLayerKeyExtra = AssertNever<Exclude<typeof LAYER_KEYS.text[number], keyof LayerOf<'text'>>>
+type _NoImageLayerKeyMissing = AssertNever<Exclude<keyof LayerOf<'image'>, typeof LAYER_KEYS.image[number]>>
+type _NoImageLayerKeyExtra = AssertNever<Exclude<typeof LAYER_KEYS.image[number], keyof LayerOf<'image'>>>
+type _NoGifLayerKeyMissing = AssertNever<Exclude<keyof LayerOf<'gif'>, typeof LAYER_KEYS.gif[number]>>
+type _NoGifLayerKeyExtra = AssertNever<Exclude<typeof LAYER_KEYS.gif[number], keyof LayerOf<'gif'>>>
+type _NoShapeLayerKeyMissing = AssertNever<Exclude<keyof LayerOf<'shape'>, typeof LAYER_KEYS.shape[number]>>
+type _NoShapeLayerKeyExtra = AssertNever<Exclude<typeof LAYER_KEYS.shape[number], keyof LayerOf<'shape'>>>
+type _NoDrawLayerKeyMissing = AssertNever<Exclude<keyof LayerOf<'draw'>, typeof LAYER_KEYS.draw[number]>>
+type _NoDrawLayerKeyExtra = AssertNever<Exclude<typeof LAYER_KEYS.draw[number], keyof LayerOf<'draw'>>>
+
 export interface Scene {
   size: [number, number]
   fps?: number
