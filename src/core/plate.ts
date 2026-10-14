@@ -115,8 +115,12 @@ export interface PlateLayout {
  * `PresetCtx`, the guide label. None renders a stereogram and measures it, so
  * they say nothing about *the percept* and the claim above stands — and do not
  * read those five reds as the fringe proving measurable: that invites cropping
- * the plate back to the stage, which §10.4 and its recorded trap forbid. Test
- * names and the moved values are in `scratchpad/P0B-LEDGER.md`.
+ * the plate back to the stage, which §10.4 and its recorded trap forbid.
+ * Reproducing the paragraph above takes both halves: re-run the mutation for
+ * the five test names — the files are named above — *and* diff the suite's
+ * `[measured]` lines, sorted, for the three moved values. "Re-run the mutation"
+ * alone is half the procedure: those three redden nothing, so they appear in no
+ * failure, and their raw order in the log is not stable enough to diff unsorted.
  */
 export function marginsFor(sepFar: number, algorithm: SirdsAlgorithm): Margins {
   if (!Number.isFinite(sepFar) || sepFar < 2) {
