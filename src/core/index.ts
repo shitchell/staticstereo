@@ -73,6 +73,16 @@ export { blurDepth } from './blur.js'
 export { sirdsFromDepth, upscale } from './sirds.js'
 export { makeRng } from './rng.js'
 
+/* -------------------------------------------------------------------- units */
+
+/**
+ * Exported, not module-private, because the model carries two angle
+ * conventions — `shape.start`/`end` in degrees, `Transform.rotate` and the two
+ * axis rotations in radians — and anything building or reading an animator has
+ * to cross between them.
+ */
+export { degToRad, radToDeg } from './angle.js'
+
 /* ---------------------------------------------------------------- animation */
 
 export { CHANNELS, EASINGS, PARAM_UNITS, PRESETS, PRESET_PARAMS, compilePreset, composeAnim, evalTrack } from './anim/index.js'

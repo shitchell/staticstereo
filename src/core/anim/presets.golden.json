@@ -472,6 +472,81 @@
       }
     },
     {
+      "kind": "rotate",
+      "label": "bare",
+      "input": {
+        "kind": "rotate"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotate": 0
+          },
+          {
+            "t": 1,
+            "rotate": 0
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "rotate",
+      "label": "params",
+      "input": {
+        "kind": "rotate",
+        "from": -30,
+        "to": 210,
+        "axis": "x"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": -0.5235987755982988
+          },
+          {
+            "t": 1,
+            "rotateX": 3.6651914291880923
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "rotate",
+      "label": "params+overrides",
+      "input": {
+        "kind": "rotate",
+        "from": -30,
+        "to": 210,
+        "axis": "x",
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": -0.5235987755982988
+          },
+          {
+            "t": 1,
+            "rotateX": 3.6651914291880923
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
       "kind": "slide-in",
       "label": "bare",
       "input": {

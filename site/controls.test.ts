@@ -322,9 +322,15 @@ describe('presetNote', () => {
     })).toBe(false)
   })
 
-  it('move is the only bare preset that animates nothing', () => {
+  it('names every bare preset that animates nothing', () => {
+    // The set grows with the delta verbs — a verb whose parameters are an
+    // offset from rest defaults to rest, so bare it is a no-op. `rotate`
+    // (0°→0°) is the first after `move`. Asserted as an exact list rather
+    // than a membership check so that a verb becoming inert by accident —
+    // a default changed from 100px to 0 — fails here instead of shipping a
+    // dropdown entry that silently does nothing.
     const dead = Object.keys(PRESETS).filter(movesNothing)
-    expect(dead).toEqual(['move'])
+    expect(dead).toEqual(['move', 'rotate'])
   })
 
   it('says so, naming from and to, so a dead animation is not read as a bug', () => {

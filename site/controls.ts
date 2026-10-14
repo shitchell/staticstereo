@@ -116,20 +116,26 @@ export const CUSTOM_TRACK = '(custom track)'
  * The explanatory note under the preset dropdown.
  *
  * Pure and tested rather than built inline in the DOM layer, because one of the
- * three cases is load-bearing. **`move` is the only v1 preset that does
- * nothing when chosen bare**: its `from` and `to` are `[x, y]` offsets from the
- * layer's own `at` and both default to `[0, 0]`, so `{kind: 'move'}` compiles
- * to `[{t: 0, x: 0, y: 0}, {t: 1, x: 0, y: 0}]` — a track that animates
- * precisely nothing. Verified against core with a correct `PresetCtx`; every
- * other preset has a usable bare default (`slide-in` enters from `-contentW`,
- * `marquee` defaults to 60 px/sec, `bounce` to 100px, `bob` to 8px, `push`
- * rises to the layer's own depth).
+ * three cases is load-bearing. **A bare `move` does nothing**: its `from` and
+ * `to` are `[x, y]` offsets from the layer's own `at` and both default to
+ * `[0, 0]`, so `{kind: 'move'}` compiles to
+ * `[{t: 0, x: 0, y: 0}, {t: 1, x: 0, y: 0}]` — a track that animates precisely
+ * nothing. Verified against core with a correct `PresetCtx`.
+ *
+ * **`move` is no longer the only inert bare preset, and this note does not
+ * claim otherwise.** Every verb whose parameters are a *delta from rest*
+ * defaults to rest — `rotate` is the first of them, 0°→0° — so the set grows
+ * as the verb vocabulary does. What still earns `move` a sentence of its own
+ * is that it is the one an author picks while *expecting* motion: `rotate`
+ * with no angle reads as an unfinished thought, whereas `move` reads like a
+ * complete instruction and so is the choice that gets mistaken for a broken
+ * renderer. The others take the generic note.
  *
  * The dropdown cannot carry parameters — those live in the scene JSON — so
- * without this sentence the one user action that produces a dead animation is
- * indistinguishable from a broken renderer. Core's own parameter readers reject
- * garbage rather than defaulting, for exactly this reason; `move`'s defaults
- * are the one place that argument does not hold, and the UI pays for it here.
+ * without this sentence that one user action is indistinguishable from a bug.
+ * Core's own parameter readers reject garbage rather than defaulting, for
+ * exactly this reason; a delta verb's defaults are the place that argument
+ * does not hold, and the UI pays for it here.
  */
 export function presetNote(kind: string, layerCount: number): string {
   if (layerCount === 0) return 'This scene has no layers.'
@@ -140,8 +146,7 @@ export function presetNote(kind: string, layerCount: number): string {
   if (kind === 'move') {
     return 'move needs from and to — they are [x, y] offsets from the layer\'s own at, ' +
       'and both default to [0, 0], so a bare move animates nothing at all. Give it ' +
-      '{"kind": "move", "from": [-60, 0], "to": [700, 0]} in the scene JSON below. ' +
-      'Every other preset has a usable default.'
+      '{"kind": "move", "from": [-60, 0], "to": [700, 0]} in the scene JSON below.'
   }
   return 'Presets compile to keyframe tracks, so anything here can also be written out ' +
     'longhand in the scene JSON. bob and bounce take their period from the scene ' +

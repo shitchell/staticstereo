@@ -20,7 +20,7 @@ function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: nu
 describe('presets', () => {
   it('registers the v1 set', () => {
     expect(Object.keys(PRESETS).sort()).toEqual(
-      ['bob', 'bounce', 'marquee', 'move', 'push', 'slide-in'],
+      ['bob', 'bounce', 'marquee', 'move', 'push', 'rotate', 'slide-in'],
     )
   })
 
@@ -228,5 +228,64 @@ describe('presets implemented from prose spec', () => {
     expect(compilePreset({ kind: 'marquee', speed: 100 }, ctx).duration)
       .toBeCloseTo((OFF_RIGHT - OFF_LEFT) / 100)
     expect(OFF_RIGHT - OFF_LEFT).toBe(2165)
+  })
+})
+
+/**
+ * `rotate` — the unit trap, named in the execution plan's trap table.
+ *
+ * The verb's parameters are **degrees** by design decision (§4.2), while
+ * `Transform.rotate`/`rotateX`/`rotateY` are **radians** — that is what
+ * `scratch.rotate()` takes and what `Math.cos` is fed in `raster.ts`. Nothing
+ * upstream converts, so the conversion is the preset's job and these pin it.
+ */
+describe('rotate', () => {
+  /** The channel each axis name selects, written out so the test is independent
+   *  of the preset's own mapping. */
+  const CHANNEL_OF = { x: 'rotateX', y: 'rotateY', z: 'rotate' } as const
+
+  it('compiles a half turn to exactly Math.PI, on the axis it names', () => {
+    // `Math.PI`, not 3.14159…. A tolerance here would pass against a
+    // conversion that was wrong in the last few bits, and the whole claim is
+    // that 180 degrees *is* π.
+    for (const axis of ['x', 'y', 'z'] as const) {
+      const tr = compilePreset({ kind: 'rotate', to: 180, axis }, ctx)
+      const terminal = tr.keys[tr.keys.length - 1]!
+      expect(terminal.t, axis).toBe(1)
+      expect(terminal[CHANNEL_OF[axis]], axis).toBe(Math.PI)
+    }
+  })
+
+  it('defaults to the z axis — the in-plane spin', () => {
+    const tr = compilePreset({ kind: 'rotate', to: 180 }, ctx)
+    expect(evalTrack(tr, 1, 1).rotate).toBe(Math.PI)
+    expect(evalTrack(tr, 1, 1).rotateX).toBe(0)
+    expect(evalTrack(tr, 1, 1).rotateY).toBe(0)
+  })
+
+  it('keys only its own axis, so two rotate animators compose', () => {
+    // Same property `slide-in` has on x/y: an unkeyed channel must stay absent
+    // rather than be pinned to 0, or a second animator on that channel is
+    // overridden instead of summed.
+    const tr = compilePreset({ kind: 'rotate', from: 10, to: 20, axis: 'y' }, ctx)
+    expect(JSON.stringify(tr)).not.toContain('rotateX')
+    expect(JSON.stringify(tr)).not.toContain('"rotate"')
+  })
+
+  it('is a delta from rest, so both ends default to no rotation', () => {
+    const tr = compilePreset({ kind: 'rotate' }, ctx)
+    expect(evalTrack(tr, 0, 1).rotate).toBe(0)
+    expect(evalTrack(tr, 1, 1).rotate).toBe(0)
+  })
+
+  it('honours a non-zero from, in degrees', () => {
+    const tr = compilePreset({ kind: 'rotate', from: -90, to: 90 }, ctx)
+    expect(evalTrack(tr, 0, 1).rotate).toBe(-Math.PI / 2)
+    expect(evalTrack(tr, 1, 1).rotate).toBe(Math.PI / 2)
+  })
+
+  it('rejects an axis that is not x, y or z', () => {
+    expect(() => compilePreset({ kind: 'rotate', axis: 'w' }, ctx)).toThrow(/must be one of/)
+    expect(() => compilePreset({ kind: 'rotate', axis: 'w' }, ctx)).toThrow(/x, y, z/)
   })
 })

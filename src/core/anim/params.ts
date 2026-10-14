@@ -104,6 +104,15 @@ const SCENE_PX_PER_SECOND = (name: string): NumericParam =>
   ({ name, unit: 'scenePx', shape: 'scalar', per: 'second' })
 
 /**
+ * **Degrees, which is the parameter's unit and not the channel's.**
+ * `Transform.rotate`/`rotateX`/`rotateY` are radians; the preset converts. The
+ * descriptor describes what an author writes, so it says `degrees` — getting
+ * this backwards would have P3 offer a ±3.14 spinner for a half turn.
+ */
+const DEGREES = (name: string): NumericParam =>
+  ({ name, unit: 'degrees', shape: 'scalar' })
+
+/**
  * The descriptors, keyed by the registry's own literal union.
  *
  * `Record<PresetKind, …>` is the tie: registering a verb without describing
@@ -120,6 +129,13 @@ export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
     SCENE_PX_PAIR('from'),
     SCENE_PX_PAIR('to'),
     SCENE_PX_PER_SECOND('speed'),
+  ],
+  rotate: [
+    DEGREES('from'),
+    DEGREES('to'),
+    // Three values, because all three rotation channels exist and `z` is a
+    // real, distinct turn. `flip`'s axis enum is two — see there for why.
+    { name: 'axis', unit: 'enum', values: ['x', 'y', 'z'] },
   ],
   'slide-in': [
     // The edge entered from, not a distance: the offset is computed from the

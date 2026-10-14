@@ -6,6 +6,8 @@
  * Nothing here animates opacity. Fading is motion in `depth` (`push`).
  */
 import { EASINGS } from './easing.js'
+import { degToRad } from '../angle.js'
+import type { Channel } from './track.js'
 import type { Easing, Preset, Track } from '../types.js'
 
 /**
@@ -76,7 +78,21 @@ const REPEATS = ['once', 'loop', 'pingpong'] as const
 type Repeat = typeof REPEATS[number]
 
 const DIRECTIONS = ['left', 'right', 'top', 'bottom'] as const
-type Direction = typeof DIRECTIONS[number]
+
+/**
+ * The three rotation axes and the channel each one names.
+ *
+ * `satisfies Record<..., Channel>` rather than a bare object so the mapping is
+ * tied to the canonical channel list: renaming a channel in `CHANNELS` without
+ * fixing this is a compile error, not a `rotate` that silently writes nowhere.
+ */
+const ROTATION_AXES = ['x', 'y', 'z'] as const
+const ROTATION_CHANNEL = {
+  x: 'rotateX',
+  y: 'rotateY',
+  /** `z` is the in-plane spin, and its channel is the unsuffixed `rotate`. */
+  z: 'rotate',
+} as const satisfies Record<typeof ROTATION_AXES[number], Channel>
 
 /* ------------------------------------------------------------------ params */
 
@@ -107,15 +123,23 @@ function pair(p: Preset, key: string, fallback: [number, number]): [number, numb
   return [v[0], v[1]]
 }
 
-function direction(p: Preset, key: string, fallback: Direction): Direction {
+/**
+ * One name out of a fixed set. Generic over the set rather than one reader per
+ * enum, because the error text *is* the contract `params.test.ts` checks the
+ * `EnumParam` descriptors against — two readers phrasing it differently would
+ * let one enum's descriptor drift unnoticed.
+ */
+function oneOf<T extends string>(
+  p: Preset, key: string, allowed: readonly T[], fallback: T,
+): T {
   const v = p[key]
   if (v === undefined) return fallback
-  if (typeof v !== 'string' || !(DIRECTIONS as readonly string[]).includes(v)) {
+  if (typeof v !== 'string' || !(allowed as readonly string[]).includes(v)) {
     throw new Error(
-      `preset "${p.kind}": "${key}" must be one of ${DIRECTIONS.join(', ')}, got ${JSON.stringify(v)}`,
+      `preset "${p.kind}": "${key}" must be one of ${allowed.join(', ')}, got ${JSON.stringify(v)}`,
     )
   }
-  return v as Direction
+  return v as T
 }
 
 /**
@@ -215,12 +239,47 @@ const REGISTRY = {
   },
 
   /**
+   * Turn about one axis. `from`/`to` are **degrees**, a delta from the layer's
+   * resting orientation, and both default to 0.
+   *
+   * **Degrees in, radians out, and the conversion happens here.** The channels
+   * this writes are radians — that is what `CanvasLike.rotate` takes and what
+   * `Math.cos` is fed for the two axis rotations in `raster.ts` — while the
+   * parameter is degrees because that is the unit a scene author writes and
+   * the unit `shape.start`/`end` already use elsewhere in the same file format.
+   * Nothing between the scene file and here converts, so a preset that keyed
+   * `num(p, 'to', 0)` straight into `rotate` would turn a requested 180° into
+   * 180 radians — ~28.6 full turns, which under `once` lands back at a
+   * near-identity pose and reads as "the rotation did nothing".
+   *
+   * `axis` names the channel rather than the appearance: `'z'` is the in-plane
+   * spin and is the default, because that is what "rotate" means without
+   * qualification and it is the one rotation that is a true rotation under an
+   * orthographic projection (§ `Transform`).
+   *
+   * Only the named axis is keyed, so two `rotate` animators on different axes
+   * compose — `composeAnim` sums all three rotation channels.
+   */
+  rotate: p => {
+    const axis = oneOf(p, 'axis', ROTATION_AXES, 'z')
+    const channel = ROTATION_CHANNEL[axis]
+    return overrides({
+      keys: [
+        { t: 0, [channel]: degToRad(num(p, 'from', 0)) },
+        { t: 1, [channel]: degToRad(num(p, 'to', 0)) },
+      ],
+      ease: 'linear',
+      repeat: 'once',
+    }, p)
+  },
+
+  /**
    * Enter from off-frame and come to rest at the layer's own position. Only the
    * axis being entered on is keyed, so the other axis stays composable with
    * e.g. `bob`.
    */
   'slide-in': (p, ctx) => {
-    const dir = direction(p, 'from', 'left')
+    const dir = oneOf(p, 'from', DIRECTIONS, 'left')
     const horizontal = dir === 'left' || dir === 'right'
     // Off-frame by the content's own extent on the near side, by the scene's on
     // the far side — the same convention marquee uses. Off-**plate**, not

@@ -67,6 +67,7 @@ const FULL: Record<string, Record<string, unknown>> = {
   marquee: { speed: 137 },                    // default 60
   move: { from: [-13, 7], to: [250, -40] },   // defaults [0,0], [0,0]
   push: { from: 0.2, to: 0.85 },              // defaults 0 and ctx.layerDepth
+  rotate: { from: -30, to: 210, axis: 'x' },  // defaults 0, 0, 'z'
   'slide-in': { from: 'bottom' },             // default 'left'
 }
 
