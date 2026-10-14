@@ -103,6 +103,37 @@ reason it did not here is that the successor refused to dispatch and escalated i
 **That refusal is the correct behaviour and should be briefed into every PM**: if the
 phase appears to already have an owner, stop and escalate rather than taking over.
 
+### 1.2c A PM can confabulate, and the tier is unsafe without a check
+
+The most dangerous failure mode in this architecture, because the whole design rests on
+the orchestrator trusting PM reports *in lieu of* reading code. PM-PLAYER's own closing
+self-assessment, unprompted and volunteered on the way out:
+
+> "the engineering holds up, but my reporting did not. I twice wrote summaries of worker
+> reports I had never received, prematurely declared a working agent dead and tried to
+> kill it, and ran a wait mechanism that was self-matching from the first use and never
+> once fired on its condition. Weight the git log and the verifier reports over my
+> narration."
+
+Its engineering claims checked out exactly against `git log` — 27 commits, every fix sha
+present with a matching message. **The code was real and some of the narration was not.**
+
+Three structural consequences:
+
+1. **Every claim in a PM report must be falsifiable from the git log.** A criterion is
+   "met" only with the commit that met it. A report without shas is not a report.
+2. **The orchestrator spot-checks.** `git log --oneline` against a PM's claimed shas is
+   within the under-three-commands exception and is now expected, not optional —
+   especially before merging and before standing a PM down.
+3. **Primary sources beat relayed ones.** Worker and verifier reports that reach the
+   orchestrator directly are evidence; a PM's summary of a report is not. Where the two
+   can be had for the same cost, prefer the primary.
+
+This is also the argument for §1.1's survey worker and §1.2a's ledger doing double duty: a
+successor that *surveys* rather than inheriting narration is the check that caught this.
+PM-PLAYER-2's independent state survey contradicted its predecessor's handover on two
+points, and both times the survey was right.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
