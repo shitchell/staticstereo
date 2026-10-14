@@ -219,8 +219,15 @@ describe('presets implemented from prose spec', () => {
  * `ctx.fixture.ts` precisely because they are unequal: a resolution that added
  * the wrong margin, or the same one twice, would pass against a symmetric
  * fixture. Note while reading that `110 = 2 × 55`, so an assertion that would
- * also hold with the margins swapped, doubled or halved is not pinning what it
- * claims; each one below is checked against that.
+ * also hold with the margins doubled or halved is not pinning what it claims;
+ * every one below is checked against both, and against substituting either
+ * cross-axis measurement.
+ *
+ * **Two of them are not checked against the margins being swapped, because no
+ * fixture can check them** — the swap is invisible to those two algebraically
+ * rather than by an accident of `{110, 55}`. See `spans the whole plate plus
+ * the content`, which records the measurement and why editing the fixture
+ * would not help.
  */
 describe('move off-stage endpoints', () => {
   /**
@@ -286,8 +293,23 @@ describe('move off-stage endpoints', () => {
     // The assertion deleted with `marquee` — `OFF_RIGHT - OFF_LEFT` — restored
     // structurally rather than as its old `2165`. It is the one statement that
     // ties both margins, the stage and the measurement together in a single
-    // number, so a resolution that got two terms wrong in compensating
-    // directions still fails it.
+    // number.
+    //
+    // **It cannot see the two margins being swapped, and no fixture can make
+    // it.** Both sides reduce to `sceneW + contentW + marginLeft + marginRight`
+    // — each side sums the two margins, so the equality is an identity in them
+    // and holds for any pair, not just for one where `110 = 2 × 55`. Measured
+    // with `offLeft`/`offRight` reading each other's margin: this test and
+    // `resolves before speed` below stay green, while 4 other assertions in
+    // this file and 3 in `raster.test.ts` redden — and setting `CTX` to
+    // coprime, non-2:1 margins (97/31) under the same swap leaves both green.
+    // That last run is the one worth recording: a reader told the fixture is
+    // at fault will go and edit it for nothing.
+    //
+    // Kept rather than deleted, because it is not vacuous and nothing else
+    // states this whole relation in one number: doubling the margin terms,
+    // halving them, and substituting `contentH` for `contentW` or `sceneH` for
+    // `sceneW` each redden it.
     const { start, end } = poses({ from: ['offRight', 0], to: ['offLeft', 0] })
     const plateWidth = ctx.marginLeft + ctx.sceneW + ctx.marginRight
     expect(start.x! - end.x!).toBe(plateWidth + ctx.contentW)
@@ -314,6 +336,14 @@ describe('move off-stage endpoints', () => {
     const tr = poses(
       { from: ['offRight', 0], to: ['offLeft', 0], speed, repeat: 'loop' },
     ).track
+    // `travel` is the same commutative sum of the two margins, so this is the
+    // *second* of the two assertions the margin swap cannot see — measured
+    // green under the swap, and still green under the swap with coprime 97/31
+    // margins. `spans the whole plate plus the content` above carries the
+    // algebra and the full mutation table; it is recorded in both places
+    // because reading either test alone invites the same wrong conclusion.
+    // Doubling and halving the margin terms, and both cross-axis
+    // substitutions, do redden this.
     const travel = (ctx.sceneW + ctx.marginRight) + (ctx.contentW + ctx.marginLeft)
     expect(tr.duration).toBeCloseTo(travel / speed, 10)
     expect(tr.repeat).toBe('loop')
