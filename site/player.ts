@@ -1,7 +1,7 @@
 import { createRasterCache, renderFrame } from '../src/core/index.js'
 import type { PlateFrame, RasterCache } from '../src/core/index.js'
 import { webCanvas } from '../src/web/index.js'
-import { applyChrome } from './chromedom.js'
+import { applyChrome, playLabelFor } from './chromedom.js'
 import type { ChromeDom } from './chromedom.js'
 import { loadVendoredFont } from './fonts.js'
 import {
@@ -30,8 +30,12 @@ import type { FitPlan } from './scale.js'
  *
  * `site/playerplan.ts` holds every decision the player makes about a URL and a
  * box — the framing, the scene, the fit, the display scale, the smoothing
- * hint, the chrome tree, the notices — and returns them as one value. This
- * file reads `location`, the container's size, `devicePixelRatio` and whether
+ * hint, the chrome tree, the notices — and returns them as one value. That
+ * list names the *shape* of the answer and is not `PlayerPlan`'s field list:
+ * it already groups `requestedFit` with `fit` and `imageRendering` with the
+ * smoothing hint, and a plan gaining a ratio or a derived hint does not make
+ * it wrong. Read the type for the fields; read this for what they are for.
+ * This file reads `location`, the container's size, `devicePixelRatio` and whether
  * it is in an `<iframe>`, hands them over, and executes the answer. The split
  * is not stylistic: the test environment is plain node with neither jsdom nor
  * happy-dom, and design §12 excludes component DOM from testing outright, so a
@@ -40,8 +44,10 @@ import type { FitPlan } from './scale.js'
  * The rule for anybody editing this file is the one `chromedom.ts` already
  * states for itself: **if you find yourself writing `if (framing === …)` or
  * `if (fit === …)`, that conditional belongs in `playerPlan` or `chromeSpec`.**
- * The conditionals that legitimately live here are of three kinds and no
- * others:
+ * The conditionals that legitimately live here are of **four** kinds and no
+ * others. The count was three while the fourth went unnamed — it was in the
+ * code and documented only on the function that uses it, which made the
+ * header's "no others" read as a claim the file did not keep:
  *
  *  - **feature detection** — `ResizeObserver`, `matchMedia`, `requestFullscreen`
  *    and `exitFullscreen` are all optional in some engine somewhere, and a
@@ -51,7 +57,19 @@ import type { FitPlan } from './scale.js'
  *    and nowhere else (`site/main.ts:1047-1051` records the same constraint);
  *  - **change detection** — "has the thing I already applied stopped matching
  *    the plan?", which is a question about this file's own cached state and
- *    cannot be answered by a pure function that has never seen it.
+ *    cannot be answered by a pure function that has never seen it;
+ *  - **unpacking a discriminated union whose policy was already chosen** —
+ *    exactly once, in {@link boxOf}, which branches on `FitPlan.kind`. This
+ *    one is the exception that looks most like the rule it breaks, so it is
+ *    named here and not only in its own docblock: a reader auditing this file
+ *    against "three kinds and no others" would find a fourth and have to
+ *    guess whether it was an oversight. It is not. `playerPlan` already made
+ *    the choice between re-scaling and re-rendering and already substituted
+ *    the re-authored scene; what is left is that the two arms spell the same
+ *    four CSS-px numbers at two different depths, both arms are read, and
+ *    neither is preferred. A conditional that *chose* a kind would belong in
+ *    `playerPlan`; one that only reads a kind somebody else chose has nowhere
+ *    else to go, because the union is what crosses the boundary.
  *
  * ## Failure policy
  *
@@ -397,11 +415,16 @@ function applyGeometry(): void {
  * well-defined on the grid `frameTimes` enumerates, so a slider in seconds
  * would hand the transport times it has to snap anyway, and the snapping would
  * make the thumb jump under the finger.
+ *
+ * The label is `chromedom.ts`'s, not chosen here. It used to be — `playing ?
+ * 'Pause' : 'Play'` on this line — which made it the only user-visible string
+ * in the player decided in a file no test in this repo can reach, while every
+ * other label came from the rendering table.
  */
 function syncTransport(seconds: number): void {
   const current = dom
   if (current === undefined) return
-  roleEl(current, ROLE_PLAY).textContent = driver?.playing() === true ? 'Pause' : 'Play'
+  roleEl(current, ROLE_PLAY).textContent = playLabelFor(driver?.playing() === true)
   const scene = plan.scene
   if (scene === undefined) return
   const seek = roleEl<HTMLInputElement>(current, ROLE_SEEK)

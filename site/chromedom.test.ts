@@ -6,7 +6,9 @@ import {
   CLASS_TRANSPORT,
   CLASS_WRAPPER,
   PLAYER_STYLESHEET,
+  PLAY_LABEL,
   ROLE_RENDERING,
+  playLabelFor,
   positionFor,
   primaryClassOf,
   renderingFor,
@@ -274,6 +276,63 @@ describe('every role the chrome module can produce has a renderer arm', () => {
     for (const role of [chrome.ROLE_PLAY, chrome.ROLE_SEEK, chrome.ROLE_FULLSCREEN]) {
       expect(ROLE_RENDERING[role]?.attrs?.['aria-label'], role).toBeTruthy()
     }
+  })
+})
+
+/* ------------------------------------- the one label that changes with state */
+
+describe('the visible play/pause label is this module’s, not the shell’s', () => {
+  /**
+   * `site/player.ts`'s comment-stripped source. Stripped for the reason every
+   * grep in this repo strips: the shell's docblocks are free to discuss the
+   * labels in prose, and a pattern that matched the explanation would prove
+   * nothing.
+   */
+  const SHELL = readFileSync(new URL('./player.ts', import.meta.url), 'utf8')
+  const SHELL_CODE = SHELL.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+
+  it('answers for both transport states, distinctly', () => {
+    expect(playLabelFor(true)).toBe(PLAY_LABEL.playing)
+    expect(playLabelFor(false)).toBe(PLAY_LABEL.paused)
+    // Distinct, which is the whole content of a play/pause label: a control
+    // that reads the same in both states tells the viewer nothing about which
+    // one they are in, and R16 names this control specifically.
+    expect(playLabelFor(true)).not.toBe(playLabelFor(false))
+    for (const [state, label] of Object.entries(PLAY_LABEL)) {
+      expect(label.length, state).toBeGreaterThan(0)
+    }
+    expect(Object.keys(PLAY_LABEL)).toHaveLength(2)
+  })
+
+  it('and the shell spells neither label itself', () => {
+    // Every other label in the player comes from `ROLE_RENDERING` — the
+    // `aria-label`s, the `type` attributes. This one was chosen in
+    // `site/player.ts` instead, inline: `textContent = playing ? 'Pause' :
+    // 'Play'`. That put the player's only state-dependent user-visible string
+    // in the one file no test in this repo can reach, since the environment is
+    // plain node and design §12 excludes component DOM from testing outright.
+    //
+    // It also splits the two names for one control across two files. The
+    // accessible name is "Play or pause" exactly because it covers both states
+    // and so never changes; the visible label is the half that does, and a
+    // second table nobody can see is how the two drift apart.
+    //
+    // The needles are read out of `PLAY_LABEL` rather than typed, so renaming
+    // a label does not quietly disarm this.
+    expect(SHELL_CODE.length, 'the comment strip ate site/player.ts').toBeGreaterThan(5_000)
+    expect(SHELL_CODE).toContain('ROLE_PLAY')
+    for (const label of Object.values(PLAY_LABEL)) {
+      for (const quote of ["'", '"', '`']) {
+        expect(SHELL_CODE, `site/player.ts spells ${quote}${label}${quote} itself`)
+          .not.toContain(`${quote}${label}${quote}`)
+      }
+    }
+    // Vacuity floor in the other direction: the shell must still be setting
+    // the label, or "it does not spell them" is satisfied by not having one.
+    expect(SHELL_CODE).toContain('playLabelFor')
+    // Positive control: the needles really do find the literal they ban.
+    expect(`e.textContent = p ? '${PLAY_LABEL.playing}' : '${PLAY_LABEL.paused}'`)
+      .toContain(`'${PLAY_LABEL.playing}'`)
   })
 })
 

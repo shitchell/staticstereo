@@ -33,6 +33,13 @@
  *   tree says `input` and stops. An `<input>` with no `type` is a **text
  *   box** — a silent failure exactly where the scrubber belongs — so the
  *   `type` and the accessible name are set from the same table.
+ * - **The one label that changes with transport state.** Every other label
+ *   here is an attribute set once; play/pause has two ({@link PLAY_LABEL}).
+ *   It is still presentation of a given node and not a decision about which
+ *   nodes exist, so it belongs on this side of the line — and the alternative
+ *   was where it used to be, chosen inline in `site/player.ts`, which put the
+ *   player's only state-dependent visible string in the file no test in this
+ *   repo can reach.
  *
  * ## Where position comes from, and why the stylesheet must not say it too
  *
@@ -124,6 +131,42 @@ export const ROLE_RENDERING: Readonly<Record<string, RoleRendering>> = {
     classes: [CLASS_CONTROL, `${CLASS_CONTROL}-fullscreen`],
     attrs: { type: 'button', 'aria-label': 'Full screen' },
   },
+}
+
+/**
+ * The **visible** text on the play/pause control, by transport state.
+ *
+ * A table beside {@link ROLE_RENDERING} rather than a ternary at the call
+ * site, for that table's own reason: this module is allowed to say how a given
+ * node is presented, and nothing else gets a second opinion about it. The
+ * shell chose this one inline — `textContent = playing ? 'Pause' : 'Play'` in
+ * `site/player.ts` — which made it the player's only state-dependent visible
+ * string decided in a file no test in this repo can reach, the environment
+ * being plain node with design §12 excluding component DOM outright.
+ *
+ * It is the *visible* name and it is deliberately not the accessible one.
+ * `ROLE_PLAY`'s `aria-label` is "Play or pause", which names both states at
+ * once and so never has to change; this is the half that does. Keeping the two
+ * in one file is what stops them drifting into disagreement about which state
+ * the control is in.
+ *
+ * Keyed by state rather than by a boolean, so the table reads as what it is
+ * when the next control needs one.
+ */
+export const PLAY_LABEL: Readonly<Record<'playing' | 'paused', string>> = {
+  playing: 'Pause',
+  paused: 'Play',
+}
+
+/**
+ * {@link PLAY_LABEL}'s entry for a transport that is, or is not, playing.
+ *
+ * Exported alongside the table so the caller passes the state it has and does
+ * not re-spell the mapping from boolean to key — which would be the ternary
+ * again, one file further on.
+ */
+export function playLabelFor(playing: boolean): string {
+  return playing ? PLAY_LABEL.playing : PLAY_LABEL.paused
 }
 
 /** A role name's tail, as a CSS class must look. */
