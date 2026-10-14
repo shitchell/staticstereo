@@ -50,7 +50,7 @@ import { chromeSpec } from './playerchrome.js'
 import type { ChromeNode, Framing } from './playerchrome.js'
 import { isPresenting } from './present.js'
 import { isUsableDpr, planFit, usableDpr, usableLength } from './scale.js'
-import type { FitPlan, PlanFitInput } from './scale.js'
+import type { FitPlan, PlanFitInput, RenderFit } from './scale.js'
 import { scaleScene } from './scalescene.js'
 import { validateScene } from './scene.js'
 import { imageRenderingFor, parseSmooth } from './smooth.js'
@@ -84,6 +84,14 @@ export type PlayerNoticeCode =
   | 'container-unmeasured'
   /** `dpr` was zero, negative or not a number. */
   | 'dpr-unusable'
+  /**
+   * `fit=render` was honoured, but at a scale one of `renderFit`'s two bounds
+   * chose rather than the one the container solves for — so the picture is not
+   * the size the link asked for. **The only mode that can produce this**: the
+   * other two are arithmetic over an already-rendered backing store and always
+   * have an answer.
+   */
+  | 'render-scale-clamped'
 
 /**
  * Every code, as a value.
@@ -101,6 +109,7 @@ export const PLAYER_NOTICE_CODES = [
   'fit-unplannable',
   'container-unmeasured',
   'dpr-unusable',
+  'render-scale-clamped',
 ] as const satisfies readonly PlayerNoticeCode[]
 
 /** Errors unless its argument is `never` — the repo's exhaustiveness idiom. */
@@ -131,6 +140,7 @@ export const NOTICE_HEADLINES: Record<PlayerNoticeCode, string> = {
   'fit-unplannable': 'This scene’s size could not be worked out, so no layout was planned.',
   'container-unmeasured': 'The container has no size yet, so the layout was planned against an empty box.',
   'dpr-unusable': 'The device pixel ratio was unusable; the layout was planned at 1 instead.',
+  'render-scale-clamped': 'This scene could not be re-rendered at the size the container asked for.',
 }
 
 export interface PlayerNotice {
@@ -362,6 +372,54 @@ interface LayoutChoice {
 }
 
 /**
+ * The clamp notice for a re-render, or `undefined` when the solve was honoured.
+ *
+ * ## Why the direction is read off `overflows` and not classified
+ *
+ * `RenderFit.clamped` is one flag over two bounds that behave oppositely: the
+ * floor hands back a plate *bigger* than the box, the cap a *smaller* one. A
+ * notice that said only "clamped" would tell a viewer nothing they could not
+ * already see, so the message has to say which happened — and `overflows` is
+ * the plan's own measured statement of exactly that, the realised plate
+ * against the realised box.
+ *
+ * It is deliberately **not** a classification of *which bound* engaged. That
+ * would need `renderFit`'s internal `ideal` and `minScale`, neither of which is
+ * on `RenderFit`, and re-deriving either here would be a second copy of a rule
+ * that lives in `scale.ts` — the defect this module has already been through
+ * twice (the dpr coercion, the length coercion). The bound is `scale.ts`'s
+ * business; what the viewer is looking at is this module's, and `overflows`
+ * answers that without anyone restating anything.
+ *
+ * Note the two are *almost* but not exactly the same question: for a scene
+ * authored smaller than one pixel on an axis the floor can engage without
+ * overflowing. That is unreachable from a link — `site/scene.ts`'s `requireSize`
+ * rejects a sub-1 `scene.size` — and it does not matter here either way, because
+ * the sentence is about the picture and not about the bound.
+ */
+function clampNotice(plan: RenderFit): PlayerNotice | undefined {
+  if (!plan.clamped) return undefined
+  return notice(
+    'render-scale-clamped',
+    `It was rendered at ${roundedScale(plan.sceneScale)}× the authored size instead, so the ` +
+    `picture is ${plan.overflows ? 'larger' : 'smaller'} than the container.`,
+  )
+}
+
+/**
+ * A scale for a human to read, to three significant figures.
+ *
+ * The cap is a whole number and prints as one; the floor is `1/min(width,
+ * height)` in scene px and is a repeating decimal for most sizes, which at full
+ * float precision is sixteen digits of noise in the middle of a sentence. Three
+ * figures because the number is here to tell a viewer roughly how far off the
+ * requested size they are, and no decision is taken on it.
+ */
+function roundedScale(scale: number): number {
+  return Number(scale.toPrecision(3))
+}
+
+/**
  * The layout for a loaded scene, falling back where a mode cannot be honoured.
  *
  * ## Why `render` is conditional and the other two are not
@@ -386,7 +444,11 @@ function planLayout(scene: Scene, mode: FitMode, args: PlanFitInput): LayoutChoi
     const planned = planFit('render', args)
     if (planned.kind !== 'rerender') return { fit: planned, scene }
     const scaled = scaleScene(scene, planned.plan)
-    if (scaled.ok) return { fit: planned, scene: scaled.scene }
+    // The clamp is only worth reporting on a plan that is actually used. A
+    // refused scene drops to `contain` below, which discards the render plan
+    // along with its bounds, and a notice about a plan nobody applied would
+    // describe a picture the viewer is not looking at.
+    if (scaled.ok) return { fit: planned, scene: scaled.scene, notice: clampNotice(planned.plan) }
     return {
       fit: planFit('contain', args),
       scene,

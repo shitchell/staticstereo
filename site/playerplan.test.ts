@@ -4,7 +4,9 @@ import {
   PLAYER_NOTICE_CODES,
   playerPlan,
 } from './playerplan.js'
-import type { PlayerNoticeCode, PlayerPlanInput } from './playerplan.js'
+import type { PlayerNoticeCode, PlayerPlan, PlayerPlanInput } from './playerplan.js'
+import { MAX_SCENE_SCALE } from './scale.js'
+import type { RenderFit } from './scale.js'
 import { REJECTED_FIT_MODES, parseFit } from './fit.js'
 import { imageRenderingFor, parseSmooth } from './smooth.js'
 import { SCALE_REFUSALS } from './scalescene.js'
@@ -61,8 +63,27 @@ function unscalableScene(): Scene {
   return { size: [320, 160], fps: 12, duration: 1, layers: [image] }
 }
 
+/**
+ * A scene small enough to reach `MAX_SCENE_SCALE` in an ordinary container.
+ *
+ * 8x8 scene px, so the cap engages in a box under about 1600 CSS px wide at
+ * dpr 1 — which is to say, in a perfectly normal `<iframe>` rather than in a
+ * deliberately absurd one. The size is the whole point of the fixture and the
+ * shape is incidental; it is a `shape` layer because that is what `scaleScene`
+ * accepts without a sized-text or raster refusal getting in the way first.
+ */
+function tinyScene(): Scene {
+  return {
+    size: [8, 8],
+    fps: 12,
+    duration: 1,
+    layers: [{ type: 'shape', shape: 'rect', w: 4, h: 4, at: [2, 2] }],
+  }
+}
+
 const SCALABLE_HASH = `#${encodeSceneHash(scalableScene())}`
 const UNSCALABLE_HASH = `#${encodeSceneHash(unscalableScene())}`
+const TINY_HASH = `#${encodeSceneHash(tinyScene())}`
 
 /** The refusal the unscalable fixture earns, read from the record, not retyped. */
 const RASTER_REFUSAL = SCALE_REFUSALS['raster-geometry']
@@ -228,6 +249,115 @@ describe('the fit plan', () => {
   it('says nothing about a merely-unknown fit value, which has no recorded reason', () => {
     expect(codes(at({ search: '?fit=wibble' }))).toEqual([])
     expect(playerPlan(at({ search: '?fit=wibble' })).fit?.mode).toBe('contain')
+  })
+})
+
+/* --------------------------------------------------- the scene-scale clamp */
+
+/**
+ * `renderFit` bounds `sceneScale` at both ends and reports it through
+ * `RenderFit.clamped`, and until this block **nothing surfaced that to a
+ * user**: the flag was computed, asserted in `scale.test.ts`, and read by no
+ * production code anywhere in `site/` or `src/`. The two outcomes it reports
+ * are both visible and neither is self-explanatory — a small scene letterboxed
+ * at 64x inside a large `<iframe>`, and a plate that overflows a box too small
+ * to hold one scene pixel — so the player showed somebody else's page a
+ * picture that was not the size their link asked for and said nothing about it.
+ *
+ * `render` is the only mode that can clamp: the other two are arithmetic over
+ * an already-rendered backing store and always have an answer.
+ *
+ * Both directions are asserted, and the direction in each assertion is read
+ * off `RenderFit.overflows` rather than typed in — the notice states the
+ * measured relation of the plate to the box, so pinning the word here would be
+ * pinning the message instead of the property.
+ */
+describe('the scene-scale clamp is reported, not applied silently', () => {
+  /** The cap, as `renderFit` bounds it. Imported, never retyped. */
+  const capped = (): PlayerPlan => playerPlan(at({
+    search: '?fit=render',
+    hash: TINY_HASH,
+    container: { width: 1600, height: 1200 },
+  }))
+
+  /**
+   * The floor: a box that cannot hold even a one-pixel stage. Reachable from a
+   * link — a 1 CSS px tall `<iframe>` is legal — unlike the sub-pixel-scene
+   * hole `renderFit`'s own contract records, which `requireSize` makes
+   * unreachable from a parsed scene.
+   */
+  const floored = (): PlayerPlan => playerPlan(at({
+    search: '?fit=render',
+    container: { width: 800, height: 1 },
+  }))
+
+  const renderPlan = (plan: PlayerPlan): RenderFit => {
+    const fit = plan.fit
+    expect(fit?.kind, 'not a re-render, so there is no clamp to report').toBe('rerender')
+    return (fit as { plan: RenderFit }).plan
+  }
+
+  it('reaches both bounds, so neither case below is vacuous', () => {
+    // The premise of every assertion here, read off the plan rather than
+    // assumed from the container sizes: a cap that stopped engaging would make
+    // the notice assertions pass for the wrong reason.
+    const cap = renderPlan(capped())
+    expect(cap.clamped, 'the cap did not engage').toBe(true)
+    expect(cap.sceneScale).toBe(MAX_SCENE_SCALE)
+    expect(cap.overflows, 'the cap letterboxes inside the box').toBe(false)
+    const floor = renderPlan(floored())
+    expect(floor.clamped, 'the floor did not engage').toBe(true)
+    expect(floor.sceneScale).toBeLessThan(MAX_SCENE_SCALE)
+    expect(floor.overflows, 'the floor hands back a plate bigger than the box').toBe(true)
+  })
+
+  it('tells a user whose scene was letterboxed by the cap that it was', () => {
+    const plan = capped()
+    const notice = plan.notices.find(n => n.code === 'render-scale-clamped')
+    expect(
+      notice,
+      'the cap engaged and the plan carries no notice, so an embed shows a picture smaller ' +
+      'than the box it was given and explains nothing',
+    ).toBeDefined()
+    expect(notice!.message).toContain(NOTICE_HEADLINES['render-scale-clamped'])
+    // What happened to the picture, in the terms a viewer can check against
+    // what they can see. Derived from the plan, not typed.
+    expect(notice!.message).toContain(renderPlan(plan).overflows ? 'larger' : 'smaller')
+  })
+
+  it('and tells one whose box was too small the other thing, which is the opposite', () => {
+    const plan = floored()
+    const notice = plan.notices.find(n => n.code === 'render-scale-clamped')
+    expect(notice, 'the floor engaged and the plan carries no notice').toBeDefined()
+    expect(notice!.message).toContain(renderPlan(plan).overflows ? 'larger' : 'smaller')
+    // One code, two directions, and they must not read alike: a single
+    // sentence covering both would be a notice that tells a viewer nothing
+    // they could not already see.
+    expect(notice!.message).not.toBe(
+      capped().notices.find(n => n.code === 'render-scale-clamped')!.message,
+    )
+  })
+
+  it('says nothing for a render the container could be honoured at', () => {
+    // The ordinary case, and the thing a notice on every render would destroy:
+    // a player that complains about every link teaches an embedder to ignore
+    // the strip.
+    const plan = playerPlan(at({ search: '?fit=render' }))
+    expect(renderPlan(plan).clamped, 'the default box clamps, so this proves nothing').toBe(false)
+    expect(codes(at({ search: '?fit=render' }))).toEqual([])
+  })
+
+  it('is not produced by the modes that cannot clamp', () => {
+    for (const mode of ['contain', 'snap']) {
+      // Same tiny scene, same large box — the one that caps under `render`.
+      const plan = playerPlan(at({
+        search: `?fit=${mode}`,
+        hash: TINY_HASH,
+        container: { width: 1600, height: 1200 },
+      }))
+      expect(plan.fit?.kind, mode).toBe('rescale')
+      expect(plan.notices.map(n => n.code), mode).not.toContain('render-scale-clamped')
+    }
   })
 })
 
