@@ -215,13 +215,44 @@ Three things fall out of this, all good:
 Two bundles ship (R10): **`entrance`** as above, and **`flyIn`** — `move` from off-stage
 with `easeOut`. Durations are seconds; R10's "250ms" is `0.25`.
 
-**Decode-registered is not UI-offered.** `marquee`, `emerge`, `bob`, `bounce` and `slide`
-stay in `PRESETS` so existing YAML and existing links keep working, and they are **not
-listed in the verb picker** — R9 says of `marquee`, "idk that it'd survive as a preset. not
-in the UI i'm considering." This is a **UI-side allow-list**, not a flag on the registry:
-revision 2 proposed `uiVisible` on `PRESETS`, which changes `Record<string, PresetFn>`'s
-value type and collides with P3's per-verb parameter descriptors in the same field, owned
-by a different phase. The allow-list lives with the picker.
+### 4.2b The legacy presets are deleted, not preserved
+
+Earlier revisions kept `marquee`, `emerge`, `bob`, `bounce`, `slide` and `slide-in`
+registered "so existing YAML and existing links keep working", hidden from the picker by
+an allow-list. **That was backwards compatibility reasoning and it does not apply here.**
+Shaun, asked directly:
+
+> "no one else is using this. if any decisions are made due to backwards compatibility
+> concerns, then those decisions ought be reviewed. we could not care less about backwards
+> compatibility."
+
+So **`PRESETS` contains the five verbs and nothing else.**
+
+| was | becomes |
+|---|---|
+| `slide` | **renamed** `move` — it already *is* `move` with `from`/`to` |
+| `emerge` | **renamed** `push` — already exactly the depth verb |
+| `marquee` | `move` with off-stage endpoints. Its one distinct capability, deriving duration from a speed, moves onto `move` as an optional `speed` param |
+| `bounce` | UI template → `move` on y with `easeOutBounce` |
+| `bob` | UI template → `move` on y, `pingpong` |
+| `slide-in` | UI template → `move` from a direction |
+
+This removes the allow-list, removes `uiVisible`, and removes the P6 task that would have
+maintained the distinction. It is strictly less machinery than preserving them.
+
+**What the golden corpus is still for.** Capturing current output before the refactor
+remains worth doing, with a changed purpose: it proves the renames are *renames*. `move`
+must compile to precisely what `slide` did, and `push` to what `emerge` did, or the
+rename quietly became a rewrite and nothing else in the suite would notice. Deletions
+show up as removed fixture entries in a commit that says so. The golden is a one-shot
+refactor instrument, not a permanent pin.
+
+**The cost is the examples, and it is not trivial.** All three `examples/*.yaml` use the
+old names, and `metamorphic.real.test.ts` reads them with *measured* assertions — row
+locality, dead-zone row loss, per-seed silent-row counts. Rewriting the examples to verbs
+can move those numbers, and a moved measurement is indistinguishable from a regression at
+a glance. **Rewriting the examples is its own task with its own review**, never a side
+effect of a registry change.
 
 ### 4.3 D1 — `flip` has nowhere to write, because `Transform` is a fixed five-slot bus
 
@@ -910,7 +941,7 @@ The existing 862 tests across 42 files stay green; §4 is the only part under pr
 | Area | Test |
 |---|---|
 | Scene model | ids appear only on mutation, so `examples/*.yaml` round-trip byte-identically through load → save; load→save→load is idempotent; both `validateScene`s generate ids identically |
-| Verbs | each verb compiles to the Track it claims; bundles expand to their verbs; **every legacy preset name still compiles to its previous output** |
+| Verbs | each verb compiles to the Track it claims; **`move` and `push` reproduce `slide` and `emerge` exactly** (a rename is not a rewrite); deleted presets leave the golden in a commit that says so |
 | Composition | stacked actions sum and multiply per `composeAnim`; `bouncing-ball.yaml` is unchanged by the rewrite |
 | `.stst` | round-trip; valid zip readable by `unzip`; **CLI and site produce identical bytes for one scene** |
 | Control coverage | per-variant `AssertNever` pairs (compile-time) **plus** the reachability test in §9.2 |

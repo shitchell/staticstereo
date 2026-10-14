@@ -309,10 +309,21 @@ multi-task**; the PM splits them per §5.2 and reports the split per §5.5.
    in particular is a §9 trap. `flip` is sugar over `rotateY: π` (design §4.3).
 8. Easing gains `cubic-bezier(a,b,c,d)`: parser, solver, widened type, four `in EASINGS`
    call sites, two validators.
-9. **Every legacy preset name still compiles to its golden output** (criterion 1).
+9. **`move` compiles to exactly what `slide` did, and `push` to exactly what `emerge`
+   did** — measured against criterion 1's golden. These are renames; the golden exists to
+   prove they did not quietly become rewrites.
+10. **Delete `marquee`, `bounce`, `bob`, `slide-in`** from `PRESETS` (design §4.2b).
+    Their fixture entries are removed in a commit that says so. `move` gains an optional
+    `speed` that derives `duration`, which is `marquee`'s only distinct capability.
+11. **Rewrite `examples/*.yaml` to verbs — its own task, its own review.** All three use
+    the old names, and `metamorphic.real.test.ts` asserts *measured* properties of them
+    (row locality, dead-zone row loss, per-seed silent-row counts). A moved measurement
+    looks exactly like a regression. Any number that changes must be re-derived and
+    explained in the task's report, never silently updated.
 
-**Not in P0:** bundles (design §4.2a makes them a UI macro, owned by P6) and the verb
-picker's allow-list (also P6 — there is no UI in P0 to list them in).
+**Not in P0:** bundles — design §4.2a makes them UI macros, owned by P6.
+
+**No allow-list, no `uiVisible`.** Both existed only to keep deleted presets reachable.
 
 **Escalation already known:** design §4.2 does not give parameter signatures for the
 verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
@@ -443,7 +454,7 @@ criterion 6.
 7. Scrub against the depth map; re-encode on scrub-end.
 8. Depth-thumbnail filmstrip on the ruler.
 9. **Bundles as UI macros** (design §4.2a) — `entrance` and `flyIn` write `Anim` arrays at
-   attach time. Plus the verb picker's allow-list, hiding the legacy kinds.
+   attach time. No allow-list — the legacy kinds were deleted in P0 (design §4.2b).
 10. `OPERATIONS`: action attach/detach/duplicate/expand, keyframe insert/delete/duplicate.
 11. Built, not vendored. Real estate reserved for a later curve editor.
 
