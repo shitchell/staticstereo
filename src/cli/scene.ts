@@ -398,7 +398,14 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
     if (typeof kind !== 'string') {
       fail(`${path}.kind must be a preset name, got ${describe(kind)}`)
     }
-    if (!(kind as string in PRESETS)) {
+    // `Object.hasOwn`, not `kind in PRESETS`: `PRESETS` is an object literal,
+    // so `in` answered `true` for the dozen keys on `Object.prototype` and
+    // `{kind: constructor}` passed validation — a scene accepted whose `kind`
+    // names no preset, which is the one outcome this file exists to prevent.
+    // Third site of the same idiom; `src/core/anim/presets.ts`' `PRESETS`
+    // docblock records the other two and why the guard, not the type, is what
+    // makes the registry's wide `Record<string, …>` safe at each lookup.
+    if (!Object.hasOwn(PRESETS, kind as string)) {
       // Harvest the registry's own message — it lists the valid kinds and is
       // the single source of truth for what they are.
       try {

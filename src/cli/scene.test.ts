@@ -285,6 +285,34 @@ describe('validateScene — layers', () => {
     for (const kind of Object.keys(PRESETS)) expect(msg).toMatch(kind)
   })
 
+  it('rejects an inherited Object.prototype key as a preset kind, by name', () => {
+    // `kind in PRESETS` consulted the prototype chain, so all four of these
+    // *passed* validation — the one outcome this file exists to prevent. Core's
+    // `compilePreset` is guarded, so no wrong render followed; what remained is
+    // a validator accepting a scene whose `kind` names no preset, silently.
+    //
+    // Pinned per key rather than as one "a weird key" case, because the
+    // plausible wrong fixes split on exactly this: `typeof PRESETS[kind] ===
+    // 'function'` rejects `__proto__` (an object) and still accepts
+    // `constructor`, since `Object.prototype.constructor` *is* a function.
+    for (const kind of ['constructor', '__proto__', 'toString', 'valueOf']) {
+      const msg = checkFails(
+        `size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {kind: ${kind}}}\n`,
+      )
+      expect(msg).toMatch(/layers\[0\]\.anim/)
+      expect(msg).toMatch(`unknown animation preset "${kind}"`)
+      for (const valid of Object.keys(PRESETS)) expect(msg).toMatch(valid)
+    }
+
+    // The other direction, which a guard is just as able to get wrong:
+    // `typeof PRESETS[kind] === 'object'` rejects the four above *and* every
+    // real preset, a `PresetFn` being a function. Swept over the registry so a
+    // verb added later is covered without this test being revisited.
+    for (const kind of Object.keys(PRESETS)) {
+      check(`size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {kind: ${kind}}}\n`)
+    }
+  })
+
   it('accepts a raw track and a list of animators', () => {
     const s = check(
       'size: [40, 20]\nlayers:\n' +

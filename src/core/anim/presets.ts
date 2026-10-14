@@ -568,11 +568,12 @@ export type PresetKind = keyof typeof REGISTRY
  * **All three sites must ask `Object.hasOwn`, never `kind in PRESETS`.** This
  * is a plain object literal, so `in` answers `true` for the dozen keys on
  * `Object.prototype`. All three asked it the wrong way: `compilePreset` below
- * indexed bare, `site/scene.ts` asked `kind in PRESETS`, and
- * **`src/cli/scene.ts:401` still does** — that one is outstanding, escalated
- * rather than fixed here because it belongs to another task's file set. What
- * makes a wide public type safe is the guard at each lookup, not the type, so
- * a fourth consumer inherits nothing from these two being right.
+ * indexed bare, and both scene validators asked `kind in PRESETS`. All three
+ * are now guarded — `site/scene.ts` and `compilePreset` together, `src/cli/
+ * scene.ts` after it, where the symptom was a validator *accepting* the scene
+ * rather than a wrong render. What makes a wide public type safe is the guard
+ * at each lookup, not the type, so a fourth consumer inherits nothing from
+ * these three being right.
  */
 export const PRESETS: Record<string, PresetFn> = REGISTRY
 
