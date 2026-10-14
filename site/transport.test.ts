@@ -11,6 +11,7 @@ import {
   pause,
   play,
   seek,
+  snapLoopTime,
   snapTime,
   timeAt,
   timeOfFrame,
@@ -114,8 +115,51 @@ describe('the transport state machine', () => {
     // Reaching for fps anywhere in the rate is how a 60fps scene plays at 5x.
     const fine: Scene = { ...ANIM, fps: 60 }
     expect(frameTimesOf(fine)).toHaveLength(5 * frameTimesOf(ANIM).length)
-    expect(timeAt(play(initialTransport(ANIM), 0), 1_000, ANIM)).toBeCloseTo(1, 10)
-    expect(timeAt(play(initialTransport(fine), 0), 1_000, fine)).toBeCloseTo(1, 10)
+
+    // **Sampled where the rival rule cannot alias, which this test used not to
+    // do.** It asked both scenes only at 1_000 ms, and multiplying `timeAt`'s
+    // elapsed by `sceneFps / 12` left the ENTIRE suite green: 5 s of scene
+    // time wraps to 1 s in a 2 s loop, so *every* odd-integer multiplier
+    // agrees with the correct answer at exactly that instant. One second is
+    // the worst moment in this loop at which to ask the question.
+    expect(timeAt(play(initialTransport(ANIM), 0), 250, ANIM)).toBeCloseTo(0.25, 10)
+    expect(timeAt(play(initialTransport(fine), 0), 250, fine)).toBeCloseTo(0.25, 10)
+
+    // ...and the rate as a rule rather than as two readings. The playhead must
+    // land within half a sample of the wall-clock elapsed, which is what "one
+    // second of scene time per second of wall time" means once the snapping is
+    // accounted for. Stated that way it holds at every fps without a
+    // hand-derived expectation per grid, so a rate that scales with fps is
+    // caught wherever it is sampled rather than only where the arithmetic
+    // happens not to alias.
+    const samples = [250, 500, 750, 1_250, 1_750] as const
+    const grids: readonly Scene[] = [ANIM, fine, { ...ANIM, fps: 6 }, { ...ANIM, fps: 25 }]
+    for (const scene of grids) {
+      const t = play(initialTransport(scene), 0)
+      // Half a sample interval, in seconds. The epsilon is for the exact ties
+      // at 6 and 25 fps, where the true distance is half an interval and the
+      // two sides of the comparison round differently.
+      const halfFrame = 0.5 / sceneFps(scene) + 1e-9
+      for (const ms of samples) {
+        expect(
+          Math.abs(timeAt(t, ms, scene) - ms / 1_000),
+          `${sceneFps(scene)}fps @ ${ms}ms`,
+        ).toBeLessThanOrEqual(halfFrame)
+      }
+    }
+    // Vacuity floor: the sweep is two nested loops, and an empty one would
+    // prove the rate rule for every fps at once.
+    expect(samples).toHaveLength(5)
+    expect(grids).toHaveLength(4)
+    expect(new Set(grids.map(sceneFps)).size).toBe(4)
+
+    // The positive control: the rival rule, spelled out, really does give a
+    // different answer at the new sample — and really does agree at 1_000 ms,
+    // which is the fact that let it hide here for the whole phase.
+    const rival = (scene: Scene, ms: number): number =>
+      snapLoopTime(scene, (ms / 1_000) * (sceneFps(scene) / 12))
+    expect(rival(fine, 250)).not.toBeCloseTo(0.25, 10)
+    expect(rival(fine, 1_000)).toBeCloseTo(1, 10)
   })
 
   it('wraps modulo the grid rather than stopping at the end', () => {
