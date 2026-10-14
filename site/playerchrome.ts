@@ -459,3 +459,110 @@ export function flowViolations(root: ChromeNode): FlowViolation[] {
 
   return found
 }
+
+/* --------------------------------------------------------- chrome auto-hide */
+
+/**
+ * How long the chrome stays up after the last activity, in **milliseconds of
+ * wall-clock time** — not scene time, which is in seconds and stops when the
+ * transport does.
+ *
+ * Design §8.2 says "a few seconds" and does not say how many, so this is a
+ * judgement inside a stated range rather than a measurement, and it is
+ * recorded as one. Three seconds is bounded below by the time a viewer needs
+ * to notice the strip, decide, and travel to a control after the movement
+ * that summoned it — under about a second and the chrome is gone before the
+ * pointer arrives, which reads as the page fighting back. It is bounded above
+ * by how long an overlay is allowed to sit on top of a plate the viewer is
+ * trying to fuse: fusion takes seconds to establish and anything moving in
+ * the field delays it, so a long delay converts an accessibility affordance
+ * into the thing it was protecting against.
+ *
+ * Named and exported rather than inlined because the renderer schedules
+ * against it and the tests assert against it, and three independent spellings
+ * of "a few seconds" would be three different policies.
+ */
+export const CHROME_IDLE_MS = 3000
+
+/**
+ * What the auto-hide policy needs to know. Supplied by the caller and
+ * returned by {@link noteActivity}; nothing here is stored in this module.
+ */
+export interface ChromeActivity {
+  /** Wall clock in milliseconds at the last key press or pointer movement. */
+  readonly lastActivityMs: number
+  /**
+   * Whether the transport is playing. Optional, and **absent means paused** —
+   * see {@link chromeVisible} for why that is the safe way round.
+   */
+  readonly playing?: boolean
+}
+
+/**
+ * Should the chrome be shown at wall-clock `nowMs`?
+ *
+ * A pure function of an explicit state and an injected clock — no timers, no
+ * DOM, no `Date.now` — for the same recorded reason as `site/transport.ts`:
+ * P3 lifts this into the editor shell, and anything entangled with the
+ * player's page cannot be lifted. It is also what makes the whole policy
+ * testable in plain node, which is the only environment this project has.
+ *
+ * **Only a playing transport hides its chrome.** Design §8.2 states the
+ * auto-hide without qualification, but a paused player showing no controls
+ * has no visible way to resume — the one thing R16 exists to guarantee — and
+ * "move the mouse to find out whether there is a play button" is not a
+ * discoverable affordance. Hiding also has a purpose only while something is
+ * moving under it: the whole argument for an overlay (§8.3 forbids a strip
+ * above the canvas, and a strip below it in present mode would displace the
+ * plate) is that it gets out of the way *during playback*. A still scene,
+ * which never plays, therefore keeps its chrome forever, which is correct:
+ * there is nothing to watch it get out of the way of.
+ *
+ * `playing` is optional and an absent flag counts as paused, which is the
+ * safe default of the two. Chrome that will not hide costs a strip of plate;
+ * chrome that hides with no way back costs the player. A caller that wants
+ * the hiding behaviour has to say so.
+ *
+ * **Degenerate clocks all resolve to visible**, each for the same reason:
+ * visible is the state a user can act from, so it is what an unusable clock
+ * reading should fall back to.
+ * - `nowMs` **earlier** than `lastActivityMs` — a clock stepped backwards, or
+ *   a stamp taken from a different clock. Treating the negative interval as
+ *   "a long time ago" would blank the controls on a machine that just
+ *   resynchronised its time.
+ * - `nowMs` **equal** to it: zero elapsed, visible, which is the same answer
+ *   the general rule gives and is stated only so the boundary is not an
+ *   accident.
+ * - **Non-finite** either side: no interval exists. `NaN` already compares
+ *   false against everything, so a naive `elapsed < CHROME_IDLE_MS` would
+ *   hide the chrome; the explicit check makes the answer a decision rather
+ *   than a consequence of IEEE-754.
+ *
+ * The delay's own boundary belongs to hidden — visible iff `elapsed <
+ * CHROME_IDLE_MS` — so the constant reads as "visible for this long, then
+ * gone", and a clock that happens to tick exactly on it is not a special case.
+ */
+export function chromeVisible(state: ChromeActivity, nowMs: number): boolean {
+  if (state.playing !== true) return true
+  if (!Number.isFinite(nowMs) || !Number.isFinite(state.lastActivityMs)) return true
+  const elapsed = nowMs - state.lastActivityMs
+  if (elapsed < 0) return true
+  return elapsed < CHROME_IDLE_MS
+}
+
+/**
+ * The state after a key press or a pointer movement at `nowMs`.
+ *
+ * A transition rather than a mutation, so the caller owns the state and this
+ * module stays a set of functions — the shape `site/transport.ts` already
+ * uses and the shape P3's store can adopt without unpicking anything.
+ *
+ * A non-finite reading is refused and the state returned unchanged. Storing
+ * it would make every later comparison non-finite and so pin the chrome
+ * visible for the rest of the session, which is a worse failure than losing
+ * one activity event: the next real one re-anchors it.
+ */
+export function noteActivity(state: ChromeActivity, nowMs: number): ChromeActivity {
+  if (!Number.isFinite(nowMs)) return state
+  return { ...state, lastActivityMs: nowMs }
+}

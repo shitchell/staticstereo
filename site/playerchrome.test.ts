@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
+  CHROME_IDLE_MS,
   CONTROL_PREFIX,
   FRAMINGS,
   FRAMING_NAMES,
@@ -10,13 +12,29 @@ import {
   ROLE_TRANSPORT,
   ROLE_WRAPPER,
   chromeSpec,
+  chromeVisible,
   fullscreenTarget,
+  noteActivity,
   isControlRole,
   flowViolations,
   nodesOf,
   pathToRole,
 } from './playerchrome.js'
-import type { ChromeNode, Framing } from './playerchrome.js'
+import type { ChromeActivity, ChromeNode, Framing } from './playerchrome.js'
+
+const SOURCE = readFileSync(new URL('./playerchrome.ts', import.meta.url), 'utf8')
+
+/**
+ * The module's source with every comment removed.
+ *
+ * Needed because this file's docblocks argue about `Date.now` by name —
+ * "no timers, no DOM, no `Date.now`" — and a grep for a forbidden identifier
+ * that matches the prose explaining why it is forbidden is the `yuv444p`
+ * mistake `dist.test.ts` already records. The floor below keeps the stripping
+ * itself honest: a regex that ate the whole file would otherwise prove every
+ * absence at once.
+ */
+const CODE = SOURCE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
 
 /**
  * Every framing, written out by hand.
@@ -290,5 +308,101 @@ describe('nothing sits above the canvas in normal flow (design §8.3)', () => {
     expect(kinds).toEqual(['absent', 'absent'])
     expect(flowViolations(rooted([canvasNode])).map(v => v.role)).toEqual([ROLE_TRANSPORT])
     expect(flowViolations(rooted([transportNode])).map(v => v.role)).toEqual([ROLE_CANVAS])
+  })
+})
+
+describe('chrome auto-hides, as a pure policy (design §8.2)', () => {
+  const playing = (lastActivityMs: number): ChromeActivity => ({ lastActivityMs, playing: true })
+
+  it('keeps the idle delay a named constant with a recorded reason', () => {
+    expect(Number.isFinite(CHROME_IDLE_MS)).toBe(true)
+    expect(CHROME_IDLE_MS).toBeGreaterThan(0)
+    // "a few seconds", design §8.2. The bounds are loose on purpose — the
+    // point is that the number is inside the range the design states, not
+    // that it is any particular value inside it.
+    expect(CHROME_IDLE_MS).toBeGreaterThanOrEqual(1000)
+    expect(CHROME_IDLE_MS).toBeLessThanOrEqual(10_000)
+    // Not an inline number: declared once, with a docblock carrying the
+    // argument, and referenced by name from the policy.
+    expect(SOURCE).toMatch(/\/\*\*[\s\S]{80,}?\*\/\nexport const CHROME_IDLE_MS = \d/)
+    const body = CODE.slice(CODE.indexOf('export function chromeVisible'))
+    expect(body.slice(0, body.indexOf('\n}'))).toContain('CHROME_IDLE_MS')
+  })
+
+  it('is visible immediately after activity', () => {
+    expect(chromeVisible(noteActivity(playing(0), 5_000), 5_000)).toBe(true)
+  })
+
+  it('is visible strictly before the delay and hidden strictly after it', () => {
+    expect(chromeVisible(playing(0), CHROME_IDLE_MS - 1)).toBe(true)
+    expect(chromeVisible(playing(0), CHROME_IDLE_MS + 1)).toBe(false)
+    // The boundary itself belongs to hidden, pinned so a later refactor has to
+    // mean it: "visible for CHROME_IDLE_MS, then gone".
+    expect(chromeVisible(playing(0), CHROME_IDLE_MS)).toBe(false)
+  })
+
+  it('comes back on activity, again and again', () => {
+    // A sequence, not a single transition: a policy that latched hidden after
+    // the first timeout would satisfy every one of the assertions above.
+    const script: readonly { at: number; activity: boolean }[] = [
+      { at: 0, activity: true },
+      { at: CHROME_IDLE_MS - 1, activity: false },
+      { at: CHROME_IDLE_MS, activity: false },
+      { at: CHROME_IDLE_MS * 10, activity: false },
+      { at: CHROME_IDLE_MS * 10, activity: true },
+      { at: CHROME_IDLE_MS * 11 - 1, activity: false },
+      { at: CHROME_IDLE_MS * 11, activity: false },
+      { at: CHROME_IDLE_MS * 50, activity: true },
+    ]
+    let state = playing(0)
+    const seen = script.map(step => {
+      if (step.activity) state = noteActivity(state, step.at)
+      return chromeVisible(state, step.at)
+    })
+    expect(seen).toEqual([true, true, false, false, true, true, false, true])
+  })
+
+  it('stays visible while paused, however long ago the last activity was', () => {
+    // A paused player with hidden controls has no visible way to resume.
+    expect(chromeVisible({ lastActivityMs: 0, playing: false }, CHROME_IDLE_MS * 1000)).toBe(true)
+    // And an omitted flag is treated as paused, which is the safe default of
+    // the two: chrome that will not hide costs some plate, chrome that hides
+    // with no way back costs the player.
+    expect(chromeVisible({ lastActivityMs: 0 }, CHROME_IDLE_MS * 1000)).toBe(true)
+  })
+
+  it('is total for degenerate clocks', () => {
+    // Backwards clock, or a stamp from the future: visible, because visible is
+    // the state a user can recover from.
+    expect(chromeVisible(playing(CHROME_IDLE_MS * 10), 0)).toBe(true)
+    expect(chromeVisible(playing(10), 10)).toBe(true)
+    for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(chromeVisible(playing(0), now)).toBe(true)
+    }
+    expect(chromeVisible(playing(Number.NaN), 10_000)).toBe(true)
+  })
+
+  it('is a pure function of its arguments', () => {
+    const state = playing(1_000)
+    const snapshot = structuredClone(state)
+    expect(chromeVisible(state, 9_999)).toEqual(chromeVisible(state, 9_999))
+    expect(noteActivity(state, 7_000)).toEqual(noteActivity(state, 7_000))
+    expect(state).toEqual(snapshot)
+    // No clock of its own, either: a module that read `Date.now` would pass
+    // every assertion above and still be untestable where it is used.
+    expect(CODE).not.toMatch(/Date\.now|performance\.now|setTimeout|requestAnimationFrame/)
+    expect(CODE).toContain('export function chromeVisible')
+    expect(CODE.length).toBeGreaterThan(1500)
+  })
+
+  it('records activity without disturbing anything else about the state', () => {
+    const before = playing(1_000)
+    const after = noteActivity(before, 4_321)
+    expect(after).toEqual({ lastActivityMs: 4_321, playing: true })
+    expect(before.lastActivityMs).toBe(1_000)
+    // A non-finite reading is refused rather than stored: a NaN stamp would
+    // make every later comparison non-finite, pinning the chrome visible for
+    // the rest of the session.
+    expect(noteActivity(before, Number.NaN)).toEqual(before)
   })
 })
