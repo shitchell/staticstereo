@@ -234,19 +234,31 @@ describe('the fit plan', () => {
 /* ------------------------------------------------------- the dpr factor */
 
 /**
- * **The mistake most likely to ship, asserted over a sweep.**
+ * **The mistake most likely to ship, asserted over a sweep — and the sweep
+ * below used to assert the mistake.**
  *
- * `smooth.ts`'s `displayScale` is CSS px ÷ backing-store px; `scale.ts`'s
- * `Fit.scale` is device px ÷ backing-store px. They differ by a factor of
- * `dpr`, so a plan that handed `Fit.scale` to `imageRenderingFor` would call a
- * 1x plate on a dpr-2 panel an upscale and pixelate a picture that is in fact
- * being halved — visible to nobody but the eye.
+ * This docblock read: *"`smooth.ts`'s `displayScale` is CSS px ÷ backing-store
+ * px; `scale.ts`'s `Fit.scale` is device px ÷ backing-store px. They differ by
+ * a factor of `dpr`, so a plan that handed `Fit.scale` to `imageRenderingFor`
+ * would call a 1x plate on a dpr-2 panel an upscale and pixelate a picture
+ * that is in fact being halved — visible to nobody but the eye."*
  *
- * The expected ratio below is therefore **not** read out of the plan's own
- * `displayScale` field, which would make the assertion circular. It is
- * recomputed from the definition — the CSS width the plan asks for, divided by
- * the backing store it was computed against — which is an independent route to
- * the same number and the only one that can catch a dropped or doubled `dpr`.
+ * The two definitions in the first sentence are correct. The conclusion is
+ * backwards, and the sweep was written to enforce it. A 1x plate on a dpr-2
+ * panel is not being halved: each backing pixel covers a **2x2 block of device
+ * pixels**, and `pixelated` — nearest-neighbour, exactly lossless at an integer
+ * factor — is the right hint for it. `image-rendering` hints at one step,
+ * backing store onto the **device grid**; CSS px are a layout unit and nothing
+ * is resampled into them. So the hint follows device px ÷ backing-store px.
+ *
+ * "Visible to nobody but the eye" was the accurate part, and it is why this
+ * stayed green: at dpr 1 the two ratios are the same number.
+ *
+ * Both ratios are still swept, and neither expectation is read out of the plan
+ * field it is checking — that would be `x === x`. {@link displayScaleFromDefinition}
+ * recomputes the CSS one and {@link devicePerBackingFromDefinition} the device
+ * one, each from the widths and the caller's own `dpr`, which is the only route
+ * that catches a `dpr` dropped or applied twice inside `scale.ts`.
  */
 function displayScaleFromDefinition(plan: ReturnType<typeof playerPlan>): number {
   const fit = plan.fit

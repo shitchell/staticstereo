@@ -196,18 +196,34 @@ export interface PlayerPlan {
    */
   readonly fit: FitPlan | undefined
   /**
-   * **CSS px shown ÷ backing-store px.** The ratio `imageRenderingFor` takes.
+   * **CSS px shown ÷ backing-store px.** How big the canvas is in the unit the
+   * stylesheet is written in — a layout ratio, and only that.
    *
-   * Read from `FitPlan.displayScale` and never recomputed here: `Fit.scale` is
-   * device px ÷ backing-store px and the two differ by a factor of `dpr`, which
-   * is the single most likely mistake at this call site. `scale.ts` carries the
-   * field precisely so this function does not have to do the division.
+   * Read from `FitPlan.displayScale` and never recomputed here; `scale.ts`
+   * carries the field so this function does not do the division.
    *
    * With no fit plan it is `1 / dpr`: nothing is being drawn, so nothing is
-   * being resampled, and one backing pixel per device pixel is the honest
-   * statement of that. Defined rather than absent because a CSS property set
-   * from `undefined` is a silent no-op — it would stop pixelating without
-   * telling anyone, which is a defect only ever found by eye.
+   * being laid out, and one backing pixel per device pixel is the honest
+   * statement of that.
+   *
+   * ## It is NOT "the ratio `imageRenderingFor` takes". That claim stood here.
+   *
+   * This docblock's first line used to read *"**CSS px shown ÷ backing-store
+   * px.** The ratio `imageRenderingFor` takes"*, and went on: *"`Fit.scale` is
+   * device px ÷ backing-store px and the two differ by a factor of `dpr`, which
+   * is the single most likely mistake at this call site."* The second sentence
+   * is true and is exactly what happened — the division was performed in the
+   * wrong direction and this field was then handed to the smoothing policy.
+   *
+   * The browser resamples backing store onto the **device** grid, never into
+   * CSS px, so the hint follows {@link devicePerBackingScale}. At dpr 2 the old
+   * reading smoothed every CSS ratio in (0.5, 1), which is every 1x `snap` plan
+   * and every re-render — the two modes that exist to be pixel-exact.
+   *
+   * Left in rather than deleted because the warning was right about *where* the
+   * danger was and wrong about *which way*, and a reader who sees only the
+   * corrected rule has nothing telling them this is a question that has already
+   * caught somebody.
    */
   readonly displayScale: number
   /**

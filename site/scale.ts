@@ -255,10 +255,15 @@ export type FitLimit = 'width' | 'height' | 'both'
 export interface Fit {
   /**
    * **Backing-store px → device px.** Not CSS px: `cssWidth` is this divided by
-   * `dpr`, and the ratio `site/smooth.ts` calls `displayScale` (CSS px shown ÷
-   * backing-store px) is therefore `scale / dpr`, not `scale`. Two of the four
-   * pixel spaces are named here on purpose — the two functions returning this
-   * shape differ in the *value*, never in the space.
+   * `dpr`, so the CSS-px layout ratio is `scale / dpr`, not `scale`. Two of the
+   * four pixel spaces are named here on purpose — the two functions returning
+   * this shape differ in the *value*, never in the space.
+   *
+   * This is the ratio the browser resamples by and therefore the one
+   * `imageRenderingFor` in `site/smooth.ts` takes; it reaches it as
+   * {@link RescalePlan.devicePerBackingScale}. This docblock used to attribute
+   * the CSS-px ratio to that function instead, which is the mistake recorded in
+   * full at {@link RescalePlan.displayScale}.
    *
    * {@link fitScale} returns a positive **integer**, never 0.
    * {@link containFit} returns any non-negative real, and 0 only for a box that
@@ -475,11 +480,17 @@ export function fitScale({
  * The `dpr` in the numerator is load-bearing and is the one thing easy to get
  * backwards. `min(availableWidth / plateWidth, …)` — the obvious spelling, and
  * the one the task brief uses — is the **display** scale: CSS px ÷ backing-store
- * px, which is what `imageRenderingFor` in `site/smooth.ts` takes. It is this
- * function's `scale / dpr`. Returning *that* in the `scale` field would make a
- * plate come out `1 / dpr` of the size it was asked for on every HiDPI panel —
- * correct-looking at dpr 1 and a quarter-size picture at dpr 2 — so the field
- * carries the device-space ratio and a caller wanting the display scale divides.
+ * px, a layout ratio. It is this function's `scale / dpr`. Returning *that* in
+ * the `scale` field would make a plate come out `1 / dpr` of the size it was
+ * asked for on every HiDPI panel — correct-looking at dpr 1 and a quarter-size
+ * picture at dpr 2 — so the field carries the device-space ratio and a caller
+ * wanting the display scale divides.
+ *
+ * This paragraph also used to say the display scale "is what `imageRenderingFor`
+ * in `site/smooth.ts` takes". It is not, and the correction is recorded at
+ * {@link RescalePlan.displayScale}: the browser resamples backing store onto
+ * the **device** grid, so `scale` is the ratio the smoothing policy wants and
+ * the division is the thing that would be wrong there.
  *
  * Contract:
  *
@@ -865,11 +876,34 @@ export interface RescalePlan {
   /**
    * **CSS px shown ÷ backing-store px** — `fit.scale / dpr`, *not* `fit.scale`.
    *
-   * This is the ratio `imageRenderingFor` in `site/smooth.ts` takes, and it is
-   * carried here so that the one call site bridging fit and smoothing cannot
-   * get the pixel space wrong: `Fit.scale` is device px ÷ backing-store px, and
-   * handing *that* to the smoothing policy would call a 1x plate on a dpr-2
-   * panel an upscale and pixelate a picture that is in fact being halved.
+   * A layout ratio: how big the canvas is in the unit the stylesheet and the
+   * container are written in. That is all it is, and it is kept because that
+   * question is a real one and `scale.test.ts` pins the answer.
+   *
+   * ## It is NOT the ratio `imageRenderingFor` takes. That was argued here, and
+   * it was wrong.
+   *
+   * What stood in this docblock was: *"This is the ratio `imageRenderingFor` in
+   * `site/smooth.ts` takes, and it is carried here so that the one call site
+   * bridging fit and smoothing cannot get the pixel space wrong: `Fit.scale` is
+   * device px ÷ backing-store px, and handing that to the smoothing policy
+   * would call a 1x plate on a dpr-2 panel an upscale and pixelate a picture
+   * that is in fact being halved."*
+   *
+   * The picture is not being halved. At `displayScale` 1 on a dpr-2 panel each
+   * backing pixel covers a **2x2 block of device pixels** — it is being
+   * doubled, and `pixelated` is exactly right for it. The step the browser
+   * resamples at is backing store → **device grid**; CSS px are a layout unit
+   * and nothing is ever resampled into them. So the smoothing policy takes
+   * {@link devicePerBackingScale}, and the consequence of the old reading was
+   * that at dpr 2 every CSS ratio in (0.5, 1) — which is every 1x `snap` plan
+   * and every re-render — was a genuine device upscale being blended.
+   *
+   * The refuted argument is quoted rather than deleted because the thing worth
+   * preserving is not the conclusion but the fact that somebody stood here,
+   * considered both directions, and picked the wrong one. A reader who finds
+   * only the rule has no reason to check it. The division is a no-op at dpr 1,
+   * so nothing but a second dpr in a test will ever show the difference.
    */
   readonly displayScale: number
   /**
@@ -900,9 +934,12 @@ export interface RerenderPlan {
   readonly plan: RenderFit
   /**
    * `1 / dpr`, always: a re-render is displayed one backing pixel per **device**
-   * pixel by construction. Carried for the same reason as
-   * {@link RescalePlan.displayScale} — so the smoothing policy is given one
-   * field with one meaning whatever the mode.
+   * pixel by construction, so in CSS px it is `1 / dpr` and nothing else.
+   *
+   * A layout ratio, like {@link RescalePlan.displayScale}, and like that field
+   * **not** what the smoothing policy is given — see the refuted argument
+   * recorded there. {@link devicePerBackingScale} is the resampling ratio, and
+   * for this plan it is 1 at every dpr.
    */
   readonly displayScale: number
   /**
