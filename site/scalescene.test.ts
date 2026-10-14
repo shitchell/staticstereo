@@ -16,7 +16,14 @@ import {
 import type { ScaleRefusal } from './scalescene.js'
 import { renderFit } from './scale.js'
 import type { RenderFit } from './scale.js'
-import { DEFAULT_STEREO, PRESETS, compilePreset, composeAnim, plateLayoutOf } from '../src/core/index.js'
+import {
+  DEFAULT_STEREO,
+  PRESETS,
+  PRESET_PARAMS,
+  compilePreset,
+  composeAnim,
+  plateLayoutOf,
+} from '../src/core/index.js'
 import type { PresetCtx } from '../src/core/index.js'
 import type { Layer, Preset, Scene, Track, Transform } from '../src/core/types.js'
 
@@ -186,7 +193,7 @@ function accepted(): Scene {
         at: [480, 240],
         depth: 1,
         anim: [
-          { kind: 'emerge', from: 0, to: 1 },
+          { kind: 'push', from: 0, to: 1 },
           { keys: [{ t: 0, y: 0 }, { t: 1, y: -32 }] },
         ],
       },
@@ -197,7 +204,7 @@ function accepted(): Scene {
         h: 120,
         at: [10, 20],
         depth: 0.4,
-        anim: { kind: 'emerge', from: 0.1, to: 0.4 },
+        anim: { kind: 'push', from: 0.1, to: 0.4 },
       },
     ],
   }
@@ -691,6 +698,15 @@ describe('scaleScene — the preset allow-list', () => {
       // An allow-listed kind that no registry implements would be an allow-list
       // that had drifted away from the thing it is making a claim about.
       expect(Object.keys(PRESETS), kind).toContain(kind)
+      // And the claim itself, not just the name. The set's docblock says these
+      // kinds "carry no scene-px parameter"; `PRESET_PARAMS` is now upstream's
+      // machine-readable answer to exactly that question, so the prose is
+      // checkable and is checked. `speed` is a `scenePx` rate rather than a
+      // unit of its own — deliberately, so that a rule reading "no scenePx"
+      // catches it — which is why this needs no second clause for rates.
+      const params = PRESET_PARAMS[kind as keyof typeof PRESET_PARAMS]
+      expect(params, `${kind} is described`).toBeDefined()
+      expect(params.map(p => p.unit), `${kind} units`).not.toContain('scenePx')
       expect(presetIsScaleFree({ kind })).toBe(true)
       const scene = sceneOf({ type: 'shape', shape: 'circle', r: 8, anim: { kind } })
       expect(scaleScene(scene, planAt(scene, 0.5)).ok, kind).toBe(true)
@@ -700,7 +716,7 @@ describe('scaleScene — the preset allow-list', () => {
   it('refuses a px-carrying preset even when it shares a layer with a safe one', () => {
     const scene = sceneOf({
       type: 'shape', shape: 'circle', r: 8,
-      anim: [{ kind: 'emerge' }, { keys: [{ t: 0, y: 0 }] }, { kind: 'bob', amount: 8 }],
+      anim: [{ kind: 'push' }, { keys: [{ t: 0, y: 0 }] }, { kind: 'bob', amount: 8 }],
     })
     const r = scaleScene(scene, planAt(scene, 0.5))
     expect(r.ok).toBe(false)

@@ -7,7 +7,7 @@
  * Re-rendering a scene smaller requires knowing which numbers in it are
  * **lengths in scene px**. For a plain `Track` keyframe that is knowable: `x`
  * and `y` are displacements and nothing else. For a `Preset` it is not.
- * `slide.from` is an `[x, y]` offset in **scene px**; `emerge.from` is a scalar
+ * `move.from` is an `[x, y]` offset in **scene px**; `push.from` is a scalar
  * in **depth units**. Same key name, same JSON shape class, and
  * `examples/pacman.yaml` contains both. There is no structural rule that
  * separates them, and the design doc says so in §9.1: *"`Preset` has an index
@@ -163,8 +163,8 @@ export const SCALE_REFUSALS: Record<ScaleRefusal, ScaleRefusalInfo> = {
     reason: 'unscalable-preset',
     explanation:
       'This animator is a Preset whose kind is not on the allow-list of kinds known to carry ' +
-      'no scene-px parameter. Preset parameters are untyped — slide.from is an [x, y] offset ' +
-      'in scene px while emerge.from is a scalar in depth units, the same key name and the ' +
+      'no scene-px parameter. Preset parameters are untyped — move.from is an [x, y] offset ' +
+      'in scene px while push.from is a scalar in depth units, the same key name and the ' +
       'same JSON shape — so there is no structural rule that tells a length from a depth, and ' +
       'examples/pacman.yaml contains both spellings. Until each verb declares the unit of its ' +
       'parameters, an unrecognised kind is refused rather than guessed at: a wrong guess ' +
@@ -272,30 +272,38 @@ export type ScaleResult =
  * carry px params — `slide`, `bounce`, `bob`, `marquee` — and let everything
  * else through. **That spelling fails open, and the failure is silent.**
  *
- * The verbs are being renamed upstream (`slide`→`move`, `emerge`→`push`).
- * After that lands, a scene containing `move` matches nothing in a deny-list;
- * the detector concludes "no px params here", scales nothing, refuses nothing,
- * and emits exactly the mis-scaled output this whole mechanism exists to
- * prevent — with no test turning red, because no test can assert about a name
- * nobody has written down yet. An allow-list fails the other way: an unknown
- * kind is refused, the player falls back to the default fit mode, and the user
- * sees a correct picture in a different mode.
+ * The rename it predicted has now landed (`slide`→`move`, `emerge`→`push`). A
+ * scene containing `move` matches nothing in a deny-list written against the
+ * old names; the detector concludes "no px params here", scales nothing,
+ * refuses nothing, and emits exactly the mis-scaled output this whole
+ * mechanism exists to prevent — with no test turning red, because no test can
+ * assert about a name nobody has written down yet. An allow-list fails the
+ * other way: an unknown kind is refused, the player falls back to the default
+ * fit mode, and the user sees a correct picture in a different mode. **The
+ * prediction was borne out on this very list**, which went on naming `emerge`
+ * after `emerge` ceased to exist and refused every depth-animated scene until
+ * a test that compares the list against the live registry said so. That is the
+ * difference being claimed here, observed: the wrong allow-list refused
+ * correct pictures, where the wrong deny-list would have shipped incorrect
+ * ones.
  *
  * The two spellings read equally reasonably in a ticket. They differ in exactly
  * the way that kills: one is wrong loudly and one is wrong quietly.
  *
  * ## Why this one
  *
- * - `emerge` — `from`/`to` are absolute **depths**, and its only other
+ * - `push` — `from`/`to` are absolute **depths**, and its only other
  *   parameters are timing overrides. Nothing it carries is a length.
+ *   `PRESET_PARAMS.push` is `[DEPTH('from'), DEPTH('to')]`, which is upstream
+ *   saying the same thing in a form a test can read.
  *
  * `slide-in` was on this list and has been removed. It looked safe — its
  * `from` is a direction *word* and the off-frame distance comes from
  * `PresetCtx`, which the renderer measures against whatever scene it is handed
- * — but P0 deletes the verb outright and its replacement, `move`, takes
+ * — but P0 deleted the verb outright and its replacement, `move`, takes
  * explicit off-stage endpoints in scene px. So it lands in the refused arm by
  * the ordinary rule, and the entry was dropped rather than kept and reasoned
- * about. After the rename this list is `{push}` alone.
+ * about. After the rename this list is `{push}` alone, and it now is.
  *
  * ## Replacing this with the unit-aware path
  *
@@ -306,8 +314,29 @@ export type ScaleResult =
  * as the fallback for verbs that have not been tagged yet. One edit, no caller
  * changes, and the fail-closed default is preserved by construction because the
  * fallback for "no tags, not listed" stays `false`.
+ *
+ * **Those tags now exist** — `PRESET_PARAMS` in `src/core/anim/params.ts`,
+ * tied to the registry by `Record<PresetKind, …>` so a verb cannot omit them,
+ * and designed for this consumer: `speed` is tagged `scenePx` with
+ * `per: 'second'` rather than given a unit of its own precisely so that the
+ * rule "scale every `scenePx` parameter" catches a rate for free. The swap was
+ * **deliberately not taken here**, because it is not the one-line edit the
+ * paragraph above anticipated. Under the descriptor rule `rotate` (degrees),
+ * `scale` (multiplier) and `flip` (enum) all become scale-*free* — correctly,
+ * none of them carries a length — so `fit=render` would begin accepting three
+ * verbs it refuses today. That is a widening of what the mode renders, not a
+ * refactor: it moves the floor of `refuses every registered kind that is not
+ * on the allow-list` from four kinds to one, and it falsifies the sentence
+ * "Preset parameters are untyped" that the `unscalable-preset` refusal
+ * explanation — and the regexes pinning it — are built on. Worth doing, as its
+ * own task, with its own per-verb tests.
+ *
+ * What is taken from the tags meanwhile is the *check*, not the mechanism:
+ * `scalescene.test.ts` now asserts that every allow-listed kind has no
+ * `scenePx` descriptor. The list stays hand-written and fail-closed; the claim
+ * it makes in its first line has stopped being unverified prose.
  */
-export const SCALE_FREE_PRESET_KINDS: ReadonlySet<string> = new Set(['emerge'])
+export const SCALE_FREE_PRESET_KINDS: ReadonlySet<string> = new Set(['push'])
 
 /**
  * Does this preset provably carry no scene-px parameter?
