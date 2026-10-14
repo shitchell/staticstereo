@@ -1,8 +1,11 @@
-import { describe, it, expect } from 'vitest'
-import { marginsFor } from './plate.js'
+import { afterEach, beforeEach, describe, it, expect } from 'vitest'
+import { PRESETS } from './anim/index.js'
+import type { PresetCtx } from './anim/index.js'
+import { marginsFor, plateLayoutOf } from './plate.js'
 import { rasterDepth } from './raster.js'
 import { fakeCanvas, rgbaImage, FAKE_CHAR_ASPECT } from './testing/fakeCanvas.js'
-import type { Scene } from './types.js'
+import type { FakeCanvas } from './testing/fakeCanvas.js'
+import type { Scene, Track } from './types.js'
 
 /** Grey ramp as an opaque image: luminance of a grey pixel is v/255. */
 function greys(values: number[], alpha = 255) {
@@ -260,16 +263,24 @@ describe('rasterDepth layer transform', () => {
 })
 
 /**
- * **The measurement half of this is gone and cannot be restored from a scene
- * file.** It used to drive a `marquee`, whose endpoints the rasteriser
- * computed from the `measureText` result it puts in `PresetCtx.contentW`, so
- * a rasteriser that stopped measuring produced a visibly different depth map
- * here. §4.2b deleted `marquee` and `slide-in`, and they were the only
- * consumers of `contentW`/`contentH`/`marginLeft`/`marginRight` — nothing in
- * the registry reads them now, so no scene can observe the measurement and
- * `raster.ts:247` is currently unwitnessed. P6's UI templates are where that
- * coverage comes back; until then this pins the *geometry* only, with the
- * endpoints written out exactly as the preset derived them.
+ * Drawing and travel for a string wider than the stage — **and no longer the
+ * measurement**, which is the next suite's job.
+ *
+ * This used to drive a `marquee`, whose endpoints the preset derived from the
+ * `measureText` result the rasteriser puts in `PresetCtx.contentW`; a
+ * rasteriser that stopped measuring therefore produced a visibly different
+ * depth map here. §4.2b deleted `marquee` and `slide-in`, the only consumers
+ * of `contentW`/`contentH`/`marginLeft`/`marginRight`, and the animator below
+ * became a `move` with the endpoints written out as constants. The assertions
+ * did not change and neither did the test count, so nothing marked the loss:
+ * **measured, forcing `contentW` to 0 in `raster.ts` leaves the whole suite
+ * green.**
+ *
+ * It is kept rather than rewritten because what it still asserts is real and
+ * otherwise uncovered — glyphs drawn across a travel that starts and ends off
+ * the stage cover the frame at mid-travel and clear it on schedule — but it
+ * stands in for nothing else. `rasterDepth preset context` below witnesses
+ * the measurement itself.
  */
 describe('rasterDepth over-wide text geometry', () => {
   const CHARS = 100
@@ -315,7 +326,9 @@ describe('rasterDepth over-wide text geometry', () => {
     for (const v of d) expect(v).toBeCloseTo(1, 6)
   })
 
-  it('carries over-wide text off the left edge by its measured width', async () => {
+  // "by its content width", not "by its *measured* width": `CONTENT_W` is a
+  // constant here, and the rasteriser's own measurement is witnessed below.
+  it('carries over-wide text off the left edge by its content width', async () => {
     // Sampled at whatever u puts the text's right edge at stage x = 12.8, so
     // the expectation stays on the column it was written for while the travel
     // itself is derived from the geometry.
@@ -333,6 +346,307 @@ describe('rasterDepth over-wide text geometry', () => {
   // endpoint is pinned exactly in `anim/presets.test.ts` and on rendered
   // output in `render.test.ts`.
 })
+
+/* ================================================== the compile context */
+
+/**
+ * What the rasteriser measures, and what it hands a preset.
+ *
+ * `rasterDepth` builds one `PresetCtx` per layer per frame (`raster.ts`): it
+ * calls `measureText` for a text layer and puts the answer in `contentW`, and
+ * it derives `marginLeft`/`marginRight` from the scene's own stereo settings
+ * via `sceneMargins`. Both are live code on every frame of every scene.
+ *
+ * **What is gone is the consumer, not the producer.** `marquee` and `slide-in`
+ * read all four fields and §4.2b deleted them, so `push`'s `layerDepth` is the
+ * only field any registered verb still reads — measured, forcing `contentW` to
+ * 0 or swapping the two margins left all 51 files green. These tests supply
+ * the missing consumer so the producer is witnessed again.
+ *
+ * **Why a test-local preset is the right seam.** `PRESETS` is the registry
+ * `compilePreset` looks up by name at call time, so registering an entry is
+ * exactly how `marquee` saw this context and exactly how P6's UI templates
+ * will see it. The alternative is a new export from `raster.ts` — `prepare()`
+ * is private and `rasterDepth` composites every layer into one buffer before a
+ * caller sees anything — and a new seam into the rasteriser is a core API
+ * decision that is not this task's to take.
+ *
+ * **Deliberately not asserted: that an off-frame endpoint lands off the
+ * plate.** No registered verb computes one. The old `marquee` tests pinned
+ * `sceneW + marginRight` and `−(contentW + marginLeft)`; restoring those
+ * literals against a preset written inside this file would pin the test's own
+ * arithmetic, not shipped behaviour. What is asserted instead is the input
+ * side: the measurement, the margins, and that the three add up to the plate
+ * the renderer pads to.
+ */
+describe('rasterDepth preset context', () => {
+  /**
+   * A name no scene would use. Registered per test and deleted after, because
+   * `PRESETS` is the live registry and `anim/presets.test.ts` asserts its exact
+   * key set.
+   */
+  const PROBE = '__raster-ctx-probe'
+
+  /** A one-key track that poses nothing: the default, for the ctx-only tests. */
+  const STILL: Track = { keys: [{ t: 0 }], ease: 'linear', repeat: 'once' }
+
+  /** Every context the rasteriser built, in layer order. */
+  let seen: PresetCtx[] = []
+  /** What the probe compiles to. Replaced by the tests that need a pose. */
+  let emit: (ctx: PresetCtx) => Track = () => STILL
+
+  beforeEach(() => {
+    seen = []
+    emit = () => STILL
+    PRESETS[PROBE] = (_p, ctx) => {
+      // Copied, not referenced: the rasteriser is free to reuse or mutate the
+      // object it passes, and a test holding a live reference would assert on
+      // whatever the last layer left behind.
+      seen.push({ ...ctx })
+      return emit(ctx)
+    }
+  })
+
+  afterEach(() => {
+    delete PRESETS[PROBE]
+  })
+
+  const STAGE: [number, number] = [200, 40]
+
+  interface TextSpec {
+    text: string
+    size?: number
+    weight?: string
+    font?: string
+  }
+
+  function probeScene(
+    spec: TextSpec,
+    stereo?: Scene['stereo'],
+    size: [number, number] = STAGE,
+  ): Scene {
+    return {
+      size,
+      duration: 1,
+      ...(stereo === undefined ? {} : { stereo }),
+      layers: [{ type: 'text', ...spec, at: [0, 0], depth: 1, anim: { kind: PROBE } }],
+    }
+  }
+
+  async function ctxFor(scene: Scene): Promise<PresetCtx> {
+    const before = seen.length
+    await rasterDepth(scene, 0, fakeCanvas())
+    // Guards every assertion below: a probe that never ran would make `seen`
+    // stale and the margin comparisons would silently re-read an older layer.
+    expect(seen.length).toBe(before + 1)
+    return seen[seen.length - 1]!
+  }
+
+  describe('text measurement', () => {
+    /**
+     * One use of the font by the rasteriser. `width` is `measureText`'s answer
+     * and is 0 for a fill, which returns nothing.
+     */
+    interface FontUse {
+      readonly op: 'measure' | 'fill'
+      readonly text: string
+      readonly font: string
+      readonly width: number
+    }
+
+    /**
+     * A `fakeCanvas` that records every `measureText`/`fillText` call together
+     * with the font set on the context at the time.
+     *
+     * Wrapping the *injected* canvas is what makes the call itself observable:
+     * `contentW` alone cannot tell "measured this string under this font" from
+     * "measured something else that happens to be the same width", and a stale
+     * font is the failure mode here rather than a missing measurement.
+     */
+    function measuringCanvas(into: FontUse[]): FakeCanvas {
+      const inner = fakeCanvas()
+      return {
+        ...inner,
+        make(w, h) {
+          const ctx = inner.make(w, h)
+          const measure = ctx.measureText.bind(ctx)
+          const fill = ctx.fillText.bind(ctx)
+          ctx.measureText = text => {
+            const m = measure(text)
+            into.push({ op: 'measure', text, font: ctx.font, width: m.width })
+            return m
+          }
+          ctx.fillText = (text, x, y) => {
+            into.push({ op: 'fill', text, font: ctx.font, width: 0 })
+            fill(text, x, y)
+          }
+          return ctx
+        },
+      }
+    }
+
+    function only(uses: readonly FontUse[], op: FontUse['op']): FontUse {
+      const hits = uses.filter(u => u.op === op)
+      expect(hits).toHaveLength(1)
+      return hits[0]!
+    }
+
+    it('measures the layer text under the same font it draws it with', async () => {
+      const uses: FontUse[] = []
+      await rasterDepth(
+        probeScene({ text: 'ABCDE', size: 20, weight: 'bold', font: 'serif' }),
+        0,
+        measuringCanvas(uses),
+      )
+      // The layer's own string, not a stand-in: measuring anything else is
+      // measuring the wrong layer.
+      expect(only(uses, 'measure').text).toBe('ABCDE')
+      // The font the glyphs are drawn with. Measuring before assigning `font`
+      // would measure under whatever face the context last held — a wrong
+      // answer rather than a missing one, which is why the two are compared
+      // instead of the measurement being checked on its own.
+      expect(only(uses, 'measure').font).toBe(only(uses, 'fill').font)
+      // And that font is the layer's whole spec, so none of the three fields a
+      // scene can set is dropped on the way to the metrics.
+      for (const part of ['bold', '20px', 'serif']) {
+        expect(only(uses, 'measure').font).toContain(part)
+      }
+    })
+
+    it('hands the measurement to presets as contentW, with the type size as contentH', async () => {
+      const uses: FontUse[] = []
+      await rasterDepth(probeScene({ text: 'ABCDE', size: 20 }), 0, measuringCanvas(uses))
+      const measured = only(uses, 'measure').width
+      expect(measured).toBeGreaterThan(0) // the fixture is not vacuous
+      expect(seen).toHaveLength(1)
+      // The canvas's answer, not a recomputation of it: a rasteriser that
+      // estimated the width from the character count would agree with this
+      // fake and disagree with every real face.
+      expect(seen[0]!.contentW).toBe(measured)
+      // `contentH` is the type size, deliberately — the em box, not an ink
+      // extent the metrics do not report.
+      expect(seen[0]!.contentH).toBe(20)
+      expect(seen[0]!.sceneW).toBe(STAGE[0])
+      expect(seen[0]!.sceneH).toBe(STAGE[1])
+    })
+
+    it('puts the measurement where a text layer is drawn, in both directions', async () => {
+      // The probe parks the layer at `+contentW`. That is an off-frame endpoint
+      // with its sign flipped: the quantity under test is the measurement, so
+      // the pose *is* the measurement, and the first painted column must be it.
+      emit = ctx => ({ keys: [{ t: 0, x: ctx.contentW }], ease: 'linear', repeat: 'once' })
+      const cases: TextSpec[] = [
+        { text: 'XX', size: 10 },
+        { text: 'XXXX', size: 10 }, // twice the content
+        { text: 'XX', size: 30 },   // three times the type size
+      ]
+      const offsets: number[] = []
+      for (const spec of cases) {
+        const uses: FontUse[] = []
+        const d = await rasterDepth(probeScene(spec), 0, measuringCanvas(uses))
+        const where = `${spec.text}@${spec.size}`
+        // Exact and two-sided: an under-measurement moves the glyphs left of
+        // the column the measurement names and an over-measurement right of
+        // it, so a factor in either direction fails. The old `marquee` witness
+        // could not do this — it sampled two columns either side of a boundary,
+        // so a gross over-measurement pushed the text clear of both and passed.
+        expect(firstPaintedColumn(d, STAGE[0]), where).toBe(only(uses, 'measure').width)
+        offsets.push(firstPaintedColumn(d, STAGE[0]))
+      }
+      // Non-vacuous: three distinct places, so the assertion above cannot be
+      // satisfied by any constant. The ratios are the content and type-size
+      // ratios, which is the guarantee — geometry scales with the measurement.
+      expect(new Set(offsets).size).toBe(cases.length)
+      expect(offsets[1]).toBe(2 * offsets[0]!)
+      expect(offsets[2]).toBe(3 * offsets[0]!)
+    })
+  })
+
+  /**
+   * The margins, which are the half of this context with a history.
+   *
+   * The plate/stage split exists because the edge columns were got wrong once,
+   * and design §10.4 records that cropping the margins destroys fusion at
+   * exactly the edges they were added to rescue. The arithmetic table lives in
+   * `plate.test.ts`; what is pinned here is that the *rasteriser* hands a
+   * preset the margins this scene's plate is actually padded to, so an
+   * off-frame pose is expressed against the image that gets emitted.
+   */
+  describe('plate margins', () => {
+    const SEP_FAR = 40 // even, so the halving below is exact
+
+    function scene(s?: Scene['stereo']): Scene {
+      return probeScene({ text: 'X' }, s)
+    }
+
+    it('is left-heavy under shift and symmetric under linked', async () => {
+      const shift = await ctxFor(scene({ sepFar: SEP_FAR, sepNear: 20, algorithm: 'shift' }))
+      const linked = await ctxFor(scene({ sepFar: SEP_FAR, sepNear: 20, algorithm: 'linked' }))
+      // Stated as the two encoders' dead zones rather than as four numbers:
+      // `shift` computes `out[x] = out[x - sep(x)]` and has no source column
+      // for `x < sep`, so it loses `sepFar` on the left and nothing on the
+      // right; `linked` constrains the centred pair `(x - sep/2, x + sep/2)`
+      // and loses `sepFar/2` on each side. Both are swept with a probe in
+      // `metamorphic.test.ts`, and the arithmetic is `plate.test.ts`'s table.
+      expect(linked.marginLeft).toBe(linked.marginRight)
+      expect(shift.marginLeft).toBeGreaterThan(shift.marginRight)
+      expect(shift.marginLeft).toBe(2 * shift.marginRight)
+      expect(shift.marginRight).toBe(linked.marginRight)
+      expect(shift.marginLeft).toBeGreaterThan(linked.marginLeft)
+    })
+
+    it('defaults to the symmetric pair, because the default encoder is linked', async () => {
+      // The trap, and it has caught a worker on this phase: a scene with no
+      // `stereo` block takes `DEFAULT_STEREO.algorithm`, which is `linked`, so
+      // the shipped margins are `{55, 55}`. The asymmetric `{110, 55}` is
+      // `shift`'s row — a reader who assumes it is reading the wrong encoder.
+      const bare = await ctxFor(scene())
+      const linked = await ctxFor(scene({ algorithm: 'linked' }))
+      const shift = await ctxFor(scene({ algorithm: 'shift' }))
+      expect(bare.marginLeft).toBe(bare.marginRight)
+      expect(bare.marginLeft).toBe(linked.marginLeft)
+      expect(bare.marginRight).toBe(linked.marginRight)
+      expect(bare.marginLeft).not.toBe(shift.marginLeft)
+    })
+
+    it('tracks the scene\'s own sepFar, not the shipped default', async () => {
+      const narrow = await ctxFor(scene({ sepFar: SEP_FAR / 2, sepNear: 10 }))
+      const wide = await ctxFor(scene({ sepFar: SEP_FAR, sepNear: 20 }))
+      // A margin covers the worst case over depth, which is `sepFar`, so
+      // doubling it doubles both strips. A rasteriser reading `DEFAULT_STEREO`
+      // instead of the scene would hand both of these the same pair.
+      expect(wide.marginLeft).toBe(2 * narrow.marginLeft)
+      expect(wide.marginRight).toBe(2 * narrow.marginRight)
+    })
+
+    it('hands over the margins the plate is padded to: plate = stage + left + right', async () => {
+      for (const algorithm of ['shift', 'linked'] as const) {
+        const s = scene({ sepFar: SEP_FAR, sepNear: 20, algorithm })
+        const ctx = await ctxFor(s)
+        const layout = plateLayoutOf(s)
+        expect(ctx.marginLeft, algorithm).toBe(layout.margins.left)
+        expect(ctx.marginRight, algorithm).toBe(layout.margins.right)
+        // §10: the whole reason a preset is given the margins is so that
+        // "off-frame" can mean off the emitted image rather than off the
+        // sub-rectangle composited into. The depth map stays stage-sized, so
+        // this identity is the only place the two can be checked against each
+        // other before `render.ts` pads.
+        expect(ctx.marginLeft + ctx.sceneW + ctx.marginRight, algorithm)
+          .toBe(layout.plate.width)
+        expect(ctx.sceneH, algorithm).toBe(layout.plate.height)
+      }
+    })
+  })
+})
+
+/** Leftmost column of the depth map with anything drawn in it, or -1. */
+function firstPaintedColumn(d: Float32Array, w: number): number {
+  const h = d.length / w
+  for (let x = 0; x < w; x++) {
+    for (let y = 0; y < h; y++) if (d[y * w + x]! > 0) return x
+  }
+  return -1
+}
 
 describe('rasterDepth scene duration', () => {
   function moveScene(duration?: number): Scene {
