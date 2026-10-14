@@ -497,11 +497,23 @@ describe.skipIf(!freshPlayer)('the player still resolves once nested a directory
  * string literal** — an error message, a label, a caption — that esbuild
  * carries into the bundle verbatim and that a comment rewrite cannot forge.
  *
- * Every one was checked for uniqueness by grepping all of `src/` and `site/`:
- * it occurs in its own editor-only module and at most in that module's test,
- * and nowhere else. Identifiers were deliberately avoided — they are renamed
- * by minification — which is why the needles are prose fragments rather than
- * function names, even where the fragment names a function inside a message.
+ * Every one was checked for uniqueness by grepping the whole repository, and
+ * the honest statement of the result is narrower than the one this docblock
+ * used to make. It said each needle "occurs in its own editor-only module
+ * and at most in that module's test, and nowhere else". That is true of six
+ * of the eight; `STATIC ON THE STEREO` also appears in
+ * `examples/scrolling-text.yaml` and in `docs/plans/`'s design document.
+ *
+ * The assertions are unaffected and no needle needs replacing: what matters
+ * is not that a literal is unique in the repository but that it is unique in
+ * what gets **bundled**, and neither a YAML example nor a planning document
+ * is an input to either vite build. The claim was simply broader than the
+ * fact, which is worth correcting rather than leaving for the next person to
+ * discover and distrust.
+ *
+ * Identifiers were deliberately avoided — they are renamed by minification —
+ * which is why the needles are prose fragments rather than function names,
+ * even where the fragment names a function inside a message.
  *
  * ## Tree-shaking, and why each needle is in a *principal* export
  *

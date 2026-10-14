@@ -196,9 +196,16 @@ const ROLE_NAMES = ROLES.map(([name]) => name)
 
 describe('every role the chrome module can produce has a renderer arm', () => {
   it('found the role constants, rather than matching nothing and passing', () => {
-    // Floor tracks the real count (wrapper, canvas, transport, play, seek,
-    // fullscreen) with no slack upward: a role deleted is as interesting as a
-    // role added.
+    // A floor at today's real count (wrapper, canvas, transport, play, seek,
+    // fullscreen), and a floor is all it is. This comment used to say the
+    // count was tracked "with no slack upward", which `toBeGreaterThanOrEqual`
+    // does not say and never said: a role *added* does not trip this.
+    //
+    // Nor should it. What makes an added role safe is the two checks below,
+    // which require it to have an explicit renderer arm — a stronger
+    // statement than any count, and the reason the exact-count version was
+    // not worth having. The direction this does catch is the other one: a
+    // role deleted, or an enumeration that quietly stopped enumerating.
     expect(ROLE_NAMES.length).toBeGreaterThanOrEqual(6)
     expect(ROLE_NAMES).toContain('ROLE_CANVAS')
     expect(ROLE_NAMES).toContain('ROLE_TRANSPORT')
