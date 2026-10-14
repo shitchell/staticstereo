@@ -1,0 +1,135 @@
+/**
+ * The player's stylesheet. Deliberately NOT `site/styles.css`, which is the
+ * editor's: the player is embedded in pages we will never see (R14) and lifted
+ * into the editor shell by P3, so it carries its own sheet and its own
+ * `stst-` class namespace and shares nothing.
+ *
+ * ## What this file is allowed to have an opinion about
+ *
+ * Almost nothing. `site/chromedom.ts` writes `position` for any node the
+ * chrome tree takes **out of flow**, and `site/playerplan.ts` writes the
+ * canvas's `width`, `height` and `image-rendering` from the fit arithmetic.
+ * Those are properties this sheet must therefore NOT declare for those
+ * elements — not because duplication is untidy, but because when two artifacts
+ * claim one property the winner depends on specificity and no reader of either
+ * file can say which it is. `site/chromedom.test.ts` asserts each absence.
+ *
+ * The boundary is exactly the in-flow/out-of-flow line. A `'flow'` node is one
+ * the tree makes no positioning claim about — `positionFor` returns the empty
+ * string for it — so this sheet owns `static` versus `relative` there, which
+ * is what lets `.stst-player` below be a containing block. What this sheet may
+ * never do is position the **transport**: `absolute` versus in-flow is the one
+ * thing that differs between the four framings, and it is the tree's to say.
+ *
+ * `pointer-events` is the single deliberate exception, and it is pinned: the
+ * tree sets it inline and this sheet declares the same two values, because the
+ * sheet has to be correct for markup that was not built by `applyChrome` (P3's
+ * shell), and a test compares the two artifacts value by value so they cannot
+ * drift apart.
+ *
+ * ## Why there is no `order`, and no reversed flex or grid axis, anywhere
+ *
+ * `playerchrome.ts`'s `flowViolations` proves that no in-flow box precedes the
+ * canvas **in the tree**. CSS can undo that proof without touching the tree:
+ * an `order` property, or a `column-reverse` container, puts the control strip
+ * above the plate on screen while every structural test stays green.
+ *
+ * It must not, and the reason is a measurement rather than a preference.
+ * Adding a control above the canvas in normal flow moved its fractional
+ * device-pixel origin and took edge-row disagreement from 13 device px to
+ * **445 at dpr 1.5** — a 34x worsening — and the page's own record says "the
+ * sensitivity is to the exact sub-pixel and is not something to tune"
+ * (design §8.3, `site/main.ts:345`). A negative-margin correction for the same
+ * fractional origin was measured across 96 (viewport, dpr, mode) combinations,
+ * produced byte-identical output, and was deleted: there is no nudge that buys
+ * this back. Design §8.3 is a statement about where the canvas **ends up**, so
+ * a conformant tree rendered through CSS reordering is displaced by exactly as
+ * much as a bad tree. The transport goes below the plate, or out of flow.
+ *
+ * This whole paragraph is why the greps in `chromedom.test.ts` strip comments
+ * before matching: the words they forbid have to appear here in prose, or the
+ * next person who wants a toolbar above the plate has only a failing test to
+ * go on.
+ */
+
+/**
+ * The wrapper. `position: relative` is load-bearing: the overlaid transport is
+ * `absolute` and NOT `fixed` precisely so that its containing block is this
+ * element — which is also the element handed to `requestFullscreen`
+ * (`fullscreenTarget`) — rather than the viewport, which stops being the same
+ * rectangle the moment the player is an `<iframe>` inside a scrolled page.
+ *
+ * No background: an embed that painted its own letterbox would punch a
+ * coloured rectangle into a host page whose colours we cannot see. The spare
+ * space around a letterboxed plate is the embedder's background, showing
+ * through, which is the polite default and the one they can change.
+ */
+.stst-player {
+  position: relative;
+  margin: 0;
+  padding: 0;
+}
+
+/**
+ * The plate.
+ *
+ * `display: block` only, and that one is not cosmetic: a `<canvas>` is inline
+ * by default, which puts a baseline gap under it and makes the wrapper taller
+ * than the plate by a few pixels of font metrics the fit arithmetic was never
+ * told about.
+ *
+ * No `width`, no `height`, no `max-width`, no `object-fit`, no
+ * `image-rendering`. `canvas { width: 100% }` plus `image-rendering: pixelated`
+ * IS the original defect this project was fixed for: an arbitrary non-integer
+ * nearest-neighbour ratio, measured at 0.39x on the default scene, where
+ * source columns are dropped outright and the stereogram stops fusing. The
+ * sizes come from `scale.ts` through `playerPlan`, written into the element's
+ * own style; a percentage here would silently outrank the whole module.
+ */
+.stst-plate {
+  display: block;
+}
+
+/**
+ * The control strip.
+ *
+ * `pointer-events: none` on the container with `auto` on each control is
+ * design §8.2, which corrected revision 1's blanket `none` — a rule "correctly
+ * inherited from today's non-interactive `present-hint` and wrongly applied to
+ * a control surface". A strip spanning the plate's width that ate every click
+ * missing a button would break canvas clicking, which is how the diagnostics
+ * band is placed. Only the pixels of an actual control stop a click.
+ *
+ * The insets are declared and `position` is not. Insets are inert on a
+ * statically positioned box, so the same rule serves both the in-flow framing
+ * (`inline`, where the strip takes its own row below the plate) and the
+ * overlaid ones — and which of those it is stays the chrome tree's decision,
+ * applied at runtime, with no CSS vote.
+ *
+ * No `display` either, so the `hidden` attribute still works: the auto-hide in
+ * `chromeVisible` toggles it, and a `display` declared here would outrank the
+ * user-agent rule and leave the strip permanently visible.
+ */
+.stst-transport {
+  pointer-events: none;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+/**
+ * Every control, present and future.
+ *
+ * One shared class rather than a rule per control: the `auto` that makes a
+ * control clickable under the container's `none` has to hold for controls that
+ * do not exist yet (`CONTROL_PREFIX`), and a hand-kept list of selectors is
+ * exactly what would let one added next year be unclickable with the suite
+ * green.
+ */
+.stst-control {
+  pointer-events: auto;
+  margin: 0 0.25rem;
+  vertical-align: middle;
+}
