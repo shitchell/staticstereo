@@ -63,6 +63,9 @@ export interface FitModeInfo {
  * exactly one object literal keyed by name to wrap. The `mode` field duplicates
  * the key deliberately: a registry hands out values, and a value that does not
  * know its own name forces every caller to carry the pair.
+ *
+ * `cover` is absent on purpose and its absence is itself recorded — see
+ * {@link REJECTED_FIT_MODES}.
  */
 export const FIT_MODES: Record<FitMode, FitModeInfo> = {
   contain: {
@@ -122,4 +125,80 @@ function lastValue(search: string, name: string): string | undefined {
  */
 function normalise(value: string): string {
   return value.trim().toLowerCase()
+}
+
+/** What {@link REJECTED_FIT_MODES} records about a mode we will not implement. */
+export interface RejectedFitMode {
+  /** The spelling a caller might ask for. Mirrors the key, as {@link FitModeInfo} does. */
+  readonly mode: string
+  /** Why it is not offered, in prose a human can be shown. */
+  readonly reason: string
+}
+
+/**
+ * Fit modes that are asked for, understood, and deliberately not offered.
+ *
+ * This exists because the reason has to live somewhere a person will actually
+ * look. `cover` is the obvious thing to try — R14 was *originally written* as
+ * `cover`, and `background-size: cover` is the phrase the behaviour was first
+ * described with — so the parser will be handed it, and the honest answer is
+ * not "unknown value" but "we know that one, and here is why not".
+ *
+ * The reason itself, from R14 and design §8.1: `cover` crops the overflow, and
+ * cropping horizontally eats the **margins** — which are the fusion partners
+ * for the stage's own edge columns. A `cover` crop therefore destroys edge
+ * fusion *by construction*, which is a different kind of failure from
+ * `contain`'s accepted softening. R20 accepts blurring because it degrades the
+ * whole image gracefully and leaves every column present; a crop silently
+ * removes the data the edges need in order to fuse at all, so it is not a
+ * harsher point on the same scale — it is off the scale.
+ *
+ * Keyed by `string` rather than by a union: the point of the record is to
+ * answer for spellings that are *not* `FitMode`s.
+ */
+export const REJECTED_FIT_MODES: Record<string, RejectedFitMode> = {
+  cover: {
+    mode: 'cover',
+    reason:
+      'cover crops the overflow, and cropping horizontally eats the margins — which are the ' +
+      "fusion partners for the stage's edge columns — so a cover crop destroys edge fusion by " +
+      'construction. R14 was clarified from cover to contain on exactly this point; contain ' +
+      'letterboxes and accepts resampling (R20) instead, which blurs every column but drops none.',
+  },
+}
+
+/** What {@link fitNotice} hands back when a query asked for a rejected mode. */
+export interface FitNotice {
+  /** The normalised spelling the query asked for. */
+  readonly requested: string
+  /** Why it is not offered — {@link RejectedFitMode.reason}, verbatim. */
+  readonly reason: string
+  /** What {@link parseFit} returned instead. */
+  readonly fallback: FitMode
+}
+
+/**
+ * The notice a caller should show or log for this query string, if any.
+ *
+ * Separate from {@link parseFit} rather than folded into its return type
+ * because the player must not be made to care: `parseFit` stays a total
+ * function to a `FitMode`, and the explanation is an optional second question
+ * asked by whoever has somewhere to put the answer.
+ *
+ * Returns `undefined` for an absent, valid or merely-unknown value. An unknown
+ * spelling has no recorded reason to give, and inventing one ("`fil` is not a
+ * fit mode") is a generic message any caller can write for itself; this export
+ * exists to carry the arguments we actually made.
+ *
+ * It reads the repeated parameter through the same {@link lastValue} as
+ * `parseFit`, so the two cannot disagree about which spelling is operative —
+ * a page that letterboxed for one reason while explaining a different one
+ * would be worse than silence.
+ */
+export function fitNotice(search: string): FitNotice | undefined {
+  const value = lastValue(search, FIT_PARAM)
+  if (value === undefined) return undefined
+  const rejected = REJECTED_FIT_MODES[normalise(value)]
+  if (rejected === undefined) return undefined
+  return { requested: rejected.mode, reason: rejected.reason, fallback: parseFit(search) }
 }

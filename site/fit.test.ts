@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_FIT, FIT_MODES, FIT_PARAM, parseFit } from './fit.js'
+import {
+  DEFAULT_FIT,
+  FIT_MODES,
+  FIT_PARAM,
+  REJECTED_FIT_MODES,
+  fitNotice,
+  parseFit,
+} from './fit.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
 import { validateScene } from './scene.js'
 import type { Scene } from '../src/core/types.js'
@@ -80,7 +87,7 @@ describe('parseFit', () => {
   it('falls back rather than throwing on an unknown or empty value', () => {
     // The governing reason: a bad embed URL must still show a stereogram. An
     // iframe with a typo in it is a worse failure than a wrong fit mode.
-    for (const value of ['', 'cover', 'fill', 'contain!', '1', 'true', 'none']) {
+    for (const value of ['', 'fill', 'contain!', '1', 'true', 'none']) {
       expect(() => parseFit(`?fit=${value}`), value).not.toThrow()
       expect(parseFit(`?fit=${value}`), value).toBe(DEFAULT_FIT)
     }
@@ -108,6 +115,78 @@ describe('parseFit', () => {
     expect(parseFit('?fitmode=snap')).toBe(DEFAULT_FIT)
     expect(parseFit('?fit_mode=snap')).toBe(DEFAULT_FIT)
     expect(parseFit('?x=fit=snap')).toBe(DEFAULT_FIT)
+  })
+})
+
+describe('REJECTED_FIT_MODES', () => {
+  /**
+   * Execution plan §7/P2.4 requires that `cover` not being implemented is
+   * recorded **where someone will look**. A comment in a file nobody opens is
+   * not that; a machine-readable record the parser itself can hand back is.
+   * `cover` is the spelling that will actually be tried — R14 was originally
+   * written as `cover` — so the parser will be handed it in the wild.
+   */
+  it('records cover as understood and refused, not merely unknown', () => {
+    expect('cover' in FIT_MODES).toBe(false)
+    expect('cover' in REJECTED_FIT_MODES).toBe(true)
+  })
+
+  it('shares no key with FIT_MODES, so no mode is both offered and refused', () => {
+    const offered = Object.keys(FIT_MODES)
+    const refused = Object.keys(REJECTED_FIT_MODES)
+    expect(refused.length).toBeGreaterThan(0)
+    expect(refused.filter(name => offered.includes(name))).toEqual([])
+  })
+
+  it('gives a reason that names both the crop and its consequence for fusion', () => {
+    // Asserted on the two IDEAS rather than on the wording, so the prose can be
+    // rewritten but cannot quietly lose the argument: cover crops, and the crop
+    // eats the margins, which are the fusion partners of the stage's edge
+    // columns. The length floor is what stops a stub ('not supported') passing.
+    const reason = REJECTED_FIT_MODES.cover?.reason ?? ''
+    expect(reason.length).toBeGreaterThan(80)
+    expect(reason).toMatch(/crop/i)
+    expect(reason).toMatch(/fusion|fuse/i)
+    expect(reason).toMatch(/margin/i)
+  })
+
+  it('carries its own key, like FIT_MODES does', () => {
+    for (const [name, rejected] of Object.entries(REJECTED_FIT_MODES)) {
+      expect(rejected.mode, name).toBe(name)
+    }
+  })
+})
+
+describe('parseFit and fitNotice on a rejected mode', () => {
+  it('falls back without throwing, so a cover embed still shows a stereogram', () => {
+    expect(() => parseFit('?fit=cover')).not.toThrow()
+    expect(parseFit('?fit=cover')).toBe(DEFAULT_FIT)
+    expect(parseFit('?fit=COVER')).toBe(DEFAULT_FIT)
+  })
+
+  it('surfaces the recorded reason so a caller can show or log it', () => {
+    const notice = fitNotice('?fit=cover')
+    expect(notice).toBeDefined()
+    expect(notice?.requested).toBe('cover')
+    expect(notice?.fallback).toBe(DEFAULT_FIT)
+    expect(notice?.reason).toBe(REJECTED_FIT_MODES.cover?.reason)
+  })
+
+  it('is silent for absent, valid and merely-unknown values', () => {
+    // An unknown spelling has no recorded reason to give. Inventing one is the
+    // generic message a caller can write for itself; this export exists to
+    // carry the arguments we actually made.
+    for (const search of ['', '?other=1', '?fit=contain', '?fit=snap', '?fit=typo', '?fit=']) {
+      expect(fitNotice(search), search).toBeUndefined()
+    }
+  })
+
+  it('reads the same repeated parameter parseFit does', () => {
+    // The two must not disagree about which spelling is operative, or the page
+    // would letterbox for one reason and explain a different one.
+    expect(fitNotice('?fit=cover&fit=snap')).toBeUndefined()
+    expect(fitNotice('?fit=snap&fit=cover')?.requested).toBe('cover')
+    expect(parseFit('?fit=snap&fit=cover')).toBe(DEFAULT_FIT)
   })
 })
 
