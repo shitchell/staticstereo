@@ -366,6 +366,39 @@
       }
     },
     {
+      "kind": "move",
+      "label": "speed",
+      "input": {
+        "kind": "move",
+        "from": [
+          0,
+          0
+        ],
+        "to": [
+          300,
+          400
+        ],
+        "speed": 25
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "t": 1,
+            "x": 300,
+            "y": 400
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once",
+        "duration": 20
+      }
+    },
+    {
       "kind": "push",
       "label": "bare",
       "input": {

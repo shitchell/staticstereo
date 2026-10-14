@@ -67,9 +67,21 @@ const FULL: Record<string, Record<string, unknown>> = {
  * disagreed on the name; the alias is a real input path and gets its own case,
  * with a value distinct from the `height` case so that the two cannot pass by
  * being accidentally interchangeable.
+ *
+ * `move`'s `speed` is here rather than in `FULL` on purpose. `FULL` feeds
+ * `move/params` and `move/params+overrides`, whose outputs are the recorded
+ * proof that renaming `slide` to `move` changed nothing; adding `speed` there
+ * would give both a derived `duration` and destroy that evidence. It is also
+ * mutually exclusive with the `duration` that `params+overrides` sets, so it
+ * could not go there in any case.
+ *
+ * `[0,0] → [300,400]` at 25 px/sec is a 3-4-5 triangle scaled by 100: the
+ * distance is exactly 500 and the duration exactly 20, both representable. An
+ * implementation that measured one axis only would record 12 or 16 instead.
  */
 const EXTRA: Record<string, { label: string, params: Record<string, unknown> }[]> = {
   bounce: [{ label: 'h-alias', params: { h: 63 } }],
+  move: [{ label: 'speed', params: { from: [0, 0], to: [300, 400], speed: 25 } }],
 }
 
 /**

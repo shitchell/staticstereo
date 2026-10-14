@@ -161,23 +161,57 @@ function overrides(tr: Track, p: Preset): Track {
  * Note what is *not* here: default durations. A track with no `duration` runs
  * for the remainder of the scene, which is the right default for one-shot
  * motion (`move`, `push`) and the reason `bounce`/`bob` take a `duration`
- * when you want a faster cycle than once-per-scene. `marquee` is the one
- * exception: its duration is derived from `speed`, because a scroll rate in
- * px/sec is the thing an author actually wants to control.
+ * when you want a faster cycle than once-per-scene. `marquee` is the
+ * exception, and `move` is the same exception made optional: both derive a
+ * duration from a `speed`, because a travel rate in px/sec is the thing an
+ * author actually wants to control when they care how fast something crosses
+ * the frame.
  */
 export const PRESETS: Record<string, PresetFn> = {
-  /** Straight A→B move. `from`/`to` are `[x, y]` offsets from the layer's `at`. */
+  /**
+   * Straight A→B move. `from`/`to` are `[x, y]` offsets from the layer's `at`.
+   *
+   * `speed` is optional, in **scene px per second**, and derives `duration`
+   * from the distance travelled. It is `marquee`'s one distinct capability
+   * (design §4.2b), generalised: `marquee` travels on one axis and divides
+   * `abs(from - to)` by the speed, `move` travels on two, so the same idea is
+   * the Euclidean distance between the endpoints. A rate is what an author
+   * controls when they care how fast a thing crosses the frame; a duration is
+   * what they control when they care when it arrives. Both are offered, and
+   * `speed` is derived *from* the endpoints so that editing `to` keeps the
+   * rate rather than silently changing it.
+   */
   move: p => {
     const from = pair(p, 'from', [0, 0])
     const to = pair(p, 'to', [0, 0])
-    return overrides({
+    const tr: Track = {
       keys: [
         { t: 0, x: from[0], y: from[1] },
         { t: 1, x: to[0], y: to[1] },
       ],
       ease: 'linear',
       repeat: 'once',
-    }, p)
+    }
+    if (p['speed'] !== undefined) {
+      // Rejected rather than resolved by precedence. `speed` and `duration`
+      // define the same quantity, so honouring either one silently would make
+      // the scene mean something the author cannot see in the file they wrote
+      // — and which of the two won would be invisible in the rendered GIF
+      // until they measured it. Name both, so the fix is to delete one.
+      if (p['duration'] !== undefined) {
+        throw new Error(
+          `preset "${p.kind}": "speed" and "duration" both set the length of the ` +
+          'move and cannot be combined — "speed" derives the duration from the ' +
+          'distance between "from" and "to". Keep one.',
+        )
+      }
+      const speed = num(p, 'speed', 60)
+      // Same contract as `marquee`'s: zero is a layer that never arrives and a
+      // negative rate is a direction, which `from`/`to` already express.
+      if (speed <= 0) throw new Error(`preset "${p.kind}": "speed" must be > 0 px/sec, got ${speed}`)
+      tr.duration = Math.hypot(to[0] - from[0], to[1] - from[1]) / speed
+    }
+    return overrides(tr, p)
   },
 
   /**

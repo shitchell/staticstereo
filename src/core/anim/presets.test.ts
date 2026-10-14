@@ -122,6 +122,49 @@ describe('presets implemented from prose spec', () => {
     expect(end.y).toBeCloseTo(50)
   })
 
+  // `speed` is `marquee`'s one distinct capability, moved onto `move` (design
+  // §4.2b). `marquee` derives its duration from a one-axis `abs(from - to)`;
+  // `move` travels in two, so the generalisation is the Euclidean distance.
+  it('move derives its duration from speed, over the 2-D distance', () => {
+    // 3-4-5: the distance is 5× the speed's unit, so `duration` is exactly 5
+    // and a hypot computed on one axis only would give 3 or 4 instead.
+    const tr = compilePreset({ kind: 'move', from: [0, 0], to: [30, 40], speed: 10 }, ctx)
+    expect(tr.duration).toBeCloseTo(5, 10)
+    // The endpoints are the ones `from`/`to` name — `speed` sets how long the
+    // trip takes, never where it goes — and it is at the *derived* duration
+    // that `to` is reached, which is the whole claim `speed` makes.
+    expect(evalTrack(tr, 0, 1)).toMatchObject({ x: 0, y: 0 })
+    expect(evalTrack(tr, 5, 1)).toMatchObject({ x: 30, y: 40 })
+    // Halfway in time is halfway along, because `move` eases linearly: 10 px/s
+    // for 2.5s is 25px, and 25px along a 3-4-5 is (15, 20).
+    expect(evalTrack(tr, 2.5, 1)).toMatchObject({ x: 15, y: 20 })
+  })
+
+  it('move without speed leaves duration unset, so the track runs the scene', () => {
+    // The guard on the above: `speed` is optional and adding it must not have
+    // given every `move` a derived duration.
+    expect(compilePreset({ kind: 'move', from: [0, 0], to: [30, 40] }, ctx).duration)
+      .toBeUndefined()
+  })
+
+  it('move refuses speed together with an explicit duration, naming both', () => {
+    // The two define the same quantity. Silently preferring one would make the
+    // scene mean something the author cannot see in the file they wrote.
+    expect(() => compilePreset(
+      { kind: 'move', from: [0, 0], to: [30, 40], speed: 10, duration: 2 }, ctx,
+    )).toThrow(/speed/)
+    expect(() => compilePreset(
+      { kind: 'move', from: [0, 0], to: [30, 40], speed: 10, duration: 2 }, ctx,
+    )).toThrow(/duration/)
+  })
+
+  it('move rejects a non-positive speed, as marquee does', () => {
+    expect(() => compilePreset({ kind: 'move', to: [30, 40], speed: 0 }, ctx))
+      .toThrow(/> 0 px\/sec/)
+    expect(() => compilePreset({ kind: 'move', to: [30, 40], speed: -5 }, ctx))
+      .toThrow(/> 0 px\/sec/)
+  })
+
   // UPDATED FOR THE PLATE/STAGE SPLIT: the two horizontal directions gained
   // their margin, the two vertical ones did not, because margins are x-only
   // (§10.2). Both halves matter — a blanket "add the margin" would push a
