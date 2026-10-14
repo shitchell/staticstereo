@@ -128,6 +128,30 @@ function wrapTime(scene: Scene, seconds: number): number {
   return ((seconds % span) + span) % span
 }
 
+/**
+ * Snap a time onto the grid **as a loop**: wrap it in, then take the nearest
+ * frame *circularly*.
+ *
+ * The distinction from {@link snapTime} is not pedantry, and a driver test
+ * caught it. Under playback the grid is a circle: the point after the last
+ * frame is frame 0 of the next loop, at `loopDuration`, which is why
+ * `frameTimes` excludes the endpoint at all — `t = duration` is the same pose
+ * as `t = 0`. Snapping along the *line* instead holds the last frame for the
+ * whole of the final inter-frame gap and then lands past it, so every single
+ * loop shows the last frame twice and skips frame 0. Any clock whose ticks do
+ * not land exactly on multiples of the interval — that is, any real one —
+ * spends most wraps inside that gap.
+ *
+ * An exact tie keeps {@link frameIndexAt}'s rule and resolves to the lower
+ * index, here the last frame.
+ */
+export function snapLoopTime(scene: Scene, seconds: number): number {
+  const t = wrapTime(scene, seconds)
+  const last = lastFrameTime(scene)
+  if (t > last && loopDuration(scene) - t < t - last) return timeOfFrame(scene, 0)
+  return snapTime(scene, t)
+}
+
 /** Paused, on the scene's first frame. */
 export function initialTransport(scene: Scene): TransportState {
   return { playing: false, anchorTime: timeOfFrame(scene, 0), anchorMs: 0 }
@@ -155,7 +179,7 @@ export function timeAt(state: TransportState, nowMs: number, scene: Scene): numb
   if (!state.playing) return snapTime(scene, state.anchorTime)
   const elapsedMs = nowMs - state.anchorMs
   const elapsed = Number.isFinite(elapsedMs) ? elapsedMs / 1000 : 0
-  return snapTime(scene, wrapTime(scene, state.anchorTime + elapsed))
+  return snapLoopTime(scene, state.anchorTime + elapsed)
 }
 
 /**
@@ -191,7 +215,9 @@ export function seek(
 ): TransportState {
   return {
     playing: state.playing,
-    anchorTime: snapTime(scene, wrapTime(scene, seconds)),
+    // The same circular snap playback uses, so a seek and a tick that land on
+    // the same time cannot disagree about which frame that is.
+    anchorTime: snapLoopTime(scene, seconds),
     anchorMs: nowMs,
   }
 }

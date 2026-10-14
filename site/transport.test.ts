@@ -140,9 +140,16 @@ describe('the transport state machine', () => {
     expect(loopDuration(ragged)).not.toBeCloseTo(0.55, 3)
 
     const t = play(initialTransport(ragged), 0)
-    expect(timeAt(t, loopDuration(ragged) * 1_000, ragged)).toBe(timeOfFrame(ragged, 0))
-    // The positive control: wrapping on `duration` would not be back at frame 0.
-    expect(timeAt(t, 0.55 * 1_000, ragged)).not.toBe(timeOfFrame(ragged, 0))
+    const interval = 1000 / sceneFps(ragged)
+    for (let k = 0; k <= 2 * count + 1; k++) {
+      expect(timeAt(t, k * interval, ragged), `frame ${k}`).toBe(timeOfFrame(ragged, k % count))
+    }
+    // The positive control: the rival rule, spelled out, really does give a
+    // different answer — so the loop above is discriminating and not merely
+    // true of any wrapping at all.
+    const wrappedOnDuration = (k: number): number =>
+      snapTime(ragged, (((k / 12) % 0.55) + 0.55) % 0.55)
+    expect(wrappedOnDuration(14)).not.toBe(timeOfFrame(ragged, 14 % count))
   })
 
   it('resumes from the paused time with no catch-up jump', () => {
@@ -191,6 +198,24 @@ describe('the transport state machine', () => {
     const t = play(initialTransport(ANIM), 0)
     for (let ms = 0; ms < 2_500; ms += 7) expect(times, String(ms)).toContain(timeAt(t, ms, ANIM))
     expect(snapTime(ANIM, 0.51)).toBe(timeOfFrame(ANIM, frameIndexAt(ANIM, 0.51)))
+  })
+
+  it('snaps the final gap circularly, so a loop never repeats its last frame', () => {
+    // Under playback the grid is a circle: the point after the last frame is
+    // frame 0 of the *next* loop. Snapping along the line instead holds the
+    // last frame for the whole final inter-frame gap and then lands past it —
+    // every loop shows frame 23 twice and skips frame 0, which is the stutter
+    // `frameTimes` excludes the endpoint to avoid. A driver test caught this;
+    // any clock whose ticks do not land exactly on multiples of the interval
+    // spends most of its wraps inside that gap.
+    const t = play(initialTransport(ANIM), 0)
+    const last = timeOfFrame(ANIM, 23)
+    expect(timeAt(t, 1_999.999, ANIM)).toBe(timeOfFrame(ANIM, 0))
+    expect(timeAt(t, 1_970, ANIM)).toBe(timeOfFrame(ANIM, 0))
+    expect(timeAt(t, 1_950, ANIM)).toBe(last)
+    // The plain snap stays on the line — that is the scrubber's rule, where
+    // dragging to the end must show the end.
+    expect(snapTime(ANIM, 1.999999)).toBe(last)
   })
 
   it('toggles without moving the time', () => {
