@@ -1,4 +1,5 @@
-import { frameTimes, resolveStereo } from '../src/core/index.js'
+import { resolveStereo } from '../src/core/index.js'
+import { frameIndexAt, frameTimesOf, lastFrameTime, snapTime, timeOfFrame } from './transport.js'
 import { validateScene } from './scene.js'
 import type { Anim, Layer, Scene, StereoOpts } from '../src/core/types.js'
 
@@ -159,48 +160,36 @@ export function presetNote(kind: string, layerCount: number): string {
     'from the scene duration unless you give it its own.'
 }
 
-/** `frameTimes`, re-exported through here so the page has one import for the grid. */
-export function frameTimesOf(scene: Scene): number[] {
-  return frameTimes(scene)
-}
-
-export function lastFrameTime(scene: Scene): number {
-  const times = frameTimes(scene)
-  return times[times.length - 1]!
-}
+/**
+ * The frame grid lives in `transport.ts` and is re-exported — not re-stated — here.
+ *
+ * The player must be able to reach `frameTimesOf`/`frameIndexAt`/`timeOfFrame`/
+ * `lastFrameTime` without importing this module, which carries the editor's
+ * `UiState` and `reduce`. A second copy is the thing to avoid: the channel list
+ * is already guarded in `track.ts` and duplicated unguarded in two validators,
+ * and both of them silently drop channels because of it. `transport.test.ts`
+ * asserts these are the *same function objects*, so a re-implementation here
+ * fails rather than quietly diverging.
+ */
+export { frameIndexAt, frameTimesOf, lastFrameTime, timeOfFrame }
 
 /**
- * The frame whose sample time is nearest `seconds`.
+ * Snap a time onto the scene's frame grid — `transport.ts`'s `snapTime`, under
+ * the short name the three call sites below already use.
  *
- * Ties resolve to the lower index: scanning ascending and only accepting a
- * strictly smaller distance makes the result independent of float noise in the
- * midpoint, which `<` on an exact tie would not be.
+ * This was `timeOfFrame(scene, frameIndexAt(scene, seconds))`, spelled out
+ * here, which is **byte-identical** to `snapTime`'s body. The re-export above
+ * says a second copy is the thing to avoid and `snapTime`'s own docblock claims
+ * it is "composed from the two moved functions rather than restating their
+ * arithmetic, so there is still exactly one definition of 'nearest frame' in
+ * the project" — true of `frameIndexAt`, and not of the composition, which
+ * survived the move that existed to remove it. Nothing asserted the two agreed.
+ *
+ * An alias and not a re-export: `snapTime` is not in the player's four-name
+ * list above, so exporting it from here would widen this module's surface for
+ * no caller.
  */
-export function frameIndexAt(scene: Scene, seconds: number): number {
-  const times = frameTimes(scene)
-  const t = Number.isFinite(seconds) ? seconds : 0
-  let best = 0
-  let bestDistance = Math.abs(times[0]! - t)
-  for (let i = 1; i < times.length; i++) {
-    const d = Math.abs(times[i]! - t)
-    if (d < bestDistance) {
-      bestDistance = d
-      best = i
-    }
-  }
-  return best
-}
-
-export function timeOfFrame(scene: Scene, index: number): number {
-  const times = frameTimes(scene)
-  const i = Number.isFinite(index) ? Math.round(index) : 0
-  return times[i < 0 ? 0 : i >= times.length ? times.length - 1 : i]!
-}
-
-/** Snap a time onto the scene's frame grid. */
-function snap(scene: Scene, seconds: number): number {
-  return timeOfFrame(scene, frameIndexAt(scene, seconds))
-}
+const snap = snapTime
 
 /**
  * Materialise the stereo settings into the scene.

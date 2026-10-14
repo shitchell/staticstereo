@@ -32,6 +32,34 @@ describe('isPresenting', () => {
     expect(isPresenting('?present=')).toBe(true)
   })
 
+  /**
+   * **The third of the three spellings the permissive read covers, which was
+   * the one nothing asserted.**
+   *
+   * `isPresenting`'s docblock names three things that mean on: a bare
+   * `?present`, an empty `?present=`, and "a value nobody can read". The first
+   * two had tests and the third did not, and it is the only one that is a
+   * *choice* — `smooth.ts` reads its own unreadable value the other way and
+   * says so.
+   *
+   * Measured. The mutation `value === '' ? true :
+   * booleanSpelling(normaliseParam(value)) === true` — which flips
+   * `?present=maybe` from on to off — passed `present.test.ts` plus
+   * `query.test.ts` at **38 passed, 0 skipped**, and those two files are the
+   * only ones in the repo that reference `isPresenting`. `query.test.ts`'s
+   * cross-check iterates `BOOLEAN_SPELLINGS`, so it only ever sees *recognised*
+   * spellings and cannot reach this branch at all.
+   */
+  it('reads a value nobody can read as on, because it is still someone asking', () => {
+    for (const value of ['maybe', '2', 'yep', 'true!', 'ON!', '-1', 'null']) {
+      expect(isPresenting(`?present=${value}`), value).toBe(true)
+    }
+    // ...and the branch discriminates rather than meaning "the name is present,
+    // so on": the explicitly falsy spellings next door still mean off, which is
+    // what makes `?present=0` a way to say no rather than a synonym for yes.
+    expect(isPresenting('?present=off')).toBe(false)
+  })
+
   it('reads an explicitly falsy value as off', () => {
     for (const value of ['0', 'false', 'FALSE', 'no', 'off', ' off ']) {
       expect(isPresenting(`?present=${value}`), value).toBe(false)

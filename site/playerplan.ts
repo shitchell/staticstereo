@@ -1,0 +1,597 @@
+/**
+ * Every decision the player makes about a URL and a box, as one pure function.
+ *
+ * ## Why the whole policy is one value
+ *
+ * Each module around this one decides exactly one thing — `fit.ts` reads a
+ * parameter, `scale.ts` does arithmetic, `scalescene.ts` accepts or refuses,
+ * `playerchrome.ts` says what boxes exist. None of them can answer "what should
+ * the player do with *this* link in *this* iframe", because that answer is the
+ * composition of all of them, and a composition written inline in a resize
+ * handler is a composition no test in this repo can reach: the test environment
+ * is plain node with neither jsdom nor happy-dom, and design §12 excludes
+ * component DOM from testing outright.
+ *
+ * So the player is split in two. This function holds the decisions and returns
+ * them as data; the imperative shell executes the plan and holds none. The line
+ * is not stylistic — it is what makes "an embed with a broken link still shows
+ * something and explains itself" an assertion rather than an aspiration.
+ *
+ * ## It must not throw. That is the acceptance criterion, not a nicety.
+ *
+ * The player is the half of this product with users who are not its author, and
+ * it is loaded from URLs those users did not construct: a truncated paste, a
+ * link made by an older page, an `<iframe>` whose container has not been laid
+ * out yet, a `devicePixelRatio` read off a detached document. An exception
+ * thrown here takes out the host page's console and leaves a blank box with no
+ * explanation — strictly worse than the broken link that caused it, because the
+ * embedder cannot tell the two apart.
+ *
+ * Every failure is therefore a {@link PlayerNotice} rather than a throw, and
+ * the choice for an unloadable scene is recorded: **nothing is rendered and a
+ * notice says why.** The alternative considered was substituting a placeholder
+ * scene so the box is never empty; it was rejected because it puts a picture on
+ * somebody else's page that their link does not describe, and a viewer has no
+ * way to tell a substituted scene from the one the author meant.
+ *
+ * ### One input throws, and the claim above is otherwise measured
+ *
+ * The honest statement is "total over every input a browser can produce", not
+ * "total". There is exactly one known exception: a `container` whose `width`
+ * is a **throwing getter** propagates, because `input.container?.width` is read
+ * outside the `try`. No browser produces that — a detached or `display: none`
+ * element measures `0`, which is handled and reported as
+ * `container-unmeasured` — and it is left rather than wrapped, because a `try`
+ * around the whole body would convert a programming error in a *caller* into a
+ * notice claiming something about the user's link.
+ *
+ * What is measured, independently twice: a fuzz of **24 hashes × 12 containers
+ * × 9 dprs × 9 searches = 23,328 cases produced zero throws**, every result
+ * carrying a notices array and a finite {@link PlayerPlan.devicePerBackingScale}.
+ * The container list included `undefined`, `null`, `{}`, string lengths, `NaN`,
+ * `Infinity` and negatives; the hashes included truncations, a future version,
+ * valid base64 that is not JSON, and JSON that is not a scene; the searches
+ * included `fit=constructor` and `smooth=__proto__`. So totality holds over
+ * everything anyone has been able to reach — it is just not *literally*
+ * universal, and a docblock that said "never throws" without this paragraph
+ * would be claiming more than has been shown.
+ *
+ * ## What is NOT decided here
+ *
+ * Playback. `site/transport.ts` and `site/transportdriver.ts` own time, and a
+ * plan that carried a playhead would be a plan that went stale between frames.
+ * This function is called on load, on resize, on a dpr change and on entering
+ * or leaving fullscreen — the events that change *what the player is*, not
+ * *where it is up to*.
+ */
+
+import { fitNotice, parseFit } from './fit.js'
+import type { FitMode } from './fit.js'
+import { parseSceneHash } from './hash.js'
+import { chromeSpec } from './playerchrome.js'
+import type { ChromeNode, Framing } from './playerchrome.js'
+import { isPresenting } from './present.js'
+import { isUsableDpr, planFit, usableDpr, usableLength } from './scale.js'
+import type { FitPlan, PlanFitInput, RenderFit } from './scale.js'
+import { scaleScene } from './scalescene.js'
+import { validateScene } from './scene.js'
+import { imageRenderingFor, parseSmooth } from './smooth.js'
+import type { SmoothMode } from './smooth.js'
+import type { Scene } from '../src/core/types.js'
+
+/* ------------------------------------------------------------- the notices */
+
+/**
+ * Why the player did something other than what the URL asked for.
+ *
+ * Machine-readable, because the shell has to decide *where* to put each one —
+ * a scene that will not load is a message in the middle of an empty box, while
+ * a fit mode that fell back is a footnote — and parsing prose to find out is
+ * how two renderings of the same notice drift apart.
+ */
+export type PlayerNoticeCode =
+  /** The fragment is empty. A first visit, or an `<iframe src>` with no scene. */
+  | 'no-scene'
+  /** The fragment is present and `parseSceneHash` could not read it. */
+  | 'unreadable-scene'
+  /** The fragment decoded to JSON that is not a valid scene. */
+  | 'invalid-scene'
+  /** A fit mode we understand and deliberately do not offer — `cover`. */
+  | 'fit-rejected'
+  /** `fit=render` asked for, and `scaleScene` refused this scene. */
+  | 'fit-refused'
+  /** The scene loaded but its geometry could not be measured at all. */
+  | 'fit-unplannable'
+  /** The container measured zero, so there is nowhere to draw yet. */
+  | 'container-unmeasured'
+  /** `dpr` was zero, negative or not a number. */
+  | 'dpr-unusable'
+  /**
+   * `fit=render` was honoured, but at a scale one of `renderFit`'s two bounds
+   * chose rather than the one the container solves for — so the picture is not
+   * the size the link asked for. **The only mode that can produce this**: the
+   * other two are arithmetic over an already-rendered backing store and always
+   * have an answer.
+   */
+  | 'render-scale-clamped'
+
+/**
+ * Every code, as a value.
+ *
+ * Exported so that a test can enumerate them and so that a shell can route all
+ * of them exhaustively; the array and the union are kept in step by the
+ * `satisfies` below, which fails to compile if either grows alone.
+ */
+export const PLAYER_NOTICE_CODES = [
+  'no-scene',
+  'unreadable-scene',
+  'invalid-scene',
+  'fit-rejected',
+  'fit-refused',
+  'fit-unplannable',
+  'container-unmeasured',
+  'dpr-unusable',
+  'render-scale-clamped',
+] as const satisfies readonly PlayerNoticeCode[]
+
+/** Errors unless its argument is `never` — the repo's exhaustiveness idiom. */
+type AssertNever<T extends never> = T
+
+/**
+ * `satisfies` above catches a member of the array that is not in the union;
+ * this catches a member of the union that is not in the array. Both directions
+ * are needed, and they fail in different places on purpose.
+ */
+type _NoCodeMissing = AssertNever<Exclude<PlayerNoticeCode, typeof PLAYER_NOTICE_CODES[number]>>
+
+/**
+ * The first sentence of each notice: what happened, in the player's own voice.
+ *
+ * Separate from the *reason*, which always comes from whichever module recorded
+ * it — `REJECTED_FIT_MODES[…].reason`, `SCALE_REFUSALS[…].explanation`, the
+ * decoder's own error text. This module states the consequence and quotes the
+ * cause; it never paraphrases a cause, because a paraphrase is a second copy
+ * that drifts.
+ */
+export const NOTICE_HEADLINES: Record<PlayerNoticeCode, string> = {
+  'no-scene': 'This link carries no scene, so there is nothing to show.',
+  'unreadable-scene': "This link's scene could not be read.",
+  'invalid-scene': "This link's scene was read but is not valid.",
+  'fit-rejected': 'That fit mode is not offered; showing the scene with contain instead.',
+  'fit-refused': 'This scene cannot be re-rendered at a different size; showing it with contain instead.',
+  'fit-unplannable': 'This scene’s size could not be worked out, so no layout was planned.',
+  'container-unmeasured': 'The container has no size yet, so the layout was planned against an empty box.',
+  'dpr-unusable': 'The device pixel ratio was unusable; the layout was planned at 1 instead.',
+  'render-scale-clamped': 'This scene could not be re-rendered at the size the container asked for.',
+}
+
+export interface PlayerNotice {
+  readonly code: PlayerNoticeCode
+  /** {@link NOTICE_HEADLINES} plus, where one exists, the recorded cause verbatim. */
+  readonly message: string
+}
+
+/* --------------------------------------------------------------- the input */
+
+/** A container's measured size, in **CSS px**. Named, because four spaces exist. */
+export interface ContainerSize {
+  readonly width: number
+  readonly height: number
+}
+
+export interface PlayerPlanInput {
+  /** `location.search`. **The parameters live here**, never in the fragment. */
+  readonly search: string
+  /** `location.hash`. **The scene lives here**, and nothing else does. */
+  readonly hash: string
+  /** The box the player has been given, in CSS px. */
+  readonly container: ContainerSize
+  /** `devicePixelRatio`. Coerced, never trusted — see {@link usableDpr}. */
+  readonly dpr: number
+  /**
+   * Is the player inside an `<iframe>`?
+   *
+   * An input rather than a `window.self !== window.top` read, because that
+   * expression is not available to a pure function and smuggling it in would
+   * cost this module its entire testability for one boolean. The shell knows;
+   * the shell says.
+   */
+  readonly embedded?: boolean
+  /**
+   * Is the player's wrapper currently the fullscreen element?
+   *
+   * Also an input, for the same reason and one more: fullscreen is a *runtime
+   * state* that changes without the URL changing, so it cannot be derived from
+   * `search` even in principle. The shell re-plans on `fullscreenchange`.
+   */
+  readonly fullscreen?: boolean
+}
+
+/* ---------------------------------------------------------------- the plan */
+
+export interface PlayerPlan {
+  /** Which of the four containers the player believes it is in. */
+  readonly framing: Framing
+  /**
+   * The scene to render, or `undefined` when the link carries none that loads.
+   *
+   * For a `render` plan this is the **scaled** scene `scaleScene` produced, not
+   * the authored one: the plan and the scene have to agree about the stage, and
+   * handing a caller both and letting it pick is how they stop agreeing.
+   */
+  readonly scene: Scene | undefined
+  /** What `?fit=` asked for, after `parseFit`'s fallbacks. */
+  readonly requestedFit: FitMode
+  /**
+   * The layout, or `undefined` when there is no scene to lay out. Its `mode`
+   * may differ from {@link requestedFit} — that is what a notice explains.
+   */
+  readonly fit: FitPlan | undefined
+  /**
+   * **Device px drawn ÷ backing-store px.** The ratio `imageRenderingFor`
+   * takes, and the one the browser actually resamples by.
+   *
+   * Read from `FitPlan.devicePerBackingScale` and never recomputed here: the
+   * two readings of this ratio differ by exactly `dpr`, `scale.ts` is where the
+   * division belongs, and the division being done at *this* call site is
+   * literally the defect this plan shipped with.
+   *
+   * With no fit plan it is `1`: nothing is being drawn, so nothing is being
+   * resampled, and one backing pixel per device pixel is the honest statement
+   * of that — the same statement a re-render makes, in the same space. Defined
+   * rather than absent because a CSS property set from `undefined` is a silent
+   * no-op, which stops pixelating without telling anyone.
+   *
+   * ## There is deliberately no second ratio on this interface
+   *
+   * A `displayScale` field — **CSS px shown ÷ backing-store px**, this quantity
+   * divided by `dpr` — sat directly above this one, with a long docblock
+   * recording that the old code had handed *it* to the smoothing policy and
+   * been wrong to. It is gone, because it had **zero production consumers**: it
+   * was assigned here, exported on this type, and read only by
+   * `playerplan.test.ts`. Nothing in `player.ts` or anywhere else ever used it.
+   *
+   * The property the field's own comment claimed to protect was that "the one
+   * call site bridging fit and smoothing cannot get the pixel space wrong".
+   * Two ratios on the public plan type, one of them dead, is strictly *weaker*
+   * than one: it is precisely what let the wrong one be picked. Measured, on
+   * the version before this change — swapping this argument for `displayScale`
+   * at the `imageRenderingFor` call below **typechecked clean** (both fields are
+   * `number`, both in scope) and only reddened tests. With the field gone the
+   * wrong choice has no *short* name here, and `scale.ts`'s own ratio is now
+   * spelled `cssPerBackingScale`, so it **reads** as wrong where `displayScale`
+   * read as plausible.
+   *
+   * ## It is still spellable, and tests are what catch it
+   *
+   * Deleting this plan's field removed one name, not the quantity. `FitPlan`
+   * carries both ratios — `cssPerBackingScale` and `devicePerBackingScale`,
+   * both `readonly number` — and `fit` is in scope two lines above the
+   * `imageRenderingFor` call. Measured: substituting
+   * `fit?.cssPerBackingScale ?? 1` for the argument below **typechecks clean,
+   * exit 0**, and reds **3 of 160** in `playerplan.test.ts` (the three
+   * `image-rendering hint` cases). So the guarantee is the one `scale.ts`
+   * already claims for the pair — the wrong choice reads as wrong and is caught
+   * by tests — and not that it cannot be written.
+   *
+   * ## Why the field stays at the `FitPlan` level, and the tension in that
+   *
+   * `FitPlan.cssPerBackingScale` has **zero production consumers either** —
+   * `player.ts` sizes the canvas from the absolute `cssWidth`/`cssHeight`, not
+   * from a ratio — which is the same condition that condemned `displayScale`
+   * here. The two fields are not distinguished by being pinned, either: before
+   * the deletion `playerplan.test.ts` asserted `plan.displayScale` against a
+   * ratio recomputed from the plan's widths and asserted `deviceRatio ≈
+   * cssRatio * dpr`, which is exactly the shape `scale.test.ts` asserts for the
+   * surviving pair. Claiming otherwise would be this docblock's own defect
+   * again.
+   *
+   * What distinguishes them is **where the choice is made**. The mistake is
+   * handing the layout ratio to the smoothing policy, and that single bridging
+   * call site is in *this* file. A second `number` ratio on *this* type sits in
+   * the same object literal as the right one, under a name that reads as
+   * plausible there, and buys nothing — so it is pure hazard. On `FitPlan` the
+   * pair is the subject: `scale.ts` exists to produce both readings and
+   * invariant 7 requires each to name its own pixel space, so the pair is what
+   * `scale.test.ts` sweeps and what the `× dpr` assertion is *about*.
+   *
+   * That is a reason for the asymmetry, not an acquittal. `FitPlan`'s CSS ratio
+   * is a genuine candidate for the same deletion on the same grounds, and it is
+   * left for whoever owns `scale.ts`'s public type next: removing it means
+   * editing `scale.ts`, `scale.test.ts`, `smooth.test.ts` and this file's test,
+   * and it would drop the assertions that read the field as a *declared* value
+   * rather than recomputing it — so it is a deliberate change with its own
+   * evidence, not a tidy-up to fold into a wording fix.
+   *
+   * A caller that genuinely wants the CSS ratio reads it off {@link fit}.
+   */
+  readonly devicePerBackingScale: number
+  /** What `?smooth=` asked for. */
+  readonly smooth: SmoothMode
+  /** The CSS `image-rendering` value for this plan. */
+  readonly imageRendering: 'auto' | 'pixelated'
+  /** The boxes to build, from {@link chromeSpec}. */
+  readonly chrome: ChromeNode
+  /**
+   * Everything the player did other than what was asked, in a fixed order:
+   * the environment first (dpr, container), then the parameters, then the
+   * scene, then the fit. Fixed so that a shell showing only the first one shows
+   * the same first one on every machine.
+   */
+  readonly notices: readonly PlayerNotice[]
+}
+
+/* ------------------------------------------------------------- the coercion */
+
+/*
+ * `isUsableDpr`, `usableDpr` and `usableLength` are **imported from
+ * `site/scale.ts`**, not declared here.
+ *
+ * This module used to carry its own copies, and the docblock on them said why:
+ * "the same predicate `scale.ts` applies internally — finite and positive —
+ * stated here rather than inferred, because this module has to *report* the
+ * coercion that one performs silently. Two spellings of the same rule would be
+ * a plan that said 'dpr was fine' while the arithmetic substituted 1." The
+ * reasoning was right and the remedy was not: restating a rule is how two
+ * spellings of it come to exist, and this was the second of four. `scale.ts`
+ * now exports the predicate it applies, so the plan's `dpr-unusable` notice and
+ * the arithmetic's substitution cannot disagree — they are the same call.
+ *
+ * The *length* coercion was left behind by that change and took longer to
+ * follow, which is worth recording because of how it read. It stayed here as a
+ * local `usableLength` whose entire docblock was "A measured length if it is
+ * one, else 0 — **again matching `scale.ts`**": a comment that documented the
+ * duplication rather than removing it, which is the sin the dpr change was
+ * commissioned to fix. It is the same call now, and `scale.ts` argues the
+ * constant — 0 for a length, 1 for a `dpr`, because a budget and a divisor do
+ * not have the same honest reading of "we were not told".
+ *
+ * The shared predicate keeps its `typeof` guard, so the totality this module
+ * needs survives: `container` is typed but arrives from a caller we do not
+ * control, and a non-number reaching the comparison would answer `false`
+ * rather than throw.
+ */
+
+/** An error's message, for a notice, without assuming it is an `Error`. */
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+/* ------------------------------------------------------------- the framing */
+
+/**
+ * Which container the player believes it is in.
+ *
+ * **Precedence: fullscreen, then embed, then present, then inline**, and the
+ * order is an argument rather than an accident of which `if` came first.
+ *
+ * - `fullscreen` is a runtime state the user just entered and it outranks
+ *   everything: whatever the URL says, the wrapper is filling a screen now.
+ * - `embed` outranks `present` because being in an `<iframe>` is a **fact about
+ *   the box** — a third party chose its size and owns the page around it —
+ *   while `?present=1` is a **request inside a URL that third party pasted**.
+ *   The fact wins. They do not conflict about layout in any case: `chromeSpec`
+ *   gives both an overlaid transport, so the only thing riding on the order is
+ *   which name the plan reports.
+ */
+function framingOf(input: PlayerPlanInput): Framing {
+  if (input.fullscreen === true) return 'fullscreen'
+  if (input.embedded === true) return 'embed'
+  return isPresenting(input.search) ? 'present' : 'inline'
+}
+
+/* --------------------------------------------------------------- the scene */
+
+/** What {@link loadScene} found: a scene, or the reason there is not one. */
+interface SceneLoad {
+  readonly scene?: Scene
+  readonly notice?: PlayerNotice
+}
+
+/**
+ * The scene the fragment carries, or a notice saying why there is not one.
+ *
+ * Three failure modes and three codes, because a shell should be able to tell
+ * them apart without reading English: an absent fragment is a first visit and
+ * not an error at all, an unreadable one is almost always a truncated paste,
+ * and an invalid one is a scene that decoded perfectly and means nothing.
+ *
+ * `parseSceneHash` is called inside the `try` rather than guarded by a type
+ * check: `hash` is typed `string` but arrives from a caller we do not control,
+ * and a non-string would throw inside `String.prototype.replace`. Catching is
+ * both shorter and more total than checking.
+ */
+function loadScene(hash: string): SceneLoad {
+  let decoded: unknown
+  try {
+    decoded = parseSceneHash(hash)
+  } catch (err) {
+    return { notice: notice('unreadable-scene', messageOf(err)) }
+  }
+  if (decoded === undefined) return { notice: notice('no-scene') }
+  try {
+    return { scene: validateScene(decoded) }
+  } catch (err) {
+    return { notice: notice('invalid-scene', messageOf(err)) }
+  }
+}
+
+function notice(code: PlayerNoticeCode, cause?: string): PlayerNotice {
+  return {
+    code,
+    message: cause === undefined ? NOTICE_HEADLINES[code] : `${NOTICE_HEADLINES[code]} ${cause}`,
+  }
+}
+
+/* ----------------------------------------------------------------- the fit */
+
+/** What {@link planLayout} decided: a layout, the scene to draw, and any notice. */
+interface LayoutChoice {
+  readonly fit?: FitPlan
+  readonly scene: Scene | undefined
+  readonly notice?: PlayerNotice
+}
+
+/**
+ * The clamp notice for a re-render, or `undefined` when the solve was honoured.
+ *
+ * ## Why the direction is read off `overflows` and not classified
+ *
+ * `RenderFit.clamped` is one flag over two bounds that behave oppositely: the
+ * floor hands back a plate *bigger* than the box, the cap a *smaller* one. A
+ * notice that said only "clamped" would tell a viewer nothing they could not
+ * already see, so the message has to say which happened — and `overflows` is
+ * the plan's own measured statement of exactly that, the realised plate
+ * against the realised box.
+ *
+ * It is deliberately **not** a classification of *which bound* engaged. That
+ * would need `renderFit`'s internal `ideal` and `minScale`, neither of which is
+ * on `RenderFit`, and re-deriving either here would be a second copy of a rule
+ * that lives in `scale.ts` — the defect this module has already been through
+ * twice (the dpr coercion, the length coercion). The bound is `scale.ts`'s
+ * business; what the viewer is looking at is this module's, and `overflows`
+ * answers that without anyone restating anything.
+ *
+ * Note the two are *almost* but not exactly the same question: for a scene
+ * authored smaller than one pixel on an axis the floor can engage without
+ * overflowing. That is unreachable from a link — `site/scene.ts`'s `requireSize`
+ * rejects a sub-1 `scene.size` — and it does not matter here either way, because
+ * the sentence is about the picture and not about the bound.
+ */
+function clampNotice(plan: RenderFit): PlayerNotice | undefined {
+  if (!plan.clamped) return undefined
+  return notice(
+    'render-scale-clamped',
+    `It was rendered at ${roundedScale(plan.sceneScale)}× the authored size instead, so the ` +
+    `picture is ${plan.overflows ? 'larger' : 'smaller'} than the container.`,
+  )
+}
+
+/**
+ * A scale for a human to read, to three significant figures.
+ *
+ * The cap is a whole number and prints as one; the floor is `1/min(width,
+ * height)` in scene px and is a repeating decimal for most sizes, which at full
+ * float precision is sixteen digits of noise in the middle of a sentence. Three
+ * figures because the number is here to tell a viewer roughly how far off the
+ * requested size they are, and no decision is taken on it.
+ */
+function roundedScale(scale: number): number {
+  return Number(scale.toPrecision(3))
+}
+
+/**
+ * The layout for a loaded scene, falling back where a mode cannot be honoured.
+ *
+ * ## Why `render` is conditional and the other two are not
+ *
+ * `contain` and `snap` are arithmetic over a backing store and always have an
+ * answer. `render` re-authors the scene smaller, which requires knowing which
+ * numbers in it are lengths in scene px — and for a raster layer, an unsized
+ * text layer or a preset whose parameters carry no unit, that is not knowable
+ * (see `scalescene.ts`). `scaleScene` therefore returns a discriminated refusal
+ * rather than throwing or guessing, and **this is the call site that refusal
+ * was designed for**: the player drops to `contain`, keeps the authored scene,
+ * and carries the refusal's own explanation so a user who asked for `render`
+ * and got `contain` is told why.
+ *
+ * The whole thing is wrapped in one `try`. `plateLayoutOf` throws for a scene
+ * whose stereo settings cannot produce margins, and while `validateScene` makes
+ * that nearly unreachable, "nearly" is not a property an embed can rely on.
+ */
+function planLayout(scene: Scene, mode: FitMode, args: PlanFitInput): LayoutChoice {
+  try {
+    if (mode !== 'render') return { fit: planFit(mode, args), scene }
+    const planned = planFit('render', args)
+    if (planned.kind !== 'rerender') return { fit: planned, scene }
+    const scaled = scaleScene(scene, planned.plan)
+    // The clamp is only worth reporting on a plan that is actually used. A
+    // refused scene drops to `contain` below, which discards the render plan
+    // along with its bounds, and a notice about a plan nobody applied would
+    // describe a picture the viewer is not looking at.
+    if (scaled.ok) return { fit: planned, scene: scaled.scene, notice: clampNotice(planned.plan) }
+    return {
+      fit: planFit('contain', args),
+      scene,
+      notice: notice('fit-refused', `${scaled.detail.reason}: ${scaled.detail.explanation}`),
+    }
+  } catch (err) {
+    return { scene, notice: notice('fit-unplannable', messageOf(err)) }
+  }
+}
+
+/* -------------------------------------------------------------- the whole */
+
+/**
+ * What the player should do with this URL in this box.
+ *
+ * Pure: it reads its argument, calls pure functions, and allocates a result. It
+ * never touches `location`, `window`, `document` or a clock, which is what lets
+ * the entire policy be exercised in plain node — and what lets P3 lift the
+ * player into the editor shell without unpicking anything.
+ */
+export function playerPlan(input: PlayerPlanInput): PlayerPlan {
+  const notices: PlayerNotice[] = []
+
+  // The environment first: both of these are coerced by the arithmetic
+  // downstream whether or not anyone is told, so they are reported before
+  // anything that depends on them.
+  const dpr = usableDpr(input.dpr)
+  if (!isUsableDpr(input.dpr)) {
+    notices.push(notice('dpr-unusable', `Got ${JSON.stringify(input.dpr)}.`))
+  }
+  const width = usableLength(input.container?.width)
+  const height = usableLength(input.container?.height)
+  if (width <= 0 || height <= 0) {
+    notices.push(notice(
+      'container-unmeasured',
+      `Measured ${JSON.stringify(input.container?.width)}x${JSON.stringify(input.container?.height)} CSS px.`,
+    ))
+  }
+
+  // Then the parameters. `parseFit` and `parseSmooth` are total; the only thing
+  // that can need saying is a mode we understand and refuse, which `fitNotice`
+  // answers with the recorded argument rather than a generic complaint.
+  const requestedFit = parseFit(input.search)
+  const rejected = fitNotice(input.search)
+  if (rejected !== undefined) {
+    notices.push(notice('fit-rejected', `“${rejected.requested}”: ${rejected.reason}`))
+  }
+  const smooth = parseSmooth(input.search)
+
+  // Then the scene — from the fragment, and from nowhere else.
+  const loaded = loadScene(input.hash)
+  if (loaded.notice !== undefined) notices.push(loaded.notice)
+
+  // Then the layout, which needs all of the above.
+  let fit: FitPlan | undefined
+  let scene = loaded.scene
+  if (loaded.scene !== undefined) {
+    const chosen = planLayout(loaded.scene, requestedFit, {
+      scene: loaded.scene,
+      availableWidth: width,
+      availableHeight: height,
+      dpr,
+    })
+    fit = chosen.fit
+    scene = chosen.scene
+    if (chosen.notice !== undefined) notices.push(chosen.notice)
+  }
+
+  const devicePerBackingScale = fit?.devicePerBackingScale ?? 1
+  // One `framingOf`, not two: the chrome and the reported framing must be the
+  // same answer, and two calls to a function with no reason to disagree is
+  // still two places for a later edit to make them disagree.
+  const framing = framingOf(input)
+  return {
+    framing,
+    scene,
+    requestedFit,
+    fit,
+    devicePerBackingScale,
+    smooth,
+    imageRendering: imageRenderingFor(smooth, devicePerBackingScale),
+    chrome: chromeSpec(framing),
+    notices,
+  }
+}

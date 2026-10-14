@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>staticstereo — player</title>
+    <meta
+      name="description"
+      content="The staticstereo player: one animated stereogram, its transport, and nothing else. The scene lives in the URL fragment."
+    />
+    <!--
+      Every path here is relative, for the reason site/index.html records at
+      length and `vite.player.config.ts` sets `base: './'` for: a GitHub
+      project Page is served from a subpath, so a leading-slash asset URL
+      resolves against the user site root and 404s in production while working
+      perfectly on localhost. The player needs it more than the page does — it
+      is meant to be loaded as an `<iframe src>` from hosts we will never see
+      (R14), so there is no deployment on which the absolute form is right.
+      site/dist.test.ts asserts it against dist-player/ rather than trusting
+      this comment.
+
+      Phrased without a literal leading-slash example on purpose: vite keeps
+      HTML comments in the production build, so an example here would land in
+      the emitted document and give a false hit to anyone grepping the built
+      page by eye.
+
+      This file is player.html and the build emits it as dist-player/index.html.
+      The names differ because they answer different questions: the source name
+      has to be distinct from the editor's site/index.html under the shared
+      vite root, and the output name has to be index.html or the deployed
+      directory URL /staticstereo/player/ — the one an embedder writes into an
+      iframe src (R14) — has nothing to answer with. vite.player.config.ts
+      performs the rename and records why it is done in the build rather than
+      in the deploy workflow.
+    -->
+    <link rel="stylesheet" href="./playerpage.css" />
+    <link rel="stylesheet" href="./player.css" />
+  </head>
+  <body>
+    <!--
+      Two elements and no markup for the player itself, deliberately.
+
+      Every box inside #player is built at runtime by `applyChrome` from the
+      tree `chromeSpec` returns, because which boxes exist and where they sit
+      is a decision that differs per framing and that `site/playerchrome.ts`
+      owns. Hand-written markup here would be a second, silent answer to the
+      same question — and the one the tests cannot see, since no tier of this
+      project has a DOM to assert against.
+
+      #notices follows #player rather than preceding it. A box in normal flow
+      above the canvas moves its fractional device-pixel origin: 13 device px
+      of edge-row disagreement became 445 at dpr 1.5 the one time it was
+      measured, and the sensitivity "is not something to tune" (design §8.3).
+    -->
+    <div id="player"></div>
+    <p id="notices" role="status" aria-live="polite" hidden></p>
+    <script type="module" src="./player.ts"></script>
+  </body>
+</html>

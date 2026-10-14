@@ -58,6 +58,70 @@ jobs:
       # here is the only thing that makes them gate a deploy.
       - run: npm test
 
+      # `npm run build:site` emits TWO directories — `dist-site/` (the page)
+      # and `dist-player/` (the standalone player) — and only one artifact is
+      # ever uploaded. Without this step the player is built on every push,
+      # gated by every assertion in `site/dist.test.ts`, and then published
+      # nowhere: it exists at no URL at all, which for a component whose entire
+      # purpose is to be loaded as an `<iframe src>` by a stranger (R14) is the
+      # same as not shipping it.
+      #
+      # `dist-site/player/` and not a second artifact, because GitHub Pages
+      # publishes exactly one. The nesting is safe for precisely the reason
+      # `vite.player.config.ts` calls `base: './'` "the single most important
+      # line in this file": every emitted reference is relative to the
+      # document, so it resolves at `/staticstereo/player/` as unchanged as it
+      # does at the root. `site/dist.test.ts` proves that by materialising the
+      # nested layout and re-resolving against it, rather than trusting this
+      # paragraph.
+      #
+      # The DESTINATION NAME IS LOAD-BEARING AND SO IS THE ENTRY'S. A static
+      # host answers the bare directory URL `/staticstereo/player/` with the
+      # directory index and with nothing else, and that bare URL is the one a
+      # human writes into an `<iframe src>` (R14) — so `vite.player.config.ts`
+      # emits the entry as `index.html`, and `site/dist.test.ts` asserts both
+      # the emitted name and the served URL. Renaming either end here breaks a
+      # URL rather than a build.
+      #
+      # AFTER `npm test`, and that ordering is load-bearing rather than
+      # stylistic: `dist.test.ts` asserts `dist-site/` carries exactly three
+      # woff2 files, the player ships the same three, and copying before the
+      # suite makes it six. Measured, rather than argued — with the copy done
+      # first on a fresh build, that woff2 count is the ONLY assertion that
+      # fails.
+      #
+      # Which also corrects what this paragraph used to claim as a second
+      # reason: that the ordering keeps "every file under `dist-player/` is the
+      # player's, by construction" true while the no-editor-code check runs.
+      # It does not, because that is not at risk — the copy reads
+      # `dist-player/` and writes `dist-site/player/`, so nothing is ever added
+      # to the directory that check walks. The woff2 reason is the whole
+      # reason.
+      #
+      # Spelled to be re-runnable. `cp -r dist-player dist-site/player` is
+      # correct exactly once: coreutils `cp -r SRC DIR` copies SRC *into* DIR
+      # when DIR already exists, so a second run leaves the player at
+      # `dist-site/player/dist-player/`. CI always starts from a clean
+      # checkout, so this never bit a deploy — it bit somebody reproducing the
+      # deploy locally twice, and cost them a confusing afternoon. `mkdir -p`
+      # plus a copy of the directory's *contents* is idempotent and reads the
+      # same. `site/dist.test.ts` matches on the two path operands rather than
+      # on `cp -r` precisely so this spelling is free to change.
+      #
+      # And the re-runnability is now ASSERTED rather than only claimed here.
+      # It shipped with no test, because the operand match that keeps the
+      # spelling free is also satisfied by the broken spelling above: the one
+      # property this paragraph exists to establish was the one nothing
+      # checked. `site/dist.test.ts` takes this command out of this file and
+      # *executes* it, twice, in a scratch tree whose starting state is the
+      # real one — `dist-site/` already present — and requires the second run
+      # to leave the tree the first run left. Running it is not pinning a
+      # spelling: replace the line with `rsync` or `mv` and the test follows it,
+      # which is why executing is the only form that can see a property about
+      # what happens the *second* time.
+      - name: Nest the player under the site so it has a URL
+        run: mkdir -p dist-site/player && cp -r dist-player/. dist-site/player/
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
