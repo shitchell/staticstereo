@@ -29,6 +29,10 @@
 #     900     90px ->  19px stroke   just over the budget
 #     900    240px ->  50px stroke   comfortable
 #
+# All twelve rows are hand-maintained and were NOT reproduced in this phase --
+# they are dated to the vendored face above; re-measuring them needs a harness
+# (stroke legibility is design 10.3's, not this phase's).
+#
 # Past bold there is now a real 900 face, which there was not before: the
 # system fonts this used to fall back on (DejaVu Sans, Liberation Sans, Noto
 # Sans) declare only 400 and 700, Chromium rendered `900` byte-identically to

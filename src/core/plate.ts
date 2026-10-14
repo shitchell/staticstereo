@@ -76,8 +76,14 @@ export interface PlateLayout {
  *   over depth, and **on the left only**. `linked` constrains the symmetric
  *   pair `(x - sep/2, x + sep/2)` and skips a pair with an out-of-range
  *   endpoint, so its dead zone is `sepFar/2` on *each* side. Both are swept
- *   with a probe in `metamorphic.test.ts` (`shift` 92/0, `linked` 44/44 at
- *   `sepNear`, growing to `sepFar` under `cross`).
+ *   with a probe in `metamorphic.test.ts` — measured, `shift` 92/0 and
+ *   `linked` 44/44. Those two figures are **at `sepNear` only**: that sweep's
+ *   probe is a near slab (`slabDepth`'s default `z = 1`) and its `opts()`
+ *   hard-codes `cross: false`, which is why `shift` reads exactly `sepNear`.
+ *   **That the zone grows to `sepFar` is inferred from the `sep(z)` argument
+ *   below, not swept** — `deadZones` has a single call site, and nothing in
+ *   the suite measures a dead zone under `cross` or at any other depth. Sound,
+ *   but do not cite it as a measurement.
  * - **The fusion fringe**, which is perceptual and symmetric for any algorithm:
  *   a percept is formed per pair `(P, P+sep)` and appears centred at
  *   `P + sep/2`, so the outermost `sep/2` columns of any plate carry no percept
