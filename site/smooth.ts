@@ -27,7 +27,16 @@
  * preferred resampling, not the stereogram.
  *
  * Pure string work, so it is unit-tested rather than left to a browser.
+ *
+ * The *mechanism* is `site/query.ts`'s and is shared with `present.ts` and
+ * `fit.ts`: the optional leading `?`, last-of-repeated-wins, the case-and-space
+ * latitude, and the eight words a human types for a boolean. This module used
+ * to hand-roll all four, which is how it inherited `fit.ts`'s prototype-chain
+ * defect along with the idiom. What stays here is this parameter's
+ * **vocabulary** — three modes, and which of them a boolean lands on.
  */
+
+import { booleanSpelling, lastParam, normaliseParam } from './query.js'
 
 /** The resampling hints the player understands. See {@link SMOOTH_MODES}. */
 export type SmoothMode = 'auto' | 'on' | 'off'
@@ -79,7 +88,7 @@ export const SMOOTH_MODES: Record<SmoothMode, SmoothModeInfo> = {
 }
 
 /**
- * Spellings that are not canonical but are unambiguous, and what they mean.
+ * Which of this parameter's modes a boolean spelling lands on.
  *
  * **The decision, recorded.** `present.ts` already established that this page
  * reads a boolean parameter the way a human types one — `1`, `true`, `no`,
@@ -91,16 +100,20 @@ export const SMOOTH_MODES: Record<SmoothMode, SmoothModeInfo> = {
  * three words were picked for the union. Finishing the merge costs one map and
  * removes the surprise.
  *
- * `auto` deliberately has no alias. It is not a boolean state, so there is no
- * spelling a reader would expect to land on it.
+ * The *spellings* are no longer here: they are `query.ts`'s one
+ * {@link booleanSpelling} table, shared with `present.ts`, which is where that
+ * merge finally got finished. Two files recognising the same six words in two
+ * different shapes — with `on` and `off` in one of them and not the other — was
+ * half of what let the prototype-chain defect be copied into this file in the
+ * first place. The **mapping** stays local, because `on` and `off` are this
+ * parameter's words and `present`'s boolean has no such names.
+ *
+ * `auto` deliberately has no spelling. It is not a boolean state, so there is
+ * no spelling a reader would expect to land on it — and that is why this is a
+ * function of a `boolean` rather than a third entry in a table.
  */
-const ALIASES: Readonly<Record<string, SmoothMode>> = {
-  '1': 'on',
-  true: 'on',
-  yes: 'on',
-  '0': 'off',
-  false: 'off',
-  no: 'off',
+function smoothForBoolean(flag: boolean): SmoothMode {
+  return flag ? 'on' : 'off'
 }
 
 /**
@@ -124,29 +137,27 @@ const ALIASES: Readonly<Record<string, SmoothMode>> = {
  * nothing for it to toggle *to*, and falling back is the only reading that
  * does not invent an intent the author did not express.
  *
- * Both lookups are `Object.hasOwn`-guarded, and **both** have to be: `in` and a
- * bare index access each walk the prototype chain, so `?smooth=constructor`
- * read as the `SmoothMode` `'constructor'` through the first and as the
- * `Object` **function** through the second. Guarding only one leaves the other
- * live — the two registries are plain object literals and therefore share a
- * prototype, so nothing can reach one guard without reaching the other. This is
- * the same defect `fit.ts` had, present here because the idiom was copied
- * along with the rest of the parse policy.
+ * `SMOOTH_MODES` is read with `Object.hasOwn` and not with `in`, because `in`
+ * walks the prototype chain: `'constructor' in SMOOTH_MODES` is `true`, so
+ * `?smooth=constructor` read as the `SmoothMode` `'constructor'`. There used to
+ * be a second such lookup immediately below — a bare `ALIASES[key]`, which
+ * answered with the `Object` **function** once the first was guarded, since
+ * both registries were plain object literals and so shared a prototype.
+ * `query.ts`'s table is a `Map`, which has no chain to walk, so that half of
+ * the defect is now unavailable rather than guarded.
  *
- * Unlike `fit.ts`'s, this one had no visible symptom: `imageRenderingFor` falls
- * through to the `auto` policy for any mode that is neither `on` nor `off`, so
- * a `Function` flowing through as a `SmoothMode` does not throw. The parameter
- * just quietly stopped being parsed.
+ * Unlike `fit.ts`'s, this defect had no visible symptom: `imageRenderingFor`
+ * falls through to the `auto` policy for any mode that is neither `on` nor
+ * `off`, so a `Function` flowing through as a `SmoothMode` does not throw. The
+ * parameter just quietly stopped being parsed.
  */
 export function parseSmooth(search: string): SmoothMode {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  const all = params.getAll(SMOOTH_PARAM)
-  const value = all[all.length - 1]
+  const value = lastParam(search, SMOOTH_PARAM)
   if (value === undefined) return DEFAULT_SMOOTH
-  const key = value.trim().toLowerCase()
+  const key = normaliseParam(value)
   if (Object.hasOwn(SMOOTH_MODES, key)) return key as SmoothMode
-  if (!Object.hasOwn(ALIASES, key)) return DEFAULT_SMOOTH
-  return ALIASES[key] ?? DEFAULT_SMOOTH
+  const flag = booleanSpelling(key)
+  return flag === undefined ? DEFAULT_SMOOTH : smoothForBoolean(flag)
 }
 
 /**

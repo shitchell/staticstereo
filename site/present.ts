@@ -41,12 +41,18 @@
  * Everything here is pure string work over a location-shaped record, so it is
  * unit-tested rather than left to a browser. The browser-only part is what
  * `main.ts` does with the answer.
+ *
+ * The *mechanism* — the optional leading `?`, last-of-repeated-wins, the
+ * case-and-space latitude, and the eight words a human types for a boolean —
+ * is `site/query.ts`'s and is shared with `fit.ts` and `smooth.ts`. It used to
+ * be written out here and again in each of them, which is how the
+ * prototype-chain defect in those two came to be copied rather than caught.
+ * Only the reading of the answer is this module's.
  */
 
-export const PRESENT_PARAM = 'present'
+import { booleanSpelling, lastParam, normaliseParam, searchParams } from './query.js'
 
-/** Spellings that mean "off" despite the parameter being present. */
-const FALSY = new Set(['0', 'false', 'no', 'off'])
+export const PRESENT_PARAM = 'present'
 
 /**
  * Is presentation mode asked for by this query string?
@@ -57,13 +63,19 @@ const FALSY = new Set(['0', 'false', 'no', 'off'])
  *
  * Repeated parameters resolve to the **last** one, matching how a reader would
  * read `?present=1&present=0` — the later assignment wins.
+ *
+ * `!== false` and not `=== true`, which is the permissive read spelled as a
+ * comparison: only an **explicitly** falsy spelling means off. A bare
+ * `?present`, an empty `?present=` and a value nobody can read all mean on,
+ * because each of them is still a human asking for presentation mode, and
+ * `?present=0` is the way to say no. This is the one place the three answers
+ * {@link booleanSpelling} returns matter — `smooth.ts` reads its third answer
+ * the other way, and that divergence is argued there.
  */
 export function isPresenting(search: string): boolean {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  const all = params.getAll(PRESENT_PARAM)
-  const value = all[all.length - 1]
+  const value = lastParam(search, PRESENT_PARAM)
   if (value === undefined) return false
-  return !FALSY.has(value.trim().toLowerCase())
+  return booleanSpelling(normaliseParam(value)) !== false
 }
 
 /**
@@ -87,7 +99,7 @@ export function isPresenting(search: string): boolean {
  * correctness.
  */
 export function presentSearch(search: string, on: boolean): string {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  const params = searchParams(search)
   params.delete(PRESENT_PARAM)
   if (on) params.set(PRESENT_PARAM, '1')
   const body = params.toString()

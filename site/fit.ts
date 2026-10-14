@@ -32,7 +32,18 @@
  *
  * Everything here is pure string work, so it is unit-tested rather than left to
  * a browser. The browser-only part is what the player does with the answer.
+ *
+ * The *mechanism* is `site/query.ts`'s and is shared with `present.ts` and
+ * `smooth.ts`: the optional leading `?`, last-of-repeated-wins, and the
+ * case-and-space latitude. This module used to own private copies of the last
+ * two, which is how `smooth.ts` came to inherit the prototype-chain defect
+ * along with the idiom. What stays here is this parameter's **vocabulary** —
+ * the three modes it offers and the one it refuses — because that is the only
+ * part that is not the same decision twice. `fit` has no boolean reading, so it
+ * does not touch `query.ts`'s boolean table at all.
  */
+
+import { lastParam, normaliseParam } from './query.js'
 
 /** The fit modes the player implements. See {@link FIT_MODES}. */
 export type FitMode = 'contain' | 'snap' | 'render'
@@ -105,33 +116,10 @@ export const FIT_MODES: Record<FitMode, FitModeInfo> = {
  * that matters here: it comes from a URL nobody in this repo wrote.
  */
 export function parseFit(search: string): FitMode {
-  const value = lastValue(search, FIT_PARAM)
+  const value = lastParam(search, FIT_PARAM)
   if (value === undefined) return DEFAULT_FIT
-  const key = normalise(value)
+  const key = normaliseParam(value)
   return Object.hasOwn(FIT_MODES, key) ? (key as FitMode) : DEFAULT_FIT
-}
-
-/**
- * The last value given for `name`, or `undefined` if it was never given.
- *
- * Factored out rather than inlined so that every reader of this parameter
- * agrees about which spelling in a repeated parameter is the operative one.
- */
-function lastValue(search: string, name: string): string | undefined {
-  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
-  const all = params.getAll(name)
-  return all[all.length - 1]
-}
-
-/**
- * Trim and lowercase, so `?fit=%20Render%20` and `?fit=SNAP` work.
- *
- * Permissiveness about case and space costs nothing and buys the hand-typed and
- * hand-edited embed URLs this parameter exists for; it is the same latitude
- * `isPresenting` gives its falsy spellings.
- */
-function normalise(value: string): string {
-  return value.trim().toLowerCase()
 }
 
 /** What {@link REJECTED_FIT_MODES} records about a mode we will not implement. */
@@ -197,7 +185,7 @@ export interface FitNotice {
  * fit mode") is a generic message any caller can write for itself; this export
  * exists to carry the arguments we actually made.
  *
- * It reads the repeated parameter through the same {@link lastValue} as
+ * It reads the repeated parameter through the same {@link lastParam} as
  * `parseFit`, so the two cannot disagree about which spelling is operative —
  * a page that letterboxed for one reason while explaining a different one
  * would be worse than silence.
@@ -212,9 +200,9 @@ export interface FitNotice {
  * explains nothing in well-formed prose is not.
  */
 export function fitNotice(search: string): FitNotice | undefined {
-  const value = lastValue(search, FIT_PARAM)
+  const value = lastParam(search, FIT_PARAM)
   if (value === undefined) return undefined
-  const key = normalise(value)
+  const key = normaliseParam(value)
   if (!Object.hasOwn(REJECTED_FIT_MODES, key)) return undefined
   const rejected = REJECTED_FIT_MODES[key]
   if (rejected === undefined) return undefined
