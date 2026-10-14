@@ -21,41 +21,23 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as ts from 'typescript'
+import { importSpecifiers } from './testing/imports.js'
 
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 const DIST = join(ROOT, 'dist')
 const DIST_CORE = join(DIST, 'core')
 
-/**
- * Every module specifier in `text`, from any form that creates a dependency:
- * static import/export-from, bare side-effect import, `import type`, the
- * `import('x').T` type form d.ts files emit, dynamic `import()`, and
- * `require()`.
+/*
+ * `importSpecifiers` was defined here and is now imported from
+ * `./testing/imports.js`. Its two self-tests stay below, because they are
+ * about the parse-not-grep property this file's docblock argues for.
+ *
+ * It moved because a second test file needs it and importing a `.test.ts`
+ * registers that file's `describe`s into the importing suite: measured, every
+ * test in this file ran a second time under `src/svelte-free.test.ts`'s name.
+ * `site/transport.test.ts` records the same hazard from the other side.
  */
-export function importSpecifiers(text: string, kind: ts.ScriptKind): string[] {
-  const sf = ts.createSourceFile('x', text, ts.ScriptTarget.ES2022, true, kind)
-  const out: string[] = []
-  const add = (node: ts.Node | undefined): void => {
-    if (node && ts.isStringLiteralLike(node)) out.push(node.text)
-  }
-  const walk = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      add(node.moduleSpecifier)
-    } else if (ts.isImportEqualsDeclaration(node)) {
-      if (ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression)
-    } else if (ts.isImportTypeNode(node)) {
-      if (ts.isLiteralTypeNode(node.argument)) add(node.argument.literal)
-    } else if (ts.isCallExpression(node)) {
-      const dynamic = node.expression.kind === ts.SyntaxKind.ImportKeyword
-      const required = ts.isIdentifier(node.expression) && node.expression.text === 'require'
-      if (dynamic || required) add(node.arguments[0])
-    }
-    ts.forEachChild(node, walk)
-  }
-  walk(sf)
-  return out
-}
 
 function filesUnder(dir: string): string[] {
   const out: string[] = []
