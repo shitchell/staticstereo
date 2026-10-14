@@ -7,6 +7,7 @@ import {
   FRAMING_NAMES,
   MIN_CHROME_NODES,
   ROLE_CANVAS,
+  ROLE_FULLSCREEN,
   ROLE_PLAY,
   ROLE_SEEK,
   ROLE_TRANSPORT,
@@ -87,7 +88,9 @@ describe('every framing carries a transport (R16, design §8.2)', () => {
       it('is not a stub', () => {
         // A wrapper holding only a canvas would pass "contains a canvas" and
         // every other shape assertion that does not count. The floor is the
-        // smallest conformant tree: wrapper, canvas, transport, play, seek.
+        // smallest conformant tree: wrapper, canvas, transport, and the three
+        // controls below it — play and seek (R16, design §7.4) and the way
+        // out of fullscreen (R15).
         expect(nodesOf(spec).length).toBeGreaterThanOrEqual(MIN_CHROME_NODES)
       })
 
@@ -113,6 +116,29 @@ describe('every framing carries a transport (R16, design §8.2)', () => {
         const inside = rolesOf(transport)
         expect(inside).toContain(ROLE_PLAY)
         expect(inside).toContain(ROLE_SEEK)
+      })
+
+      it('puts the way out of fullscreen inside it too, in THIS framing (R15)', () => {
+        // The module claims this in prose and attributes it to R15 — the
+        // control is present in every framing, "including `fullscreen` itself,
+        // because it is a toggle", and in fullscreen "it is the only *visible*
+        // way back out. Escape also works, but a control surface that relies
+        // on the user knowing an unlabelled key is the same mistake as having
+        // no transport." Nothing asserted it.
+        //
+        // Measured before this existed: deleting
+        // `{ role: ROLE_FULLSCREEN, tag: 'button' }` from the control list —
+        // which drops it from all four framings at once, one builder serving
+        // them all — left the whole suite green at 1151 passed. The floor was
+        // `MIN_CHROME_NODES = 5` against a real count of 6, so it had exactly
+        // one node of slack, and no test in the phase imported the constant.
+        //
+        // Per framing and not once over the set, because "in every framing" is
+        // the claim: a builder that special-cased `fullscreen` into dropping
+        // its own exit would be the precise thing R15 forbids, and a single
+        // check against one spec would not see it.
+        const transport = nodesOf(spec).find(n => n.role === ROLE_TRANSPORT)!
+        expect(rolesOf(transport)).toContain(ROLE_FULLSCREEN)
       })
 
       it('puts every control inside the transport container', () => {

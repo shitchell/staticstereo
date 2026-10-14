@@ -145,14 +145,23 @@ export function pathToRole(spec: ChromeNode, role: string): ChromeNode[] | undef
 
 /**
  * The smallest tree that can satisfy every rule in this module: a wrapper, a
- * canvas, a transport container, and the two controls R16 and design §7.4
- * require in it.
+ * canvas, a transport container, and the **three** controls that must sit in
+ * it — play and seek (R16, design §7.4) and the way out of fullscreen (R15,
+ * {@link ROLE_FULLSCREEN}).
  *
  * Exported because it is the vacuity floor the tests assert against. Every
  * structural rule here is of the form "no node does X", and a tree with no
  * nodes satisfies all of them.
+ *
+ * **Six and not five, and the slack was not free.** It said five while the
+ * real count was six, which left the floor one node of room — and measured,
+ * that room was the whole guard: deleting `ROLE_FULLSCREEN` from the control
+ * list below dropped it from all four framings and left the entire suite green
+ * at 1151 passed. The floor tracks the smallest *conformant* tree, so a
+ * control this module requires in prose has to be counted in it; anything less
+ * is a floor that permits the tree it exists to reject.
  */
-export const MIN_CHROME_NODES = 5
+export const MIN_CHROME_NODES = 6
 
 /* ------------------------------------------------------------- the framings */
 
