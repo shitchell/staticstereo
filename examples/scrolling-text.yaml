@@ -2,9 +2,10 @@
 #
 # A `move` with a `speed` and `repeat: loop`. This was a `marquee`, which
 # derived the same two endpoints from the compile context; `marquee` is gone
-# (design 4.2b narrows the registry to five verbs), so the endpoints are
-# written out. See the `anim:` block at the bottom for where each number
-# comes from and for what is lost by writing them down.
+# (design 4.2b narrows the registry to five verbs), but the derivation came
+# back with it: `move`'s `from`/`to` take the off-stage endpoints as tokens,
+# so this file names them instead of carrying their arithmetic. See the
+# `anim:` block at the bottom.
 #
 #   stst render examples/scrolling-text.yaml -o text.gif
 #
@@ -46,28 +47,27 @@ layers:
     weight: bold
     at: [0, 30]
     depth: 0.65
-    # The travel is expressed against the PLATE, not the stage, so "off-frame"
-    # means off the image that is actually emitted. Both endpoints were
-    # compiled from the live rasteriser rather than estimated:
+    # `offRight` and `offLeft` are resolved out of the compile context by
+    # `move` itself (design 4.2), and they are against the PLATE, not the
+    # stage: `sceneW + marginRight` near side, `-(contentW + marginLeft)` far
+    # side. So "off-frame" means off the image that is actually emitted, and
+    # `speed` is px/sec across the whole of it. The far endpoint runs past
+    # `-contentW` rather than stopping at 0, which would park the tail of an
+    # over-wide string on screen forever.
     #
-    #   from  =  sceneW + marginRight  =  800 + 55            =   855
-    #   to    = -(contentW + marginLeft) = -(2830.550048828125 + 55)
-    #                                                         = -2885.550048828125
+    # WHY TOKENS AND NOT THE TWO NUMBERS: `contentW` is the MEASURED width of
+    # the rendered string on the vendored face, so the far endpoint is a
+    # function of the text, the size, the weight and the face. As a literal it
+    # went stale the moment any of those changed, and a stale far endpoint
+    # parks the tail on screen again -- the bug `-contentW` exists to prevent.
+    # As a token it cannot go stale and nothing here is recomputed by hand.
     #
-    # `to` ends past -contentW, not at 0, because stopping at 0 would park the
-    # tail of an over-wide string on screen forever. `speed` is px/sec across
-    # that whole 3740.55px travel, so duration = 3740.55/220 = 17.0025s.
-    #
-    # WHAT WRITING THESE DOWN COSTS: `contentW` is the MEASURED width of the
-    # rendered string on the vendored face. The old `marquee` re-measured it
-    # every frame; this does not. Change the text, the size, the weight or the
-    # face and `to` must be recomputed, or the tail parks on screen again --
-    # which is the bug the `-contentW` term exists to prevent. The editor
-    # (design 4.2b) is where a template re-derives it; a static scene file
-    # cannot.
+    # Measured when the tokens landed: they resolve to 855 and
+    # -2885.550048828125, byte-for-byte what this file used to spell out, so
+    # the swap moved no pixel. 3740.55px at 220px/s = 17.0s against a 6s scene.
     anim:
       - kind: move
-        from: [855, 0]
-        to: [-2885.550048828125, 0]
+        from: [offRight, 0]
+        to: [offLeft, 0]
         speed: 220
         repeat: loop
