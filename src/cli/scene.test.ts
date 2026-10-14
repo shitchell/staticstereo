@@ -232,6 +232,29 @@ describe('validateScene — layers', () => {
     expect(msg).toMatch(/sized/)
   })
 
+  // Design §4.1. Both fields are optional, so every scene written before they
+  // existed stays valid; and the validator carries them rather than minting
+  // one, because an id invented at load time would make opening an untouched
+  // legacy scene and saving it back a diff — the exact churn stable identity
+  // exists to prevent. Minting belongs to the editor's mutation path.
+  it('carries a layer id and name through, and mints neither', () => {
+    const scene = check(
+      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, id: k3Qp, name: greeting}\n',
+    )
+    expect(scene.layers[0]).toMatchObject({ id: 'k3Qp', name: 'greeting' })
+
+    const bare = check('size: [40, 20]\nlayers:\n  - {type: text, text: HI}\n')
+    expect(bare.layers[0]).not.toHaveProperty('id')
+    expect(bare.layers[0]).not.toHaveProperty('name')
+
+    // Both are typed `string`, and this validator hands its input back cast to
+    // `Layer`, so an unchecked field would be a lie the type system cannot see.
+    expect(checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, id: 5}\n'))
+      .toMatch(/layers\[0\]\.id/)
+    expect(checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, name: []}\n'))
+      .toMatch(/layers\[0\]\.name/)
+  })
+
   it('names a bad at, depth, or mask', () => {
     expect(checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, at: 4}\n'))
       .toMatch(/layers\[0\]\.at.*\[x, y\]|\[x, y\].*layers\[0\]\.at/s)

@@ -93,7 +93,7 @@ export async function loadScene(path: string): Promise<Scene> {
 
 const SCENE_KEYS = ['size', 'fps', 'duration', 'stereo', 'freezeNoise', 'layers'] as const
 const LAYER_TYPES = ['text', 'image', 'gif', 'shape', 'draw'] as const
-const BASE_LAYER_KEYS = ['type', 'depth', 'at', 'anim'] as const
+const BASE_LAYER_KEYS = ['type', 'id', 'name', 'depth', 'at', 'anim'] as const
 const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {
   text: ['text', 'size', 'font', 'weight'],
   image: ['src', 'mode', 'mask'],
@@ -307,6 +307,16 @@ function validateLayer(
       )
     }
   }
+
+  /* ---- identity (design §4.1)
+   *
+   * Checked, but never supplied: this validator hands the raw object back cast
+   * to `Layer`, so an `id: 5` left unchecked would be a `string` the type
+   * system believes in. Nothing mints one here — a scene loaded and written
+   * back unchanged must stay byte-identical, so id assignment belongs to the
+   * editor's mutation path, where there is an actual edit to attach it to. */
+  if (l['id'] !== undefined) str('id', 'a stable layer id')
+  if (l['name'] !== undefined) str('name', 'a display name for the layer')
 
   switch (kind) {
     case 'text':

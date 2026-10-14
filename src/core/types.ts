@@ -265,6 +265,25 @@ export type Anim = Track | Preset | (Track | Preset)[]
 export type MaskSource = 'alpha' | { luma: number }
 
 interface LayerBase {
+  /**
+   * Stable identity, for anything that has to refer to this layer across an
+   * edit — a selection, an undo entry, a panel row.
+   *
+   * **Optional, and assigned on first mutation rather than on load** (design
+   * §4.1). Every scene written before this field existed is still valid, and
+   * loading one and saving it back unchanged stays byte-identical, because no
+   * validator mints an id. An array index cannot serve: reordering or deleting
+   * a layer renumbers every layer after it, so a selection or an undo entry
+   * held by index silently retargets.
+   */
+  id?: string
+  /**
+   * Display name. Optional because a layer that has never been renamed should
+   * not carry a name at all — `layerName()` derives one from the content
+   * (`HELLO`, `ball.png`, `circle`), so the panel never lists a scene as
+   * "Layer 1 / Layer 2 / Layer 3" and never makes renaming the first chore.
+   */
+  name?: string
   /** Flat depth for silhouette mode. Default 1 (nearest). */
   depth?: Depth
   at?: [number, number]
