@@ -493,6 +493,14 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    reader at the weaker of the two procedures, which is how a note that looks like a
    pointer becomes a dead end. The orchestrator wrote exactly that wording into a fix
    instruction and a verifier caught it.
+
+   **And a tripwire must make the right fix the easy one.** P0b's own risk note names the
+   failure: a guard that fires saying "tag it `scenePx`" invites the reader to tag a
+   `degrees` parameter `scenePx` to go green, shipping a wrong unit downstream. The
+   message offered the correct second route and the wrong one was lazier. A guard whose
+   cheapest satisfying action is wrong is a guard that will eventually be satisfied
+   wrongly, so the message has to make the correct route the path of least resistance —
+   not merely mention it.
 6. Deviations either reverted or recorded in the design document.
 
 The orchestrator reads the report of 1–6 and merges. It does not re-verify.
@@ -767,6 +775,7 @@ Each already cost a correction. Hand this table to every worker.
 | `comm -12` reported no overlap, so there is none | Not without `LC_ALL=C`. `sort` and `comm` disagree on collation otherwise and silently report **no** overlap — a fail-open answer to "do these two sets intersect". Nearly cost a rebase check. |
 | `grep -n` gave me the line number | Not over diff output it did not — that numbers the *diff*, not the file. It produced `:1665` and `:1728` for a 1281-line file, and the impossible numbers then travelled through two reports before anyone checked them against `git show <sha>:<path> \| grep -n`. |
 | a hand-written list of "the places that do X" is a check | It goes stale silently the day a second place does X. Derive it from the thing that makes a site one of them — the call sites, the registry, the token table — never from an enumeration someone typed. |
+| a stale comment is a stale comment | Two kinds, and the cheaper one is not worth a third edit. A **pointer** (a path, a file name) goes stale when the target moves: the comment is wrong, a `grep` finds the truth, and nothing silently passes. An **assertion** (a test title, a measured value, a claimed mechanism) goes stale when the subject changes: the comment is now **false**, and a reader who trusts it is misled. Fix false assertions; let stale pointers wait for the file to reopen. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 
 ---
