@@ -1,7 +1,7 @@
-import { EASINGS, resolveEasing } from './easing.js'
+import { namedEasing, resolveEasing } from './easing.js'
 import { IDENTITY } from '../types.js'
 import type {
-  Anim, AssertNever, Easing, Key, NamedEasing, Preset, Track, Transform,
+  Anim, AssertNever, Easing, Key, Preset, Track, Transform,
 } from '../types.js'
 import type { PresetCtx } from './presets.js'
 
@@ -58,7 +58,12 @@ const BEZIER_SOLVERS = new Map<string, (t: number) => number>()
  * a repeated bezier, and `EASINGS`' own function for a named one.
  */
 export function easingFor(ease: Easing): (t: number) => number {
-  const named = EASINGS[ease as NamedEasing]
+  // `namedEasing`, not `EASINGS[ease]`: a bare index resolves inherited
+  // `Object.prototype` keys, so an `ease` of `'toString'` returned a function
+  // that is not an easing and `channelAt` produced `NaN` in silence. One
+  // owner of the "is this a shipped name" question, shared with `isEasing`
+  // and `resolveEasing` — see `namedEasing` in `easing.ts`.
+  const named = namedEasing(ease)
   if (named !== undefined) return named
   let solver = BEZIER_SOLVERS.get(ease)
   if (solver === undefined) {

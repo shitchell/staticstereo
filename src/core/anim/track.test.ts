@@ -110,6 +110,19 @@ describe('evalTrack easing resolution', () => {
     }
   })
 
+  it('throws on an inherited `Object.prototype` key rather than returning NaN', () => {
+    // `easingFor` indexed `EASINGS` directly, so `'toString'` resolved to
+    // `Object.prototype.toString`, `channelAt` multiplied a keyframe delta by
+    // a string, and the layer moved to `x: NaN` for the whole scene with no
+    // error anywhere. Unreachable from a scene file — all three validators go
+    // through `isEasing` — but reachable from any programmatically built
+    // `Track`, which is what the player and editor phases construct.
+    for (const ease of ['toString', 'valueOf']) {
+      const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }], ease } as unknown as Track
+      expect(() => evalTrack(tr, 0.5, 1), ease).toThrow(/unknown easing/)
+    }
+  })
+
   it('throws on an easing it cannot resolve', () => {
     // The validators keep this unreachable from a scene file. It stays loud
     // anyway: a silent `linear` here renders every frame with the wrong

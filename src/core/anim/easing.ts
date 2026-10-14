@@ -96,8 +96,30 @@ function parseCubicBezier(
  */
 export function isEasing(x: unknown): x is Easing {
   if (typeof x !== 'string') return false
-  if (Object.prototype.hasOwnProperty.call(EASINGS, x)) return true
+  if (namedEasing(x) !== undefined) return true
   return parseCubicBezier(x) !== undefined
+}
+
+/**
+ * The shipped function a *named* easing denotes, or `undefined` if the string
+ * does not name one.
+ *
+ * **`hasOwnProperty`, not `EASINGS[name]`, and this function exists so that
+ * there is exactly one place that decides.** A bare index finds inherited
+ * properties: `EASINGS['toString']` is `Object.prototype.toString`, which is
+ * truthy, is not an easing, and when handed to `channelAt` multiplies a
+ * keyframe delta by a string and yields `NaN` for the whole scene with no
+ * error. `EASINGS['valueOf']` fails later and less legibly still. `isEasing`
+ * got this right and both resolution paths got it wrong, which is the shape
+ * of bug a duplicated guard produces — so the guard is no longer duplicated.
+ *
+ * Exported for `evalTrack`'s memoising `easingFor`, which must take the same
+ * fast named path and must agree with this one about what a name is.
+ */
+export function namedEasing(name: string): ((t: number) => number) | undefined {
+  return Object.prototype.hasOwnProperty.call(EASINGS, name)
+    ? EASINGS[name as NamedEasing]
+    : undefined
 }
 
 /**
@@ -113,7 +135,7 @@ export function isEasing(x: unknown): x is Easing {
  * it owns the cache, because only it can key one — see `track.ts`.
  */
 export function resolveEasing(ease: Easing): (t: number) => number {
-  const named = EASINGS[ease as NamedEasing]
+  const named = typeof ease === 'string' ? namedEasing(ease) : undefined
   if (named) return named
   const pts = typeof ease === 'string' ? parseCubicBezier(ease) : undefined
   if (!pts) {

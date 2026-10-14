@@ -108,6 +108,23 @@ describe('resolveEasing', () => {
     expect(r(0.5)).not.toBe(cubicBezier(0.9, 0.1, 0.3, 0.2)(0.5))
   })
 
+  it('throws on an inherited `Object.prototype` key, as on any other name', () => {
+    // `EASINGS[ease]` finds inherited properties, so `'toString'` resolved to
+    // `Object.prototype.toString` and was handed to `channelAt` as an easing:
+    // it returns a string, the interpolation yields `NaN`, and nothing says
+    // why. `'valueOf'` threw `Cannot convert undefined or null to object`,
+    // naming neither the easing nor the track. `isEasing` three functions up
+    // already uses `hasOwnProperty` and gets this right; two guards in one
+    // file disagreeing about the same input class is the defect.
+    for (const s of [
+      'toString', 'valueOf', 'constructor', 'hasOwnProperty',
+      'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', '__proto__',
+    ]) {
+      expect(isEasing(s), s).toBe(false)
+      expect(() => resolveEasing(s as never), s).toThrow(/unknown easing/)
+    }
+  })
+
   it('throws on a string that is not an easing', () => {
     // The type keeps honest callers out of here, but both scene validators
     // take unvalidated input and the resolver is the last line. Returning
