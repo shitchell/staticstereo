@@ -167,7 +167,7 @@ function overrides(tr: Track, p: Preset): Track {
  * author actually wants to control when they care how fast something crosses
  * the frame.
  */
-export const PRESETS: Record<string, PresetFn> = {
+const REGISTRY = {
   /**
    * Straight A→B move. `from`/`to` are `[x, y]` offsets from the layer's `at`.
    *
@@ -322,7 +322,28 @@ export const PRESETS: Record<string, PresetFn> = {
       repeat: 'pingpong',
     }, p)
   },
-}
+} satisfies Record<string, PresetFn>
+
+/**
+ * The registered kinds, as a literal union.
+ *
+ * `satisfies` above rather than a type annotation is what keeps this narrow:
+ * an annotation would widen the object's own type to `Record<string, …>` and
+ * `keyof` would give back `string`, which is no constraint at all. The union
+ * exists so that `PRESET_PARAMS` can be keyed by it and a verb registered
+ * without parameter descriptors is a compile error (§6a).
+ */
+export type PresetKind = keyof typeof REGISTRY
+
+/**
+ * The registry as consumed. Deliberately **not** narrowed to `PresetKind`:
+ * `compilePreset` below indexes it with a plain `string` taken from the scene
+ * file, and both scene validators ask `kind in PRESETS` of unvalidated input.
+ * Narrowing the public type would push a cast into all three call sites to buy
+ * nothing — the compile-time tie we actually want is on the descriptor table,
+ * where a missing entry is the failure mode, not here.
+ */
+export const PRESETS: Record<string, PresetFn> = REGISTRY
 
 /**
  * Expand preset sugar into a track.

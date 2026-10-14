@@ -75,8 +75,19 @@ export { makeRng } from './rng.js'
 
 /* ---------------------------------------------------------------- animation */
 
-export { CHANNELS, EASINGS, PRESETS, compilePreset, composeAnim, evalTrack } from './anim/index.js'
-export type { AnimCompiler, Channel, PresetCtx, PresetFn } from './anim/index.js'
+export { CHANNELS, EASINGS, PARAM_UNITS, PRESETS, PRESET_PARAMS, compilePreset, composeAnim, evalTrack } from './anim/index.js'
+export type {
+  AnimCompiler,
+  Channel,
+  EnumParam,
+  NumericParam,
+  ParamDescriptor,
+  ParamShape,
+  ParamUnit,
+  PresetCtx,
+  PresetFn,
+  PresetKind,
+} from './anim/index.js'
 
 /* -------------------------------------------------------------- measurement */
 
