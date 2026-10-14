@@ -1,4 +1,5 @@
-import { frameTimes, resolveStereo } from '../src/core/index.js'
+import { resolveStereo } from '../src/core/index.js'
+import { frameIndexAt, frameTimesOf, lastFrameTime, timeOfFrame } from './transport.js'
 import { validateScene } from './scene.js'
 import type { Anim, Layer, Scene, StereoOpts } from '../src/core/types.js'
 
@@ -159,43 +160,18 @@ export function presetNote(kind: string, layerCount: number): string {
     'from the scene duration unless you give it its own.'
 }
 
-/** `frameTimes`, re-exported through here so the page has one import for the grid. */
-export function frameTimesOf(scene: Scene): number[] {
-  return frameTimes(scene)
-}
-
-export function lastFrameTime(scene: Scene): number {
-  const times = frameTimes(scene)
-  return times[times.length - 1]!
-}
-
 /**
- * The frame whose sample time is nearest `seconds`.
+ * The frame grid lives in `transport.ts` and is re-exported — not re-stated — here.
  *
- * Ties resolve to the lower index: scanning ascending and only accepting a
- * strictly smaller distance makes the result independent of float noise in the
- * midpoint, which `<` on an exact tie would not be.
+ * The player must be able to reach `frameTimesOf`/`frameIndexAt`/`timeOfFrame`/
+ * `lastFrameTime` without importing this module, which carries the editor's
+ * `UiState` and `reduce`. A second copy is the thing to avoid: the channel list
+ * is already guarded in `track.ts` and duplicated unguarded in two validators,
+ * and both of them silently drop channels because of it. `transport.test.ts`
+ * asserts these are the *same function objects*, so a re-implementation here
+ * fails rather than quietly diverging.
  */
-export function frameIndexAt(scene: Scene, seconds: number): number {
-  const times = frameTimes(scene)
-  const t = Number.isFinite(seconds) ? seconds : 0
-  let best = 0
-  let bestDistance = Math.abs(times[0]! - t)
-  for (let i = 1; i < times.length; i++) {
-    const d = Math.abs(times[i]! - t)
-    if (d < bestDistance) {
-      bestDistance = d
-      best = i
-    }
-  }
-  return best
-}
-
-export function timeOfFrame(scene: Scene, index: number): number {
-  const times = frameTimes(scene)
-  const i = Number.isFinite(index) ? Math.round(index) : 0
-  return times[i < 0 ? 0 : i >= times.length ? times.length - 1 : i]!
-}
+export { frameIndexAt, frameTimesOf, lastFrameTime, timeOfFrame }
 
 /** Snap a time onto the scene's frame grid. */
 function snap(scene: Scene, seconds: number): number {
