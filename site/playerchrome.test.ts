@@ -481,7 +481,17 @@ describe('chrome auto-hides, as a pure policy (design §8.2)', () => {
   it('is total for degenerate clocks', () => {
     // Backwards clock, or a stamp from the future: visible, because visible is
     // the state a user can recover from.
-    expect(chromeVisible(playing(CHROME_IDLE_MS * 10), 0)).toBe(true)
+    //
+    // Swept over the magnitude of the backwards step rather than asserted at
+    // one, because the policy no longer carries an arm for it: `if (elapsed <
+    // 0) return true` stood in `chromeVisible` and could not change the answer
+    // for any input, since a negative elapsed is below any positive delay.
+    // It was deleted — a line that cannot change the answer reads as though it
+    // can — and this is the sweep that holds the behaviour it used to look
+    // responsible for.
+    for (const back of [1, 10, CHROME_IDLE_MS, CHROME_IDLE_MS * 10, 1e12]) {
+      expect(chromeVisible(playing(back), 0), String(back)).toBe(true)
+    }
     expect(chromeVisible(playing(10), 10)).toBe(true)
     for (const now of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
       expect(chromeVisible(playing(0), now)).toBe(true)

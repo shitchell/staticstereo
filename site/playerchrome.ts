@@ -538,7 +538,13 @@ export interface ChromeActivity {
  * - `nowMs` **earlier** than `lastActivityMs` — a clock stepped backwards, or
  *   a stamp taken from a different clock. Treating the negative interval as
  *   "a long time ago" would blank the controls on a machine that just
- *   resynchronised its time.
+ *   resynchronised its time. **This one needs no check and does not have
+ *   one.** A negative elapsed is below any positive delay, so the general
+ *   rule already answers it; `if (elapsed < 0) return true` stood here and was
+ *   removed because it could not change the answer for any input, and a line
+ *   that cannot change the answer reads to the next person as though it can.
+ *   The behaviour is pinned by test either way — the decision was considered,
+ *   and it is `CHROME_IDLE_MS > 0` that enforces it.
  * - `nowMs` **equal** to it: zero elapsed, visible, which is the same answer
  *   the general rule gives and is stated only so the boundary is not an
  *   accident.
@@ -554,9 +560,10 @@ export interface ChromeActivity {
 export function chromeVisible(state: ChromeActivity, nowMs: number): boolean {
   if (state.playing !== true) return true
   if (!Number.isFinite(nowMs) || !Number.isFinite(state.lastActivityMs)) return true
-  const elapsed = nowMs - state.lastActivityMs
-  if (elapsed < 0) return true
-  return elapsed < CHROME_IDLE_MS
+  // A backwards clock needs no arm of its own: see the docblock's second
+  // bullet. `elapsed` is finite by the guard above, so `< CHROME_IDLE_MS`
+  // already covers every negative reading.
+  return nowMs - state.lastActivityMs < CHROME_IDLE_MS
 }
 
 /**
