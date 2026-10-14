@@ -550,13 +550,43 @@ export function fitScale({
  *   to letterbox by distorting.
  * - `scale` is monotonically non-decreasing in either available dimension and in
  *   `dpr`, and is idempotent: fitting a plate into the box this function just
- *   gave it returns the same scale.
+ *   gave it returns the same scale. **See the note below — this clause appeals
+ *   to a convention that is written down nowhere.**
  * - `scale >= 0`, and `0` **only** for a box that measures 0 — a detached or
  *   `display: none` element, which a resize handler must survive rather than
  *   throw on. A zero scale here is not the "shrink to fit" failure the header
  *   warns about; it is "there is nowhere to draw yet".
  * - `plateWidth`/`plateHeight` must be finite and positive, and anything else
  *   throws: those are a programming error, not a measurement off the DOM.
+ *
+ * ### What the idempotence clause leaves unstated
+ *
+ * The clause above is correct and is tested (`scale.test.ts`, *"is idempotent:
+ * re-fitting a plate into its own result changes nothing"*). What it does not
+ * say is that it rests on a **convention this module never states**: that
+ * "the box this function just gave it" means feeding `cssWidth`/`cssHeight`
+ * back in as `availableWidth`/`availableHeight`. Those are four different
+ * fields and the mapping between them is an interpretation, not a definition —
+ * grepping either `scale.ts` or `scale.test.ts` for the word `convention`
+ * returns nothing, and the one test embodies the mapping in a single call
+ * without naming it as the rule the clause means.
+ *
+ * Two things follow that a reader is entitled to know, both measured:
+ *
+ * - **It is approximate, not exact.** The test asserts `toBeCloseTo(…, 9)`,
+ *   and it has to: a 1500x720 plate in a 1281x803 box at dpr 1.7777777777
+ *   re-fits to `1.5182222221557995` against the original `1.5182222221557997`.
+ *   "Returns the same scale" is true to nine places, not bit for bit, because
+ *   the second solve divides a quotient rather than the original length.
+ * - **It is a claim about this function only.** {@link fitScale} happens to be
+ *   idempotent under the same re-feeding, because it floors to an integer.
+ *   `renderFit` is **not**: re-feeding its `cssWidth`/`cssHeight` lowers
+ *   `sceneScale` — 0.828125 to 0.8277777… on the committed default scene in a
+ *   1280x800 box, and 0.905 to 0.75 for a 2000x4 scene in 3840x2160 — because
+ *   the plate it reports is built from a *floored* integer stage and is
+ *   therefore narrower than the budget it was solved against. Nothing in
+ *   `scale.test.ts` says so either way, so a future reader generalising this
+ *   bullet across the module would be wrong.
  *
  * ## The centring offsets still go through {@link snapOffset}
  *
