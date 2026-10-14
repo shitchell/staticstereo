@@ -12,7 +12,16 @@
  * a committed fixture.
  *
  * **This is the one sanctioned exception to "assert on structure, not on
- * values".** It exists to be deleted once the rename lands.
+ * values".** The renames have landed and this fixture is the evidence that
+ * they were renames; the legacy kinds it also covers have *not* been deleted
+ * yet, so it survives to the phase gate and its removal after that is a
+ * separate decision, not an automatic consequence of the rename.
+ *
+ * **It pins the compiled `Track` as JSON, not exactly.** `JSON.stringify(-0)`
+ * is `"0"`, so a signed zero can neither be recorded here nor detected by the
+ * comparison. That is reachable: `push` emits `from - ctx.layerDepth`, which
+ * is `-0` when `from` equals `ctx.layerDepth`. Low impact — `-0 === 0` and the
+ * two render identically — but it bounds what the corpus witnesses.
  *
  * Breadth is the point. Three cases per kind — bare, fully parameterised, and
  * fully parameterised plus all four `overrides()` fields — because a corpus of

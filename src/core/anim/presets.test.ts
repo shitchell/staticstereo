@@ -10,8 +10,8 @@ const OFF_RIGHT = ctx.sceneW + ctx.marginRight      // 855
 /**
  * Absolute depth a layer actually ends up at: tracks emit additive OFFSETS, so
  * asserting a track's raw `depth` channel tests the wrong number. The old
- * push test asserted raw offsets and passed only because it happened to use
- * a layer depth of 1.
+ * `emerge` test — `emerge` is the name `push` was renamed from — asserted raw
+ * offsets and passed only because it happened to use a layer depth of 1.
  */
 function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: number) {
   return layerDepth + evalTrack(tr, t, 1).depth
@@ -106,8 +106,9 @@ describe('presets', () => {
   })
 })
 
-// Not in the implementation plan: `move`, `slide-in` and `bob` were specified
-// in prose with no test behind them, so these pin the spec's wording.
+// Not in the implementation plan: `slide` — since renamed to `move` — plus
+// `slide-in` and `bob` were specified in prose with no test behind them, so
+// these pin the spec's wording.
 describe('presets implemented from prose spec', () => {
   it('unknown-preset error lists the valid kinds', () => {
     expect(() => compilePreset({ kind: 'nope' }, ctx)).toThrow(/slide-in/)
