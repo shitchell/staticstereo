@@ -171,16 +171,60 @@ type _NoStereoKeyExtra = AssertNever<Exclude<StereoKey, keyof StereoOpts>>
  * What an animator can move. Deliberately has no `opacity`: there is no
  * meaningful transparency in depth space, so fading is expressed as motion in
  * `depth` (the `emerge` preset) instead.
+ *
+ * **This is a sampled pose, not an animation.** Duration, easing and endpoints
+ * live on {@link Track} and on the preset that compiled it; a `Transform` is
+ * the answer to "where is this layer at this instant", which is why it has no
+ * time in it.
+ *
+ * ## The three rotations
+ *
+ * `rotate` is rotation **about z** — the axis pointing at the viewer, i.e. the
+ * ordinary in-plane spin — and is kept under its original name because every
+ * existing scene and preset uses it.
+ *
+ * `rotateX` and `rotateY` rotate about the horizontal and vertical axes, which
+ * under this project's **orthographic** projection reduce exactly to a cosine
+ * scale on the opposite axis:
+ *
+ *     rotateX(θ)  →  scale y by cos θ
+ *     rotateY(θ)  →  scale x by cos θ
+ *
+ * So they are not an approximation of 3D — for a flat layer at one depth that
+ * *is* the correct orthographic projection. Three consequences worth knowing:
+ *
+ * 1. **Mirroring is `rotateY = π`**, where cos = −1. There is deliberately no
+ *    separate `flip` channel and no non-uniform `scale`: a mirror is a half
+ *    turn, and naming it as one means the in-between values are meaningful too.
+ * 2. **At ±π/2 the layer vanishes**, cos = 0, which is a card seen edge-on.
+ * 3. **Rotations compose additively**, so two `rotateY = π/2` animators sum to
+ *    a mirror. That is physically right and falls out of `composeAnim` summing
+ *    every channel except `scale`.
+ *
+ * **What they do not yet do is read as depth.** With a flat layer, `rotateY` is
+ * visually indistinguishable from a horizontal squash, because an orthographic
+ * projection carries no perspective cue. The turn becomes a real one when the
+ * rasteriser transforms *depth* alongside position — rotate a heightmap about y
+ * and each column's depth should shift too. That is a rasteriser change and not
+ * a model change: this type is identical in both worlds, which is the whole
+ * reason the three rotations are here now rather than a `scale` pair.
  */
 export interface Transform {
   x: number
   y: number
   depth: number
   scale: number
+  /** About z — the in-plane spin. Radians, as `CanvasLike.rotate` takes. */
   rotate: number
+  /** About x. Radians. Orthographically, a cosine scale on y. */
+  rotateX: number
+  /** About y. Radians. Orthographically, a cosine scale on x. `π` mirrors. */
+  rotateY: number
 }
 
-export const IDENTITY: Transform = { x: 0, y: 0, depth: 0, scale: 1, rotate: 0 }
+export const IDENTITY: Transform = {
+  x: 0, y: 0, depth: 0, scale: 1, rotate: 0, rotateX: 0, rotateY: 0,
+}
 
 /** A keyframe. `t` is normalised 0..1 within the track's own window. */
 export type Key = { t: number } & Partial<Transform>

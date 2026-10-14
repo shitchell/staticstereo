@@ -594,3 +594,35 @@ describe('rasterDepth circle wedges (pacman)', () => {
     await expect(depthAt({ start: 0, end: Number.NaN }, [RIGHT])).rejects.toThrow(/finite degrees/)
   })
 })
+
+describe('axis rotations under an orthographic projection', () => {
+  /**
+   * A rect is drawn from its `at` origin rightward, so it is asymmetric about
+   * that origin — which is what makes it a usable mirror fixture. At x=20 in a
+   * 40-wide frame it covers 20..29; mirrored about its own origin it must
+   * cover 10..19 and nothing else.
+   */
+  const slab = (anim?: unknown): Scene => ({
+    size: [40, 10],
+    layers: [
+      { type: 'shape', shape: 'rect', at: [20, 0], w: 10, h: 10, depth: 1, ...(anim ? { anim } : {}) } as never,
+    ],
+  })
+
+  it('rotateY = pi mirrors the layer about its own origin', async () => {
+    const d = await rasterDepth(slab({ keys: [{ t: 0, rotateY: Math.PI }] }), 0, fakeCanvas())
+    expect(at(d, 40, 15, 5)).toBeCloseTo(1, 6)
+    expect(at(d, 40, 25, 5)).toBeCloseTo(0, 6)
+  })
+
+  it('leaves the layer unmirrored at rotateY = 0', async () => {
+    const d = await rasterDepth(slab(), 0, fakeCanvas())
+    expect(at(d, 40, 25, 5)).toBeCloseTo(1, 6)
+    expect(at(d, 40, 15, 5)).toBeCloseTo(0, 6)
+  })
+
+  it('rotateY = pi/2 turns the layer edge-on, so nothing is drawn', async () => {
+    const d = await rasterDepth(slab({ keys: [{ t: 0, rotateY: Math.PI / 2 }] }), 0, fakeCanvas())
+    expect(Array.from(d).every(v => v === 0)).toBe(true)
+  })
+})

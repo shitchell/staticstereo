@@ -3,8 +3,16 @@ import { IDENTITY } from '../types.js'
 import type { Anim, Easing, Key, Preset, Track, Transform } from '../types.js'
 import type { PresetCtx } from './presets.js'
 
-const CHANNELS = ['x', 'y', 'depth', 'scale', 'rotate'] as const
+const CHANNELS = ['x', 'y', 'depth', 'scale', 'rotate', 'rotateX', 'rotateY'] as const
 type Channel = typeof CHANNELS[number]
+
+/** Errors unless its argument is `never`. */
+type AssertNever<T extends never> = T
+// A channel added to `Transform` without being listed above would silently
+// stop interpolating — `evalTrack` only walks CHANNELS — and nothing else in
+// the codebase would notice. Same guard as `STEREO_KEYS` in `types.ts`.
+type _NoChannelMissing = AssertNever<Exclude<keyof Transform, Channel>>
+type _NoChannelExtra = AssertNever<Exclude<Channel, keyof Transform>>
 
 /** Map wall-clock seconds to this track's normalised local time, honouring repeat. */
 function localTime(tr: Track, seconds: number, sceneDuration: number): number {
@@ -122,6 +130,8 @@ export function composeAnim(
     acc.y += t.y
     acc.depth += t.depth
     acc.rotate += t.rotate
+    acc.rotateX += t.rotateX
+    acc.rotateY += t.rotateY
     acc.scale *= t.scale
   }
   return acc

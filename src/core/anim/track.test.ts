@@ -120,3 +120,34 @@ describe('composeAnim preset wiring', () => {
     expect(r.scale).toBe(2)
   })
 })
+
+describe('axis rotations', () => {
+  it('interpolates rotateY like any other channel', () => {
+    const tr: Track = { keys: [{ t: 0, rotateY: 0 }, { t: 1, rotateY: Math.PI }] }
+    expect(evalTrack(tr, 0.5, 1).rotateY).toBeCloseTo(Math.PI / 2)
+  })
+
+  it('interpolates rotateX like any other channel', () => {
+    const tr: Track = { keys: [{ t: 0, rotateX: 0 }, { t: 1, rotateX: Math.PI }] }
+    expect(evalTrack(tr, 0.5, 1).rotateX).toBeCloseTo(Math.PI / 2)
+  })
+
+  // Rotations are additive, so two quarter turns about y are a mirror. This is
+  // the property that makes `rotateY` the right home for "flip" rather than a
+  // non-uniform scale, which would have had to multiply.
+  it('sums rotateY across composed animators, so two quarter turns mirror', () => {
+    const r = composeAnim(
+      [{ keys: [{ t: 0, rotateY: Math.PI / 2 }] }, { keys: [{ t: 0, rotateY: Math.PI / 2 }] }],
+      0, 1, undefined, () => ({ keys: [] }),
+    )
+    expect(r.rotateY).toBeCloseTo(Math.PI)
+  })
+
+  it('sums rotateX across composed animators', () => {
+    const r = composeAnim(
+      [{ keys: [{ t: 0, rotateX: 0.25 }] }, { keys: [{ t: 0, rotateX: 0.5 }] }],
+      0, 1, undefined, () => ({ keys: [] }),
+    )
+    expect(r.rotateX).toBeCloseTo(0.75)
+  })
+})

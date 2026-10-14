@@ -149,7 +149,20 @@ export async function rasterDepth(
     scratch.save()
     scratch.translate(at[0] + t.x, at[1] + t.y)
     if (t.rotate !== 0) scratch.rotate(t.rotate)
-    if (t.scale !== 1) scratch.scale(t.scale, t.scale)
+    // `rotateX`/`rotateY` collapse to a cosine scale on the opposite axis,
+    // which is not an approximation — under an orthographic projection it is
+    // exactly what rotating a flat layer about that axis does. `rotateY = π`
+    // therefore gives sx = −1, a mirror, which is why there is no `flip`
+    // channel. See `Transform`'s own docs for the rest, including why this
+    // does not yet read as depth.
+    //
+    // Multiplied into `scale` rather than applied as a second `scale()` call
+    // so a layer that is both scaled and turned goes through one matrix
+    // update, and so the `=== 1` fast path still fires for the common case of
+    // neither.
+    const sx = t.scale * Math.cos(t.rotateY)
+    const sy = t.scale * Math.cos(t.rotateX)
+    if (sx !== 1 || sy !== 1) scratch.scale(sx, sy)
     prep.draw(scratch)
     scratch.restore()
 
