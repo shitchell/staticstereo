@@ -58,7 +58,9 @@ export const EXAMPLES: Example[] = [
       'image at the given speed and leaves completely, instead of parking its ' +
       'tail on screen. This was the `marquee` preset, which computed those two ' +
       'numbers for you; the verb vocabulary has five entries now and a scroll ' +
-      'is written out. Edit `to` if you change the text.',
+      'is written out — but the endpoints are the tokens `offRight` and ' +
+      '`offLeft`, which `move` resolves against the measured text, so there is ' +
+      'nothing to edit when you change it.',
     scene: {
       size: SIZE,
       fps: 12,
@@ -70,37 +72,42 @@ export const EXAMPLES: Example[] = [
           size: 96,
           at: [0, 130],
           depth: 0.7,
-          // Written out because no preset derives them any more (design
-          // §4.2b). Both endpoints are against the PLATE, not the stage, so
-          // "off-frame" means off the image that is actually emitted:
+          // `offRight`/`offLeft` are the off-stage endpoints `move` resolves
+          // out of the compile context (design §4.2) — the arithmetic this
+          // entry used to carry by hand. Both are against the PLATE, not the
+          // stage, so "off-frame" means off the image that is actually
+          // emitted:
           //
-          //   from =   sceneW + marginRight   =  640 + 55   =  695
-          //   to   = -(contentW + marginLeft) = -(1122.3299560546875 + 55)
+          //   offRight =   sceneW + marginRight
+          //   offLeft  = -(contentW + marginLeft)
           //
-          // `contentW` is the MEASURED width of this string at this size and
-          // weight on the vendored face, and the margins are
-          // `sceneMargins(scene)` — 55 and 55, because the scene names no
-          // `stereo` block, so `algorithm` defaults to `linked` and `linked`
-          // splits `sepFar` evenly. (110 is the shift, not the left margin;
-          // only `shift` puts the whole 110 on the left.) Both numbers were
-          // read off the live rasteriser rather than estimated — the figure
-          // here was ~1050 against a 110px margin, two errors that partly
-          // cancelled, and `to` was 17.33px short of clearing the plate.
+          // Measured when the tokens landed: they resolve to 695 and
+          // -1177.3299560546875, byte-for-byte the two literals that stood
+          // here, so the swap moved no pixel.
           //
-          // Recompute `to` whenever the text, the size, the weight or the
-          // face changes: a wider string against a stale endpoint parks its
-          // tail on screen, which is the bug the `-contentW` term exists to
-          // prevent.
+          // WHY A TOKEN RATHER THAN A NUMBER — and this history is the
+          // evidence, so it stays. The figure here was once ~1050 against a
+          // 110px margin: two errors that partly cancelled, leaving `to`
+          // 17.33px short of clearing the plate. (110 is the shift, not the
+          // left margin. This scene names no `stereo` block, so `algorithm`
+          // defaults to `linked`, and `linked` splits `sepFar` evenly into
+          // 55/55; only `shift` puts the whole 110 on the left.) `contentW` is
+          // the MEASURED width of this string at this size and weight on the
+          // vendored face, so a written-out endpoint goes stale whenever the
+          // text, the size, the weight or the face changes, and a stale one
+          // parks the tail on screen — the bug the `-contentW` term exists to
+          // prevent. A token is derived per compile and cannot drift, so none
+          // of that has to be remembered. It is also shorter than a
+          // 20-character float, which marginally helps the link-size budget
+          // these scenes live under.
           //
-          // Measured and left as it was: the travel is 1872.33px at 160px/s
-          // = 11.7s against a 6s scene, so the demo plays the first half of
-          // one cycle and never reaches `to`. Whether that was intended is
-          // not recorded. It is written down because it is what makes the
-          // exact value of `to` unobservable here, and therefore the reason
-          // this comment had drifted wrong without anything going visibly
-          // bad — an author raising `speed` is the one who will first see it.
+          // What let the drift go unnoticed is unchanged and still worth
+          // knowing: the travel is 1872.33px at 160px/s = 11.7s against a 6s
+          // scene, so the demo plays the first half of one cycle and never
+          // reaches the far endpoint. Whether that was intended is not
+          // recorded; an author raising `speed` is the one who would see it.
           anim: {
-            kind: 'move', from: [695, 0], to: [-1177.3299560546875, 0], speed: 160, repeat: 'loop',
+            kind: 'move', from: ['offRight', 0], to: ['offLeft', 0], speed: 160, repeat: 'loop',
           },
         },
       ],
