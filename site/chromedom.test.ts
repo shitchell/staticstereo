@@ -87,23 +87,54 @@ function declarationsOf(css: string, prop: string): { selector: string; value: s
 /* -------------------------------------------------- the applier's coverage */
 
 /**
- * The role constants, read out of `playerchrome.ts`'s **source**.
+ * The prefix that marks an export of `playerchrome.ts` as a structural role.
  *
- * Deliberately not `Object.keys` of anything this module exports: the point is
- * that a role added to `playerchrome.ts` tomorrow, by somebody who never opens
- * this file, is covered or else fails. Reading the source is the only way to
- * enumerate constants that do not yet exist.
+ * A naming convention is doing load-bearing work here, which is worth saying
+ * out loud rather than leaving implicit: the module has no runtime marker for
+ * "this is a role", so the name is the marker, and a role exported under some
+ * other name is invisible to everything below.
  */
-const ROLE_NAMES = [
-  ...readFileSync(new URL('./playerchrome.ts', import.meta.url), 'utf8')
-    .matchAll(/^export const (ROLE_[A-Z_]+)\s*=/gm),
-].map(m => m[1]!)
+const ROLE_EXPORT_PREFIX = 'ROLE_'
 
-const ROLES = ROLE_NAMES.map(name => {
-  const value = (chrome as unknown as Record<string, unknown>)[name]
-  expect(typeof value, `${name} is not a string constant`).toBe('string')
-  return [name, value as string] as const
-})
+/** Is this export of `playerchrome.ts` one of the roles the applier must handle? */
+function isRoleExport(name: string): boolean {
+  return name.startsWith(ROLE_EXPORT_PREFIX)
+}
+
+/**
+ * The role constants, read out of `playerchrome.ts`'s **runtime exports**.
+ *
+ * Still deliberately not a hand-kept list — the point is unchanged: a role
+ * added to `playerchrome.ts` tomorrow, by somebody who never opens this file,
+ * is covered or else fails, so the enumeration has to find constants that do
+ * not yet exist.
+ *
+ * **But not from the source text, which is how it used to work and which had
+ * a syntactic hole.** The regex was `/^export const (ROLE_[A-Z_]+)\s*=/gm`.
+ * Measured: `export const ROLE_CAPTION = 'caption'` is caught (2 failed, 18
+ * passed, correctly), and `export const ROLE_CAPTION: string = 'caption'` —
+ * the same declaration with a type annotation — leaves this file at **20
+ * passed** with an unhandled structural role in existence. A `export { … as
+ * ROLE_X }` re-export and a `satisfies` clause defeat it the same way, and
+ * widening the regex to allow an annotation closes only the first of the
+ * three.
+ *
+ * The module namespace has no such holes: however the constant is spelled,
+ * declared, annotated or re-exported, it is a key of `chrome` at runtime.
+ *
+ * Filtered on the **name** and only then checked for string-ness, not
+ * filtered on both: a `ROLE_`-named export that is not a string is a mistake
+ * worth a red test, and a predicate that required `typeof value === 'string'`
+ * would silently drop it instead.
+ */
+const ROLES = Object.entries(chrome as unknown as Record<string, unknown>)
+  .filter(([name]) => isRoleExport(name))
+  .map(([name, value]) => {
+    expect(typeof value, `${name} is not a string constant`).toBe('string')
+    return [name, value as string] as const
+  })
+
+const ROLE_NAMES = ROLES.map(([name]) => name)
 
 describe('every role the chrome module can produce has a renderer arm', () => {
   it('found the role constants, rather than matching nothing and passing', () => {
@@ -113,6 +144,20 @@ describe('every role the chrome module can produce has a renderer arm', () => {
     expect(ROLE_NAMES.length).toBeGreaterThanOrEqual(6)
     expect(ROLE_NAMES).toContain('ROLE_CANVAS')
     expect(ROLE_NAMES).toContain('ROLE_TRANSPORT')
+  })
+
+  it('enumerates by name from the namespace, so no declaration syntax hides a role', () => {
+    // The positive control for the enumeration itself. A synthetic namespace
+    // cannot express the case that motivated the change — a type annotation
+    // is gone by runtime, which is exactly why reading the namespace fixes
+    // it — so what is asserted here is the predicate's discrimination: it
+    // takes a `ROLE_`-named export it has never heard of, and it does not
+    // take the module's other string constant.
+    const pretend = { ROLE_CAPTION: 'caption', CONTROL_PREFIX: 'control:', nodesOf: () => [] }
+    expect(Object.keys(pretend).filter(isRoleExport)).toEqual(['ROLE_CAPTION'])
+    // ...and the live namespace really is the source, not a list typed here.
+    expect(ROLE_NAMES).toEqual(Object.keys(chrome).filter(isRoleExport))
+    expect(ROLE_NAMES).not.toContain('CONTROL_PREFIX')
   })
 
   it('renders each of them, with at least one class and no duplicates', () => {
