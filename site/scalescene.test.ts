@@ -4,11 +4,13 @@ import {
   SCALED_SHAPE_LENGTHS,
   SCALED_TEXT_LENGTHS,
   SCALE_FREE_PRESET_KINDS,
+  SCALE_NOTES,
   SCALE_REFUSALS,
   UNSCALED_CHANNELS,
   UNSCALED_SHAPE_NUMBERS,
   isTrackAnimator,
   presetIsScaleFree,
+  scaleNotice,
   scaleScene,
 } from './scalescene.js'
 import type { ScaleRefusal } from './scalescene.js'
@@ -187,7 +189,7 @@ function accepted(): Scene {
         h: 120,
         at: [10, 20],
         depth: 0.4,
-        anim: { kind: 'slide-in', from: 'left' },
+        anim: { kind: 'emerge', from: 0.1, to: 0.4 },
       },
     ],
   }
@@ -599,8 +601,21 @@ describe('scaleScene — the preset allow-list', () => {
     }
   })
 
+  it('does not allow-list slide-in', () => {
+    // Ruling: P0 deletes `slide-in` entirely and its replacement, `move`, takes
+    // explicit off-stage endpoints in scene px — so it belongs in the refused
+    // arm by the ordinary rule and there is nothing to reason about. Removed
+    // rather than argued over. Asserted by name because "not in the set" is the
+    // kind of fact that silently comes back.
+    expect(SCALE_FREE_PRESET_KINDS.has('slide-in')).toBe(false)
+    const scene = sceneOf({ type: 'shape', shape: 'circle', r: 8, anim: { kind: 'slide-in', from: 'left' } })
+    const r = scaleScene(scene, planAt(scene, 0.5))
+    expect(r.ok).toBe(false)
+    if (!r.ok) expect(r.reason).toBe('unscalable-preset')
+  })
+
   it('accepts every allow-listed kind, and each one really exists', () => {
-    expect(SCALE_FREE_PRESET_KINDS.size).toBeGreaterThanOrEqual(2)
+    expect(SCALE_FREE_PRESET_KINDS.size).toBeGreaterThanOrEqual(1)
     for (const kind of SCALE_FREE_PRESET_KINDS) {
       // An allow-listed kind that no registry implements would be an allow-list
       // that had drifted away from the thing it is making a claim about.
@@ -656,6 +671,67 @@ describe('isTrackAnimator', () => {
     const anim = out.layers[0]!.anim as Track
     expect(anim.keys[0]!.x).toBe(50)
     expect((anim as unknown as Preset)['kind']).toBe(hybrid.kind)
+  })
+})
+
+/* ------------------------- the margin-share note: informational, not a gate */
+
+describe('scaleNotice', () => {
+  it('always returns a note for a render plan — it is not a threshold', () => {
+    // The orchestrator declined to add a refusal threshold for this, because
+    // nobody has measured where a small render stops being worth it and an
+    // unmeasured threshold is worse than none. So the note is unconditional:
+    // if it were sometimes absent, the condition under which it appeared WOULD
+    // be a threshold, just an undocumented one.
+    const scene = accepted()
+    let checked = 0
+    for (const w of [3000, 1920, 1280, 800, 500, 300]) {
+      const plan = renderFit({ scene, availableWidth: w, availableHeight: 10000, dpr: 1 })
+      const note = scaleNotice(plan)
+      expect(note.note, `${w}`).toBe('margin-share')
+      expect(note.explanation, `${w}`).toBe(SCALE_NOTES['margin-share'].explanation)
+      checked++
+    }
+    expect(checked).toBe(6)
+  })
+
+  it('reports the stage share as the plan measures it', () => {
+    const scene = accepted()
+    const plan = renderFit({ scene, availableWidth: 1280, availableHeight: 10000, dpr: 1 })
+    // Derived from the plan, not re-solved: a second derivation is a second
+    // thing that can disagree with `renderFit`.
+    expect(scaleNotice(plan).stageShare).toBeCloseTo(plan.sceneWidth / plan.plateWidth, 12)
+    expect(scaleNotice(plan).stageShare).toBeGreaterThan(0)
+    expect(scaleNotice(plan).stageShare).toBeLessThanOrEqual(1)
+  })
+
+  it('the share falls as the render gets smaller — the property being recorded', () => {
+    // THE structural claim, and the reason the note exists: the stage scales
+    // and the margins do not, so the dead strips take a growing share of the
+    // plate as the factor shrinks. Asserted as a monotone trend rather than
+    // against pinned percentages, which would pin today's sepFar.
+    const scene = accepted()
+    const shares = [3000, 1920, 1280, 800, 500, 300].map(w =>
+      scaleNotice(renderFit({ scene, availableWidth: w, availableHeight: 10000, dpr: 1 })).stageShare,
+    )
+    for (let i = 1; i < shares.length; i++) {
+      expect(shares[i]!, `share at index ${i}`).toBeLessThan(shares[i - 1]!)
+    }
+    // Vacuity floor: a sequence that never actually moved would pass a
+    // non-strict comparison, and a one-element sequence passes any of them.
+    expect(shares.length).toBeGreaterThanOrEqual(6)
+    expect(shares[0]! - shares[shares.length - 1]!).toBeGreaterThan(0.25)
+  })
+
+  it('mirrors the shape of fit.ts notice machinery and explains itself', () => {
+    for (const [key, info] of Object.entries(SCALE_NOTES)) {
+      expect(info.note, key).toBe(key)
+      expect(info.explanation.length, key).toBeGreaterThan(200)
+      // The specific consequence, not a generic "margins exist" sentence.
+      expect(info.explanation, key).toMatch(/do not scale|does not scale/)
+      expect(info.explanation, key).toMatch(/share/)
+    }
+    expect(Object.keys(SCALE_NOTES).length).toBeGreaterThanOrEqual(1)
   })
 })
 

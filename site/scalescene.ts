@@ -148,6 +148,73 @@ export const SCALE_REFUSALS: Record<ScaleRefusal, ScaleRefusalInfo> = {
   },
 }
 
+/* ------------------------------------- the note: informational, not a gate */
+
+/** Things a caller should know about a `render` plan that are not refusals. */
+export type ScaleNote = 'margin-share'
+
+/** What {@link SCALE_NOTES} records about one note. */
+export interface ScaleNoteInfo {
+  /** The note's own name, as {@link ScaleRefusalInfo} does. */
+  readonly note: ScaleNote
+  /** What the caller should know, in prose a human can be shown. */
+  readonly explanation: string
+}
+
+/**
+ * Properties of `fit=render` that are worth saying out loud and are **not**
+ * grounds for refusing.
+ *
+ * A third category alongside "scaled" and "refused", and it needs to exist
+ * because the alternative spellings are both wrong. Folding this into
+ * {@link SCALE_REFUSALS} would turn a working mode into a broken one; leaving
+ * it out entirely makes a real and surprising property of the mode something a
+ * user has to rediscover by looking at a picture and wondering.
+ */
+export const SCALE_NOTES: Record<ScaleNote, ScaleNoteInfo> = {
+  'margin-share': {
+    note: 'margin-share',
+    explanation:
+      'Under fit=render the stage scales and the plate margins do not, so the stage takes a ' +
+      'shrinking share of the emitted image as the render gets smaller. The margins are ' +
+      'ceil(sepFar/2) either side (ceil(sepFar) and ceil(sepFar/2) under the shift algorithm) ' +
+      'and sepFar does not scale, because separation is a property of the viewer\'s eyes ' +
+      'rather than of the picture (requirements §7 C1) — scaling it would change the ' +
+      'disparity budget, a perceptual decision, in the course of answering a layout ' +
+      'question. Measured on a 960x480 scene at sepFar 110, linked, noiseScale 2, dpr 1: the ' +
+      'stage is 92.7% of the plate at 3000 CSS px of available width, 82.8% at 1280, and ' +
+      '56.0% at 500. Small renders are proportionally more dead margin. That is a real cost ' +
+      'of this mode and not a defect — the picture is smaller, not broken — and there is ' +
+      'deliberately no threshold at which it is refused, because nobody has measured where ' +
+      'it stops being worth it and an unmeasured threshold is worse than none.',
+  },
+}
+
+/** The note for a given plan, with the share this particular plan produces. */
+export interface ScaleNotice extends ScaleNoteInfo {
+  /**
+   * `plan.sceneWidth / plan.plateWidth` — the fraction of the emitted image
+   * that is stage rather than dead margin. Dimensionless, 0..1. Read off the
+   * plan rather than re-solved, so it cannot disagree with `renderFit`.
+   */
+  readonly stageShare: number
+}
+
+/**
+ * What a caller should know about this `render` plan.
+ *
+ * **Total, unlike `fitNotice`.** `site/fit.ts`'s notice returns `undefined` for
+ * a mode with nothing to say, because most modes have nothing to say. This one
+ * always has something to say: the property it reports holds for every render
+ * plan, and only its magnitude varies. Returning `undefined` below some share
+ * would be a threshold wearing a notice's clothes — exactly the thing that was
+ * declined — so the caller gets the number and decides for itself whether it
+ * is worth surfacing.
+ */
+export function scaleNotice(plan: RenderFit): ScaleNotice {
+  return { ...SCALE_NOTES['margin-share'], stageShare: plan.sceneWidth / plan.plateWidth }
+}
+
 /** Which layer, and which construct within it, caused the refusal. */
 export interface ScaleRefusalDetail extends ScaleRefusalInfo {
   /** Index into `scene.layers`, or `-1` for a scene-level refusal. */
@@ -192,14 +259,18 @@ export type ScaleResult =
  * The two spellings read equally reasonably in a ticket. They differ in exactly
  * the way that kills: one is wrong loudly and one is wrong quietly.
  *
- * ## Why these two
+ * ## Why this one
  *
- * - `emerge` — `from`/`to` are absolute **depths**, and its only other params
- *   are timing overrides.
- * - `slide-in` — its `from` is a **direction word**, and the off-frame distance
- *   it computes comes from `PresetCtx` (`contentW`, `sceneW`, the margins),
- *   which the renderer measures against whatever scene it is handed. A scaled
- *   scene produces a scaled context, so the endpoint follows for free.
+ * - `emerge` — `from`/`to` are absolute **depths**, and its only other
+ *   parameters are timing overrides. Nothing it carries is a length.
+ *
+ * `slide-in` was on this list and has been removed. It looked safe — its
+ * `from` is a direction *word* and the off-frame distance comes from
+ * `PresetCtx`, which the renderer measures against whatever scene it is handed
+ * — but P0 deletes the verb outright and its replacement, `move`, takes
+ * explicit off-stage endpoints in scene px. So it lands in the refused arm by
+ * the ordinary rule, and the entry was dropped rather than kept and reasoned
+ * about. After the rename this list is `{push}` alone.
  *
  * ## Replacing this with the unit-aware path
  *
@@ -211,7 +282,7 @@ export type ScaleResult =
  * changes, and the fail-closed default is preserved by construction because the
  * fallback for "no tags, not listed" stays `false`.
  */
-export const SCALE_FREE_PRESET_KINDS: ReadonlySet<string> = new Set(['emerge', 'slide-in'])
+export const SCALE_FREE_PRESET_KINDS: ReadonlySet<string> = new Set(['emerge'])
 
 /**
  * Does this preset provably carry no scene-px parameter?
