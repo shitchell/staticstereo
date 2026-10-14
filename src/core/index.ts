@@ -101,17 +101,30 @@ export {
   isEasing,
   resolveEasing,
 } from './anim/index.js'
+/**
+ * `ParamDefault` and its members are published alongside `ParamDescriptor`
+ * because P2 and P3 are the named consumers of the table and both have to
+ * *switch* on `default.from`, not merely read it — see the note in
+ * `anim/index.ts`. Exporting the descriptor without its union left a surface
+ * that could be read and not processed.
+ */
 export type {
   AnimCompiler,
   Channel,
+  CtxDefault,
+  EnumDefault,
   EnumParam,
+  NoDefault,
+  NumericDefault,
   NumericParam,
+  ParamDefault,
   ParamDescriptor,
   ParamShape,
   ParamUnit,
   PresetCtx,
   PresetFn,
   PresetKind,
+  ValueDefault,
 } from './anim/index.js'
 
 /* -------------------------------------------------------------- measurement */
