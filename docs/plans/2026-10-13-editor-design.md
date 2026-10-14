@@ -965,8 +965,16 @@ collected. Four of its eight deviations change claims made above.
    `site/index.html` is already the editor's entry, so renaming the *source* would collide
    with `markup.test.ts` and with P3's teardown.
 4. **Two pixel-space ratios now exist where §8.1 implied one.** `Fit.scale` is device ÷
-   backing-store and is what `image-rendering` must be fed; `displayScale` is CSS ÷
-   backing-store and is what layout consumes. They differ by `dpr`, and conflating them
+   backing-store and is what `image-rendering` must be fed; the CSS ÷ backing-store ratio
+   is what layout consumes.
+
+   *Corrected by P3's survey:* this paragraph named that second ratio `displayScale`, an
+   identifier that **no longer exists anywhere** — it is `cssPerBackingScale`, and that has
+   **zero production consumers**, because the smoothing fix moved the live path onto
+   `Fit.scale`. So as originally written this section instructed P3 to preserve a
+   distinction one half of which is dead code. The distinction is still real and still
+   worth naming; the dead identifier is not worth preserving. Whoever next touches it
+   should decide whether `cssPerBackingScale` earns its existence. They differ by `dpr`, and conflating them
    smoothed genuine upscales on every HiDPI screen — blending adjacent random dots, which
    §5.2a forbids. §10.6's rule about naming the pixel space was written for scene-vs-device
    and applies here with equal force.
