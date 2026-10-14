@@ -184,8 +184,10 @@ const noCompiler: AnimCompiler = preset => {
  * Derived from, and guarded against, `CHANNELS` because `composeAnim` used to
  * write all seven accumulations out by hand. That made an eighth channel a
  * *silent* no-op — and the hole was **four** edits wide, not three. Measured on
- * `80e2241`, the commit this guard landed on: adding a channel on `Transform`,
- * in `IDENTITY` and in `CHANNELS` leaves `npm run typecheck` at **2**, from
+ * the parent of the commit that added this guard (`80e2241` as this is written,
+ * but that is a branch-local hash: trust the description over the digits if the
+ * branch is rebased again): adding a channel on `Transform`, in `IDENTITY` and
+ * in `CHANNELS` leaves `npm run typecheck` at **2**, from
  * `site/scalescene.test.ts`'s `_NoChannelUnclassified`, which demands the new
  * channel be classified in `site/scalescene.ts`'s `SCALED_CHANNELS` or
  * `UNSCALED_CHANNELS`. That guard predates this one (`da5be08`), so

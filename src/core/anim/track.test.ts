@@ -165,9 +165,11 @@ describe('composeAnim', () => {
 // added to `CHANNELS` *correctly* — declared on `Transform`, present in
 // `IDENTITY`, accepted by both validators (whose `KEY_CHANNELS` spread
 // `CHANNELS`, so they need no edit), interpolated by `evalTrack` — and still be
-// dropped on the floor by the compositor. Measured on `80e2241`, the commit the
-// fix landed on, and the hole is **four** edits wide rather than three: those
-// three leave `npm run typecheck` at **2**, because
+// dropped on the floor by the compositor. Measured on the parent of the commit
+// that added the guard (`80e2241` as this is written — a branch-local hash, so
+// trust the description over the digits after a rebase), and the hole is
+// **four** edits wide rather than three: those three leave
+// `npm run typecheck` at **2**, because
 // `site/scalescene.test.ts`'s `_NoChannelUnclassified` also wants the channel
 // classified in `site/scalescene.ts`'s `SCALED_CHANNELS`/`UNSCALED_CHANNELS`.
 // Make that fourth edit and the four gate commands all exit 0 with every test
