@@ -90,6 +90,19 @@ reading code.
 The orchestrator should expect to replace a PM at least once in any phase above ~20 tasks,
 and should treat a PM's own "I am running low" as the normal end of a shift.
 
+### 1.2b A task-notification is not a termination
+
+The orchestrator made this mistake and it cost a duplicate PM on a live branch. A
+notification fires **whenever an agent stops with no live children of its own** — which
+includes an agent that is simply waiting on a worker it dispatched. The agent can be
+resumed and is still holding its context.
+
+Before concluding a PM is gone, send it a message and see whether it answers. Spawning a
+successor onto an occupied branch risks two PMs committing to one worktree, and the only
+reason it did not here is that the successor refused to dispatch and escalated instead.
+**That refusal is the correct behaviour and should be briefed into every PM**: if the
+phase appears to already have an owner, stop and escalate rather than taking over.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
