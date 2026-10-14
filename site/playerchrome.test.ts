@@ -10,8 +10,10 @@ import {
   ROLE_TRANSPORT,
   ROLE_WRAPPER,
   chromeSpec,
+  fullscreenTarget,
   isControlRole,
   nodesOf,
+  pathToRole,
 } from './playerchrome.js'
 import type { ChromeNode, Framing } from './playerchrome.js'
 
@@ -115,5 +117,74 @@ describe('every framing carries a transport (R16, design §8.2)', () => {
     expect(isControlRole(ROLE_TRANSPORT)).toBe(false)
     expect(isControlRole(ROLE_CANVAS)).toBe(false)
     expect(isControlRole(ROLE_WRAPPER)).toBe(false)
+  })
+})
+
+describe('fullscreen targets the wrapper, and clicks still reach the canvas', () => {
+  for (const framing of EVERY_FRAMING) {
+    describe(framing, () => {
+      const spec = chromeSpec(framing)
+
+      it('names the wrapper, and never the canvas (design §8.2)', () => {
+        // "Fullscreening the canvas would make sibling transport unrenderable
+        // and R15+R16 unimplementable together." Today's page targets
+        // `document.documentElement` (main.ts:1056) — neither one.
+        expect(fullscreenTarget(spec)).toBe(ROLE_WRAPPER)
+        expect(fullscreenTarget(spec)).not.toBe(ROLE_CANVAS)
+      })
+
+      it('keeps the canvas a proper descendant of whatever it names', () => {
+        const target = nodesOf(spec).find(n => n.role === fullscreenTarget(spec))!
+        const canvas = nodesOf(spec).find(n => n.role === ROLE_CANVAS)!
+        expect(nodesOf(target)).toContain(canvas)
+        expect(target).not.toBe(canvas)
+      })
+
+      it('makes the transport container transparent to pointers', () => {
+        const transport = nodesOf(spec).find(n => n.role === ROLE_TRANSPORT)!
+        expect(transport.pointerEvents).toBe('none')
+      })
+
+      it('makes every control inside it take pointers again', () => {
+        const transport = nodesOf(spec).find(n => n.role === ROLE_TRANSPORT)!
+        const controls = nodesOf(transport).filter(n => isControlRole(n.role))
+        // Found by walking, never by a hand-listed set, so a control added
+        // later without the property fails here instead of shipping
+        // unclickable under the container's `none`.
+        expect(controls.length).toBeGreaterThanOrEqual(2)
+        for (const control of controls) {
+          expect(control.pointerEvents).toBe('auto')
+        }
+      })
+
+      it('leaves no ancestor of the canvas swallowing its clicks', () => {
+        // A canvas with no `pointer-events` of its own is still unclickable
+        // under an ancestor set to `none`, so asserting the canvas alone would
+        // prove nothing. Clicking the canvas is how the diagnostics band is
+        // placed today, which is what makes this load-bearing.
+        const path = pathToRole(spec, ROLE_CANVAS)!
+        expect(path.length).toBeGreaterThanOrEqual(2)
+        for (const ancestor of path.slice(0, -1)) {
+          expect(ancestor.pointerEvents).not.toBe('none')
+        }
+      })
+
+      it('states nothing at all about the canvas itself', () => {
+        // Not `'auto'`: an explicit auto would make the canvas clickable *in
+        // spite of* an ancestor saying none, and hide that bug from the
+        // assertion above. The canvas keeps the plain default hit behaviour.
+        const canvas = nodesOf(spec).find(n => n.role === ROLE_CANVAS)!
+        expect(canvas.pointerEvents).toBeUndefined()
+      })
+    })
+  }
+
+  it('refuses a tree that is not rooted at a wrapper', () => {
+    // Positive control for the two assertions above: they would both hold
+    // vacuously if `fullscreenTarget` returned the literal wrapper role no
+    // matter what it was handed, and a renderer would then fullscreen an
+    // element that is not in the tree.
+    const canvasRooted: ChromeNode = { role: ROLE_CANVAS, tag: 'canvas', flow: 'flow' }
+    expect(() => fullscreenTarget(canvasRooted)).toThrow(/wrapper/)
   })
 })

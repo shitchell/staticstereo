@@ -125,6 +125,25 @@ export function nodesOf(spec: ChromeNode): ChromeNode[] {
 }
 
 /**
+ * The chain from `spec` down to the first node with `role`, both ends
+ * included, or `undefined` if there is no such node.
+ *
+ * The chain and not the node, because every interesting question about a node
+ * here is a question about what is *above* it: an ancestor can make a canvas
+ * unclickable (design §8.2) and an ancestor's earlier children can displace it
+ * (design §8.3). A finder that returned the node alone would make both
+ * unaskable.
+ */
+export function pathToRole(spec: ChromeNode, role: string): ChromeNode[] | undefined {
+  if (spec.role === role) return [spec]
+  for (const child of spec.children ?? []) {
+    const below = pathToRole(child, role)
+    if (below !== undefined) return [spec, ...below]
+  }
+  return undefined
+}
+
+/**
  * The smallest tree that can satisfy every rule in this module: a wrapper, a
  * canvas, a transport container, and the two controls R16 and design §7.4
  * require in it.
@@ -257,16 +276,66 @@ function canvas(): ChromeNode {
   return { role: ROLE_CANVAS, tag: 'canvas', flow: 'flow' }
 }
 
-/** The control strip. Its children are the controls, and only controls. */
+/**
+ * The control strip. Its children are the controls, and only controls.
+ *
+ * **The container is `pointer-events: none` and each control is `auto`** —
+ * design §8.2, which corrected revision 1's blanket `none`: a rule "correctly
+ * inherited from today's non-interactive `present-hint` and wrongly applied to
+ * a control surface". A strip spanning the plate's width that ate every click
+ * that missed a button would break canvas clicking, which is how the
+ * diagnostics band is placed. Each control re-enables itself, so the only
+ * pixels that stop a click are the pixels of an actual control.
+ *
+ * Written as a `map` over the control list rather than as three literals each
+ * carrying `pointerEvents: 'auto'`: a fourth control added by hand is exactly
+ * the thing that would be added without it, and it would be unclickable with
+ * the suite green.
+ */
 function transport(flow: Flow): ChromeNode {
+  const controls: readonly { role: string; tag: string }[] = [
+    { role: ROLE_PLAY, tag: 'button' },
+    { role: ROLE_SEEK, tag: 'input' },
+    { role: ROLE_FULLSCREEN, tag: 'button' },
+  ]
   return {
     role: ROLE_TRANSPORT,
     tag: 'div',
     flow,
-    children: [
-      { role: ROLE_PLAY, tag: 'button', flow: 'flow' },
-      { role: ROLE_SEEK, tag: 'input', flow: 'flow' },
-      { role: ROLE_FULLSCREEN, tag: 'button', flow: 'flow' },
-    ],
+    pointerEvents: 'none',
+    children: controls.map(c => ({ ...c, flow: 'flow' as const, pointerEvents: 'auto' as const })),
   }
+}
+
+/* ------------------------------------------------------------- fullscreen */
+
+/**
+ * The role of the element to hand to `requestFullscreen`.
+ *
+ * **The wrapper, never the canvas** — design §8.2, already resolved there:
+ * "Fullscreening the canvas would make sibling transport unrenderable and
+ * R15+R16 unimplementable together." A fullscreen element's siblings are not
+ * painted; a transport that is the canvas's sibling therefore disappears at
+ * the exact moment R16 says play/pause must work.
+ *
+ * This is net-new rather than a retarget. Today's one call
+ * (`site/main.ts:1056`) is handed `document.documentElement`, which is neither
+ * — it works only because every presentation style keys off a class on `html`
+ * rather than off `:fullscreen`, and it leaves the player unable to be
+ * fullscreened as a component, which is precisely what R15 asks for.
+ *
+ * Returns a **role**, not a node and certainly not an element: resolving a
+ * role to something `requestFullscreen` can be called on is the renderer's
+ * job, and this module is not allowed to name the type that would require.
+ *
+ * Throws on a tree not rooted at the wrapper rather than searching for one.
+ * The root *is* the wrapper by construction, so a tree that fails this is
+ * malformed, and the alternative — returning {@link ROLE_WRAPPER} regardless —
+ * would let a renderer fullscreen an element the spec does not contain.
+ */
+export function fullscreenTarget(spec: ChromeNode): string {
+  if (spec.role !== ROLE_WRAPPER) {
+    throw new Error(`fullscreenTarget: spec must be rooted at the ${ROLE_WRAPPER}, got ${spec.role}`)
+  }
+  return spec.role
 }
