@@ -262,6 +262,37 @@ uncertainty-triggered escalation never fires. Every brief must therefore say: **
 instructions conflict, stop and report the conflict — do not choose between them**, however
 clear each one is on its own.
 
+### 1.2g The mesh is asymmetric: a PM can reach a live worker, a worker cannot reach its PM
+
+Measured in both directions in one exchange: a PM's `SendMessage` to a live worker
+**arrived**, while that worker's reply got `No agent named 'general-purpose' is reachable`.
+
+Two consequences, and the first is the one that keeps getting violated:
+
+1. **When a PM needs one fact about the code, it asks a live worker.** Not guesses, and
+   not "just a `grep`". A PM that ran `grep` over a source file to settle a single digit
+   recorded the lesson itself: *"`grep` not being `Read` is not a defence — the
+   prohibition is about what a PM's context may hold"*, and **the shortcut was not even
+   faster**, because it returned three irrelevant lines and the round trip happened
+   anyway, one step later.
+2. **A worker's final report remains the channel of record upward**, because nothing else
+   reaches. Every brief says so already; this is why.
+
+### 1.2h Mark relayed reasoning as relayed
+
+The highest-leverage line written in P3 was one sentence in a worker's brief:
+
+> "this is C-1's argument, I cannot check it, verify it rather than build on it"
+
+That is how a hole in the prior task's seam was found. A PM necessarily relays reasoning
+from one worker to the next and **cannot check any of it** (§1.2e-ter). Marking a relayed
+claim as relayed costs one line and converts a premise into a question. Standing practice:
+when a brief carries a conclusion the PM did not measure, it says whose it is and that it
+is unverified.
+
+Worker pushback across P3 stands at **nine for nine** — and four of those were workers
+correcting *each other*, not their PM. That is the mechanism this rule feeds.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -800,6 +831,8 @@ Each already cost a correction. Hand this table to every worker.
 | `comm -12` reported no overlap, so there is none | Not without `LC_ALL=C`. `sort` and `comm` disagree on collation otherwise and silently report **no** overlap — a fail-open answer to "do these two sets intersect". Nearly cost a rebase check. |
 | `grep -n` gave me the line number | Not over diff output it did not — that numbers the *diff*, not the file. It produced `:1665` and `:1728` for a 1281-line file, and the impossible numbers then travelled through two reports before anyone checked them against `git show <sha>:<path> \| grep -n`. |
 | "build 0" is evidence the import is absent | It is not. `tsc` **elides** an unused import, so `dist/` is clean and the build is green while the dependency is right there in the source. A `.svelte` import from `src/` was measured to resolve and execute under vitest, and for the package form `typecheck` **and** `build` are both 0. The only sensor is a test that reads the source. |
+| a guard derived from the roster it guards is a guard | It proves only that the derivation ran twice. An `AssertNever` pair over a union built from the *same* rosters as the registry it checks is self-referential and cannot fail for the reason you want. Point the guard at the **vocabulary** — the upstream types, with the tuples written out — and leave membership to whatever guards the roster itself. |
+| a total in a document is a count of something | Not necessarily. A survey paragraph gave a control population of **64**; it was using two arity conventions at once — a pair counted as one control in two of its buckets and as two in the third. Under one convention the answer is 63, under the other 68. **64 is neither, and pinning it would have produced a wrong registry that was green.** Cite the length of the thing (`CONTROL_IDS.length`), never a total someone wrote down. |
 | a numeric floor chosen from today's count is a check | It is the same defect as a hand-written list, in numeric form. A specifier floor of 160 was **overtaken inside its own cluster** — `src/core` reached 162 before the phase ended. Derive it, or make it a ratchet; never a literal picked from a measurement taken once. |
 | a hand-written list of "the places that do X" is a check | It goes stale silently the day a second place does X. Derive it from the thing that makes a site one of them — the call sites, the registry, the token table — never from an enumeration someone typed. |
 | a stale comment is a stale comment | Two kinds, and the cheaper one is not worth a third edit. A **pointer** (a path, a file name) goes stale when the target moves: the comment is wrong, a `grep` finds the truth, and nothing silently passes. An **assertion** (a test title, a measured value, a claimed mechanism) goes stale when the subject changes: the comment is now **false**, and a reader who trusts it is misled. Fix false assertions; let stale pointers wait for the file to reopen. |
