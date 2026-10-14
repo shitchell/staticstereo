@@ -97,19 +97,35 @@ const NOTICES_ID = 'notices'
  *
  * `site/markup.test.ts` reads `site/index.html` and holds the editor's half of
  * exactly this contract — every id the editor's shell resolves exists in the
- * markup — so for the editor an id that drifts is a red test. There is no
- * equivalent for the player: nothing reads `site/player.html`, and
- * `site/player.ts` has **no test file at all**. So the two ids above
- * ({@link MOUNT_ID}, {@link NOTICES_ID}) are checked by this throw, on the
- * viewer's machine, in an `<iframe>` on somebody else's page — which is the
- * worst available place to discover a typo, and the one case the file header's
- * failure policy cannot cover, because it happens before there is anywhere to
- * put a notice.
+ * markup — so for the editor an id that drifts is a red test.
+ *
+ * The player's half is **partly** covered, and the gap is narrower than "no
+ * test reads the entry". This module has no test file of its own and cannot
+ * usefully have one that imports it: it exports nothing, and the two `el` calls
+ * below run at module scope against a `document`, so an import under node
+ * throws and offers nothing to call. But `site/player.html` is read twice
+ * already:
+ * `chromedom.test.ts` discovers every linked stylesheet from it, and
+ * `dist.test.ts` asserts the entry links `PLAYER_STYLESHEET`. Both ids are
+ * asserted too — `dist.test.ts` does `expect(html).toContain('id="player"')`
+ * and `'id="notices"'` against the *served* document.
+ *
+ * What is missing is the seam. Those are **string literals** in a test file,
+ * not {@link MOUNT_ID} and {@link NOTICES_ID}, so renaming a constant here and
+ * the attribute in the markup together — the mistake `markup.test.ts` exists to
+ * catch — leaves the test red against ids nothing resolves any more, and
+ * renaming the constant alone leaves it green. They also sit inside
+ * `describe.skipIf(!freshPlayer)`, so on an unbuilt or stale tree they do not
+ * run at all and this throw is the only check there is. That is on the viewer's
+ * machine, in an `<iframe>` on somebody else's page — the worst available place
+ * to discover a typo, and the one case the file header's failure policy cannot
+ * cover, because it happens before there is anywhere to put a notice.
  *
  * The guard that closes it is a `markup.test.ts` for the player's entry and
  * costs about what the editor's did: parse the HTML, collect the ids, and
- * assert this file's two constants are among them. Both ends are already
- * named constants, which is the seam it needs.
+ * assert this file's two constants are among them. Both ends are already named
+ * constants, which is the seam it needs — and reading the source entry rather
+ * than a build is what takes it out of the `skipIf`.
  *
  * Worth noting what that would and would not buy, so it is not oversold: it
  * catches the markup and this file parting company, which is the whole of what

@@ -88,8 +88,14 @@ function importsAnyOf(source: string, modules: readonly string[]): boolean {
 }
 
 /**
- * `EDITOR_MODULES` and `importsAnyOf` exist twice — here and in
+ * `EDITOR_MODULES` and `importsAnyOf` are **defined twice** — here and in
  * `transportdriver.test.ts` — and until now nothing asserted the copies agree.
+ *
+ * Definitions are what the count is of, and the word matters in the one pair of
+ * files whose subject is copies drifting: those two definitions are called from
+ * **three** ban assertions (two in this file, one in the sibling), so "two" and
+ * "three" are both true of different things and `transportdriver.test.ts` used
+ * to say "the third copy" where this said "twice". Both now say definitions.
  *
  * `5b9b05f`'s whole rationale is that one list living in several files with one
  * of them guarded is this repo's signature defect: the animatable-channel list

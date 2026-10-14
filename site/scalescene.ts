@@ -307,13 +307,22 @@ export type ScaleResult =
  *
  * ## Replacing this with the unit-aware path
  *
- * {@link presetIsScaleFree} is the **only** seam any caller touches — nothing
- * in this module or outside it reads the set directly. When each verb's
- * parameters carry their unit, that one function body becomes "ask the verb's
- * parameter tags whether any of them is a scene-px length", with this set left
- * as the fallback for verbs that have not been tagged yet. One edit, no caller
- * changes, and the fail-closed default is preserved by construction because the
- * fallback for "no tags, not listed" stays `false`.
+ * {@link presetIsScaleFree} is the only seam any **production** caller touches
+ * — one read of this set, in that function's body, and nothing in this module
+ * or any other shipped module goes round it. Not "nothing reads the set":
+ * `scalescene.test.ts` reads it directly at **six** sites, which is deliberate
+ * rather than a leak — it is the independent side the assertions compare
+ * `presetIsScaleFree` against (iterate the set, assert the function agrees on
+ * every member), and a test that reached the set only through the seam it is
+ * testing would be asserting `x === x`.
+ *
+ * When each verb's parameters carry their unit, that one function body becomes
+ * "ask the verb's parameter tags whether any of them is a scene-px length",
+ * with this set left as the fallback for verbs that have not been tagged yet.
+ * One edit, no **production** caller changes, and the fail-closed default is
+ * preserved by construction because the fallback for "no tags, not listed"
+ * stays `false`. The six test reads survive it for the same reason: the set is
+ * kept, only its authority narrows.
  *
  * **Those tags now exist** — `PRESET_PARAMS` in `src/core/anim/params.ts`,
  * tied to the registry by `Record<PresetKind, …>` so a verb cannot omit them,

@@ -291,7 +291,31 @@ export function usableLength(value: number | undefined): number {
 }
 
 export interface SnapInput {
-  /** Backing-store width in px — `canvas.width`, `noiseScale` already applied. */
+  /**
+   * Backing-store width in px — `canvas.width`, `noiseScale` already applied.
+   *
+   * ## `plateWidth` is two different spaces in this module. This is the input one.
+   *
+   * Every **input** interface here spells it this way and means backing-store
+   * px: this one, {@link FitInput.plateWidth} and
+   * {@link ViewLayoutInput.plateWidth}. {@link RenderFit.plateWidth} is the
+   * exception and means **plate px** — `margins.left + sceneWidth +
+   * margins.right`, before `noiseScale` — with {@link RenderFit.backingWidth}
+   * carrying the figure this field wants.
+   *
+   * So a `RenderFit` in hand is a loaded gun pointed at this parameter:
+   * `snapScale({ plateWidth: fit.plateWidth, … })` compiles, both are
+   * `number`, and it under-counts by a factor of `noiseScale` — **2 at the
+   * defaults** — which {@link backingStoreOf} already records as the
+   * double-count wearing its other face. The field to pass is
+   * `fit.backingWidth`.
+   *
+   * The names are not unified because each is right about its own type:
+   * `RenderFit` is a plate-space description whose plate width is a plate-px
+   * quantity, and these three are the arguments to functions that work in
+   * backing-store px. What is wrong is only that one identifier spans both, so
+   * the collision is stated at every declaration instead.
+   */
   readonly plateWidth: number
   /** CSS px the canvas may occupy. Non-finite or negative is treated as 0. */
   readonly availableWidth: number
@@ -346,9 +370,15 @@ export function snapScale({ plateWidth, availableWidth, dpr = 1 }: SnapInput): S
 /* ------------------------------------------------- both axes (presentation) */
 
 export interface FitInput {
-  /** Backing-store width in px — `canvas.width`, `noiseScale` already applied. */
+  /**
+   * Backing-store width in px — `canvas.width`, `noiseScale` already applied.
+   * **Not** {@link RenderFit.plateWidth}, which is plate px; see the collision
+   * recorded at {@link SnapInput.plateWidth}. `planFit` fills this from
+   * `backingStoreOf(scene).width`, so the literal `plateWidth: backing.width`
+   * there is the right value under a name that reads as the wrong one.
+   */
   readonly plateWidth: number
-  /** Backing-store height in px — `canvas.height`. */
+  /** Backing-store height in px — `canvas.height`. Same collision. */
   readonly plateHeight: number
   /** CSS px the canvas may occupy horizontally. Coerced like {@link SnapInput}. */
   readonly availableWidth: number
@@ -819,9 +849,18 @@ export interface RenderFit {
    * {@link renderFit}.
    */
   readonly margins: Margins
-  /** `margins.left + sceneWidth + margins.right`, in **plate px**. */
+  /**
+   * `margins.left + sceneWidth + margins.right`, in **plate px**.
+   *
+   * The odd one out: {@link SnapInput.plateWidth}, {@link FitInput.plateWidth}
+   * and {@link ViewLayoutInput.plateWidth} all spell this name and all mean
+   * **backing-store px**. Pass this field to any of them and the result is
+   * short by a factor of {@link noiseScale}; {@link backingWidth} is the field
+   * those parameters want. The collision is recorded in full at
+   * {@link SnapInput.plateWidth}.
+   */
   readonly plateWidth: number
-  /** `sceneHeight`, in **plate px**: margins are x-only. */
+  /** `sceneHeight`, in **plate px**: margins are x-only. Same collision. */
   readonly plateHeight: number
   /** The scene's resolved `stereo.noiseScale`. Plate px → backing-store px. */
   readonly noiseScale: number
@@ -1324,9 +1363,13 @@ export function fitNote(fit: Fit, dpr = 1): string {
 }
 
 export interface ViewLayoutInput {
-  /** Backing-store width of the plate, in px. */
+  /**
+   * Backing-store width of the plate, in px — **not**
+   * {@link RenderFit.plateWidth}, which is plate px. See
+   * {@link SnapInput.plateWidth}.
+   */
   readonly plateWidth: number
-  /** Backing-store height of the plate, in px. */
+  /** Backing-store height of the plate, in px. Same collision. */
   readonly plateHeight: number
   /** `clientWidth` of the element holding both views, in CSS px. */
   readonly containerWidth: number

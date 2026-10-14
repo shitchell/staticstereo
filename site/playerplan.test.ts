@@ -403,7 +403,12 @@ describe('the scene-scale clamp is reported, not applied silently', () => {
  *
  * What that buys, measured: before the change, swapping `devicePerBackingScale`
  * for `displayScale` at `playerPlan`'s own `imageRenderingFor` call typechecked
- * clean. After it, there is no such name in scope and the swap does not compile.
+ * clean. After it, there is no such name on the plan — but the quantity is
+ * still reachable and the swap still **compiles**: `fit?.cssPerBackingScale ??
+ * 1` in that argument position typechecks at exit 0 and reds 3 of the 160 tests
+ * in this file, all three in `the image-rendering hint`. So what the rename and
+ * the deletion bought is that the wrong choice now *reads* as wrong, and these
+ * assertions are what catch it. `playerplan.ts` records the rest.
  */
 function cssPerBackingFromDefinition(plan: ReturnType<typeof playerPlan>): number {
   const fit = plan.fit

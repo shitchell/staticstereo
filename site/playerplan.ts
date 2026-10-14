@@ -257,14 +257,53 @@ export interface PlayerPlan {
    * than one: it is precisely what let the wrong one be picked. Measured, on
    * the version before this change — swapping this argument for `displayScale`
    * at the `imageRenderingFor` call below **typechecked clean** (both fields are
-   * `number`, both in scope) and only reddened tests. With the field gone there
-   * is no name to pick, and `scale.ts`'s own ratio is now spelled
-   * `cssPerBackingScale`, so the mistake is not merely caught, it is unspellable
-   * at this call site.
+   * `number`, both in scope) and only reddened tests. With the field gone the
+   * wrong choice has no *short* name here, and `scale.ts`'s own ratio is now
+   * spelled `cssPerBackingScale`, so it **reads** as wrong where `displayScale`
+   * read as plausible.
    *
-   * The CSS-px ratio is still carried where something pins it —
-   * `FitPlan.cssPerBackingScale`, which `scale.test.ts` sweeps — and a caller
-   * that genuinely wants it reads it off {@link fit}.
+   * ## It is still spellable, and tests are what catch it
+   *
+   * Deleting this plan's field removed one name, not the quantity. `FitPlan`
+   * carries both ratios — `cssPerBackingScale` and `devicePerBackingScale`,
+   * both `readonly number` — and `fit` is in scope two lines above the
+   * `imageRenderingFor` call. Measured: substituting
+   * `fit?.cssPerBackingScale ?? 1` for the argument below **typechecks clean,
+   * exit 0**, and reds **3 of 160** in `playerplan.test.ts` (the three
+   * `image-rendering hint` cases). So the guarantee is the one `scale.ts`
+   * already claims for the pair — the wrong choice reads as wrong and is caught
+   * by tests — and not that it cannot be written.
+   *
+   * ## Why the field stays at the `FitPlan` level, and the tension in that
+   *
+   * `FitPlan.cssPerBackingScale` has **zero production consumers either** —
+   * `player.ts` sizes the canvas from the absolute `cssWidth`/`cssHeight`, not
+   * from a ratio — which is the same condition that condemned `displayScale`
+   * here. The two fields are not distinguished by being pinned, either: before
+   * the deletion `playerplan.test.ts` asserted `plan.displayScale` against a
+   * ratio recomputed from the plan's widths and asserted `deviceRatio ≈
+   * cssRatio * dpr`, which is exactly the shape `scale.test.ts` asserts for the
+   * surviving pair. Claiming otherwise would be this docblock's own defect
+   * again.
+   *
+   * What distinguishes them is **where the choice is made**. The mistake is
+   * handing the layout ratio to the smoothing policy, and that single bridging
+   * call site is in *this* file. A second `number` ratio on *this* type sits in
+   * the same object literal as the right one, under a name that reads as
+   * plausible there, and buys nothing — so it is pure hazard. On `FitPlan` the
+   * pair is the subject: `scale.ts` exists to produce both readings and
+   * invariant 7 requires each to name its own pixel space, so the pair is what
+   * `scale.test.ts` sweeps and what the `× dpr` assertion is *about*.
+   *
+   * That is a reason for the asymmetry, not an acquittal. `FitPlan`'s CSS ratio
+   * is a genuine candidate for the same deletion on the same grounds, and it is
+   * left for whoever owns `scale.ts`'s public type next: removing it means
+   * editing `scale.ts`, `scale.test.ts`, `smooth.test.ts` and this file's test,
+   * and it would drop the assertions that read the field as a *declared* value
+   * rather than recomputing it — so it is a deliberate change with its own
+   * evidence, not a tidy-up to fold into a wording fix.
+   *
+   * A caller that genuinely wants the CSS ratio reads it off {@link fit}.
    */
   readonly devicePerBackingScale: number
   /** What `?smooth=` asked for. */

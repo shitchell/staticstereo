@@ -15,7 +15,13 @@ const SOURCE = readFileSync(new URL('./transportdriver.ts', import.meta.url), 'u
  * The editor's own modules, and whether `source` reaches for any of them by
  * **any** import spelling.
  *
- * The third copy of one ban, and the quote-sensitivity that FIX-16 names in
+ * The **second of two definitions** of one ban. What is counted here and in
+ * `transport.test.ts`'s matching note is *definitions* — this block and the
+ * identical one there — because the definition is the thing that can drift.
+ * They are called from three ban assertions between the two files, which is a
+ * different count and not the one either docblock makes.
+ *
+ * The quote-sensitivity that FIX-16 names in
  * `transport.test.ts` was identical here: `/from\s+'\.\/(controls|…)/` matches
  * the `from` keyword and single quotes only, so `from "./controls.js"`, a bare
  * `import './controls.js'` and a dynamic `import('./controls.js')` all passed.
@@ -26,8 +32,8 @@ const SOURCE = readFileSync(new URL('./transportdriver.ts', import.meta.url), 'u
  * repo's signature recorded defect is one list living in three files with one
  * of them guarded — the animatable-channel list, guarded in `track.ts` and
  * duplicated unguarded in `src/cli/scene.ts` and `site/scene.ts`, which is why
- * both site validators silently drop channels. Repairing two of three copies
- * of a guard reproduces it exactly.
+ * both site validators silently drop channels. Repairing some copies of a guard
+ * and not the rest reproduces it exactly — here that would be one of two.
  *
  * **And the `./` anchor was the other half of the same hole.** Widening the
  * quoting left the pattern anchored on a literal `./`, so a module reached by
