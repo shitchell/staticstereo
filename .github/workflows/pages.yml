@@ -75,16 +75,40 @@ jobs:
       # nested layout and re-resolving against it, rather than trusting this
       # paragraph.
       #
+      # The DESTINATION NAME IS LOAD-BEARING AND SO IS THE ENTRY'S. A static
+      # host answers the bare directory URL `/staticstereo/player/` with the
+      # directory index and with nothing else, and that bare URL is the one a
+      # human writes into an `<iframe src>` (R14) — so `vite.player.config.ts`
+      # emits the entry as `index.html`, and `site/dist.test.ts` asserts both
+      # the emitted name and the served URL. Renaming either end here breaks a
+      # URL rather than a build.
+      #
       # AFTER `npm test`, and that ordering is load-bearing rather than
-      # stylistic. `dist.test.ts` asserts `dist-site/` carries exactly three
-      # woff2 files; the player ships the same three, so copying before the
-      # suite runs makes it six and turns a correct build red. Keeping the
-      # directories disjoint until the moment of upload is also what lets
-      # "every file under `dist-player/` is the player's, by construction" —
-      # the premise of the no-editor-code check — stay true while it is being
-      # checked.
+      # stylistic: `dist.test.ts` asserts `dist-site/` carries exactly three
+      # woff2 files, the player ships the same three, and copying before the
+      # suite makes it six. Measured, rather than argued — with the copy done
+      # first on a fresh build, that woff2 count is the ONLY assertion that
+      # fails.
+      #
+      # Which also corrects what this paragraph used to claim as a second
+      # reason: that the ordering keeps "every file under `dist-player/` is the
+      # player's, by construction" true while the no-editor-code check runs.
+      # It does not, because that is not at risk — the copy reads
+      # `dist-player/` and writes `dist-site/player/`, so nothing is ever added
+      # to the directory that check walks. The woff2 reason is the whole
+      # reason.
+      #
+      # Spelled to be re-runnable. `cp -r dist-player dist-site/player` is
+      # correct exactly once: coreutils `cp -r SRC DIR` copies SRC *into* DIR
+      # when DIR already exists, so a second run leaves the player at
+      # `dist-site/player/dist-player/`. CI always starts from a clean
+      # checkout, so this never bit a deploy — it bit somebody reproducing the
+      # deploy locally twice, and cost them a confusing afternoon. `mkdir -p`
+      # plus a copy of the directory's *contents* is idempotent and reads the
+      # same. `site/dist.test.ts` matches on the two path operands rather than
+      # on `cp -r` precisely so this spelling is free to change.
       - name: Nest the player under the site so it has a URL
-        run: cp -r dist-player dist-site/player
+        run: mkdir -p dist-site/player && cp -r dist-player/. dist-site/player/
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

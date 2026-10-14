@@ -465,9 +465,16 @@ describe('the Pages workflow publishes the player, not only the page', () => {
   it('does the nesting after the suite, which is not a matter of taste', () => {
     // `dist-site/` is asserted above to carry exactly three woff2 files. The
     // player ships the same three, so a copy that happened before `npm test`
-    // would make it six and turn a correct build red — and, less visibly, it
-    // would break the premise the no-editor-code check rests on, that every
-    // file under the player's directory is the player's by construction.
+    // makes it six and turns a correct build red. Measured rather than
+    // argued: with the copy done first on a fresh build, that woff2 count is
+    // the ONLY assertion that fails.
+    //
+    // This comment used to give a second reason — that the ordering keeps the
+    // premise of the no-editor-code check, "every file under the player's
+    // directory is the player's by construction", true while that check runs.
+    // It does not, and the premise is not at risk: the copy reads
+    // `dist-player/` and writes `dist-site/player/`, so nothing is ever added
+    // to the directory that check walks. One true reason, stated once.
     const index = (needle: string): number => runs.findIndex(r => r.includes(needle))
     const suite = index('npm test')
     const nest = index(`dist-site/${PLAYER_DEPLOY_DIR}`)
