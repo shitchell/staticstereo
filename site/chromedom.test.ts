@@ -405,14 +405,55 @@ describe('every role the chrome module can produce has a renderer arm', () => {
 /* ------------------------------------- the one label that changes with state */
 
 describe('the visible play/pause label is this module’s, not the shell’s', () => {
+  const stripped = (name: string): string =>
+    readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+
   /**
-   * `site/player.ts`'s comment-stripped source. Stripped for the reason every
-   * grep in this repo strips: the shell's docblocks are free to discuss the
-   * labels in prose, and a pattern that matched the explanation would prove
-   * nothing.
+   * Every `site/` module reachable from the player's entry by a relative
+   * import, transitively — **not** `player.ts` alone, which is what this block
+   * used to read.
+   *
+   * One hardcoded filename was the whole guard, and the ban it enforces is not
+   * about one file: it is that the player's only state-dependent visible string
+   * has exactly one home, in `PLAY_LABEL`. A second shell module, or a label
+   * spelled in `playerplan.ts`, sat outside it entirely — and this file cannot
+   * see the DOM, so the duplicate would be invisible by construction. Naming
+   * the second file here would fix today's instance and leave the mechanism as
+   * fragile for the third, which is the mistake `linkedStylesheets` already
+   * records about `playerpage.css`.
+   *
+   * Walked statically rather than taken from the bundle. The built directory is
+   * minified and `dist.test.ts`'s own docblock records why a grep over it
+   * proves something narrower than you want — rollup drops the rest of a module
+   * when one export is imported, so a label in an unreferenced function would
+   * be absent from the bundle and present in the source somebody maintains.
+   * Source is the right surface for "nobody wrote this twice".
+   *
+   * Relative specifiers only, which is the correct boundary rather than a
+   * convenience: `../src/core` is the renderer and has no opinion about a
+   * button's text. The walk stays inside `site/`, so what it enumerates is
+   * exactly "the player's own modules".
    */
-  const SHELL = readFileSync(new URL('./player.ts', import.meta.url), 'utf8')
-  const SHELL_CODE = SHELL.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+  const playerModules = ((): string[] => {
+    const seen = new Set<string>()
+    const pending = ['player.ts']
+    while (pending.length > 0) {
+      const name = pending.pop()!
+      if (seen.has(name)) continue
+      seen.add(name)
+      // Both `from './x.js'` and a bare side-effect `import './x.js'`, matched
+      // on the specifier itself so neither keyword has to be enumerated.
+      for (const m of stripped(name).matchAll(/['"`]\.\/([\w.-]+)\.js['"`]/g)) {
+        pending.push(`${m[1]!}.ts`)
+      }
+    }
+    return [...seen].sort()
+  })()
+
+  /** The one module allowed to spell a label: the table lives in it. */
+  const LABEL_OWNER = 'chromedom.ts'
 
   it('answers for both transport states, distinctly', () => {
     expect(playLabelFor(true)).toBe(PLAY_LABEL.playing)
@@ -442,17 +483,32 @@ describe('the visible play/pause label is this module’s, not the shell’s', (
     //
     // The needles are read out of `PLAY_LABEL` rather than typed, so renaming
     // a label does not quietly disarm this.
-    expect(SHELL_CODE.length, 'the comment strip ate site/player.ts').toBeGreaterThan(5_000)
-    expect(SHELL_CODE).toContain('ROLE_PLAY')
-    for (const label of Object.values(PLAY_LABEL)) {
-      for (const quote of ["'", '"', '`']) {
-        expect(SHELL_CODE, `site/player.ts spells ${quote}${label}${quote} itself`)
-          .not.toContain(`${quote}${label}${quote}`)
+    //
+    // Floors on the walk first, because every assertion after them is a loop
+    // over it: a walk that found only its own entry, or that silently lost the
+    // owner, would prove the absence of a duplicate across a set of one.
+    expect(playerModules, 'the walk did not start where it says it does').toContain('player.ts')
+    expect(playerModules, `the walk no longer reaches ${LABEL_OWNER}, which holds the table`)
+      .toContain(LABEL_OWNER)
+    expect(playerModules.length, 'the import walk found almost nothing').toBeGreaterThan(5)
+    const shell = stripped('player.ts')
+    expect(shell.length, 'the comment strip ate site/player.ts').toBeGreaterThan(5_000)
+    expect(shell).toContain('ROLE_PLAY')
+
+    for (const name of playerModules) {
+      // The table's own module is the one place the strings belong.
+      if (name === LABEL_OWNER) continue
+      const code = stripped(name)
+      for (const label of Object.values(PLAY_LABEL)) {
+        for (const quote of ["'", '"', '`']) {
+          expect(code, `site/${name} spells ${quote}${label}${quote} itself`)
+            .not.toContain(`${quote}${label}${quote}`)
+        }
       }
     }
     // Vacuity floor in the other direction: the shell must still be setting
     // the label, or "it does not spell them" is satisfied by not having one.
-    expect(SHELL_CODE).toContain('playLabelFor')
+    expect(shell).toContain('playLabelFor')
     // Positive control: the needles really do find the literal they ban.
     expect(`e.textContent = p ? '${PLAY_LABEL.playing}' : '${PLAY_LABEL.paused}'`)
       .toContain(`'${PLAY_LABEL.playing}'`)
