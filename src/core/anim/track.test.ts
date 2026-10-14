@@ -135,13 +135,20 @@ describe('evalTrack easing resolution', () => {
 })
 
 describe('composeAnim', () => {
+  // 2 and 5, not 2 and 3. `acc.scale` starts at 1, so the scale operands must
+  // satisfy `a × b ≠ 1 + a + b` or the name of this test is a claim it cannot
+  // check: the collision is exactly `(a−1)(b−1) = 2`, which 2 and 3 hit (6 both
+  // ways) and which this test carried until it was repaired. 2 and 5 clear
+  // every nearby operator: `×` 10, `+` 8, last-wins 5, first-wins 2, dropped 1.
+  // The translation operands are checked the same way — 10 and 5 give `+` 15,
+  // `×` 0 (`acc.x` starts at 0), last-wins 5, first-wins 10.
   it('sums translations and multiplies scales', () => {
     const r = composeAnim([
       { keys: [{ t: 0, x: 10, scale: 2 }] },
-      { keys: [{ t: 0, x: 5, scale: 3 }] },
+      { keys: [{ t: 0, x: 5, scale: 5 }] },
     ], 0, 1)
     expect(r.x).toBe(15)
-    expect(r.scale).toBe(6)
+    expect(r.scale).toBe(10)
   })
 
   it('returns identity for an empty or absent anim', () => {
@@ -156,10 +163,18 @@ describe('composeAnim', () => {
 
 // `composeAnim` wrote its seven accumulations out by hand, so a channel could be
 // added to `CHANNELS` *correctly* — declared on `Transform`, present in
-// `IDENTITY`, accepted by both validators, interpolated by `evalTrack` — and
-// still be dropped on the floor by the compositor. Measured, by adding an
-// eighth channel that way: `npm run typecheck` stayed at 0 and all 972 tests
-// stayed green. The channel was computed once per layer per frame and discarded.
+// `IDENTITY`, accepted by both validators (whose `KEY_CHANNELS` spread
+// `CHANNELS`, so they need no edit), interpolated by `evalTrack` — and still be
+// dropped on the floor by the compositor. Measured on `80e2241`, the commit the
+// fix landed on, and the hole is **four** edits wide rather than three: those
+// three leave `npm run typecheck` at **2**, because
+// `site/scalescene.test.ts`'s `_NoChannelUnclassified` also wants the channel
+// classified in `site/scalescene.ts`'s `SCALED_CHANNELS`/`UNSCALED_CHANNELS`.
+// Make that fourth edit and the four gate commands all exit 0 with every test
+// green, at the same counts as the unmutated commit, while the channel is
+// computed once per layer per frame and discarded. No suite total is quoted
+// here on purpose: the figure this comment used to carry went stale within the
+// phase, and the shape of the result is what the measurement was about.
 //
 // The `AssertNever` partition guard in `track.ts` is the fix; these are its
 // runtime witnesses. They are needed because `types.seam.test.ts` records that
@@ -193,12 +208,15 @@ describe('composeAnim channel coverage', () => {
   })
 
   // The partition's *operator* is load-bearing too, and it was unpinned.
-  // `composeAnim`'s own 'sums translations and multiplies scales' above uses 2×
-  // and 3×, whose product is 6 — but so is their sum with identity, 1+2+3. It
-  // therefore passes whether `scale` multiplies or sums: measured, by changing
-  // `*=` to `+=` in `composeAnim`, which left that test green and was caught
-  // only by a preset-wiring test asserting an unrelated thing. 2 and 4 do not
-  // collide: 2×4 = 8, 1+2+4 = 7.
+  // `composeAnim`'s own 'sums translations and multiplies scales' above used to
+  // use 2× and 3×, whose product is 6 — but so is their sum with identity,
+  // 1+2+3 — so it passed whether `scale` multiplied or summed: measured, by
+  // changing `*=` to `+=` in `composeAnim`, which left that test green and was
+  // caught only by a preset-wiring test asserting an unrelated thing. That test
+  // has since been repaired in place to 2 and 5 and now reddens on the same
+  // mutation; this one stays, with different operands, because two independent
+  // witnesses of one distinction are cheaper than trusting one. 2 and 4 do not
+  // collide either: 2×4 = 8, 1+2+4 = 7.
   it('multiplies scale rather than summing it', () => {
     const r = composeAnim([
       { keys: [{ t: 0, scale: 2 }] },

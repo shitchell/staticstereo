@@ -174,17 +174,30 @@ const noCompiler: AnimCompiler = preset => {
 
 /**
  * How each channel accumulates when several animators act on one layer: the
- * displacements **sum**, `scale` **multiplies**. A 2× and a 3× animator compose
- * to 6×, not to 5× and not to 3× — "later animator wins" is not the rule, and
+ * displacements **sum**, `scale` **multiplies**. A 2× and a 5× animator compose
+ * to 10×, not to 8× and not to 5× — "later animator wins" is not the rule, and
  * the asymmetry is the whole reason this is a partition and not a single list.
+ * 2× and 5× rather than the obvious 2× and 3×, because `acc.scale` starts at 1
+ * and 2 and 3 give 6 under *either* operator (2 × 3 = 1 + 2 + 3), so that
+ * example distinguishes nothing. The collision is exactly `(a−1)(b−1) = 2`.
  *
  * Derived from, and guarded against, `CHANNELS` because `composeAnim` used to
  * write all seven accumulations out by hand. That made an eighth channel a
- * *silent* no-op: measured by adding one correctly (on `Transform`, in
- * `IDENTITY`, in `CHANNELS`), `npm run typecheck` exited 0 and all 972 tests
- * passed while the compositor discarded the channel once per layer per frame.
- * This is the same defect P0 removed from both scene validators, surviving in
- * the one place that consumes the channels rather than validating them.
+ * *silent* no-op — and the hole was **four** edits wide, not three. Measured on
+ * `80e2241`, the commit this guard landed on: adding a channel on `Transform`,
+ * in `IDENTITY` and in `CHANNELS` leaves `npm run typecheck` at **2**, from
+ * `site/scalescene.test.ts`'s `_NoChannelUnclassified`, which demands the new
+ * channel be classified in `site/scalescene.ts`'s `SCALED_CHANNELS` or
+ * `UNSCALED_CHANNELS`. That guard predates this one (`da5be08`), so
+ * `site/scalescene.ts` is *not* a place where a channel slips through
+ * unnoticed — read it as the fourth place, not as an unguarded one. Make that
+ * fourth edit and the four gate commands all exit 0 with every test green, at
+ * the same file and pass counts as the unmutated commit, while the compositor
+ * discards the channel once per layer per frame. Both scene validators needed
+ * no edit and raised no objection either: their `KEY_CHANNELS` spread
+ * `CHANNELS`. This is the same defect P0 removed from both scene validators,
+ * surviving in the one place that consumes the channels rather than validating
+ * them.
  *
  * Exported only for the test that pins the partition at runtime, as
  * `cli/scene.ts` exports `KEY_CHANNELS`: `AssertNever` is enforced by
