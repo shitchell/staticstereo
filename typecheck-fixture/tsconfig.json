@@ -1,0 +1,15 @@
+{
+  // Extends the gate's own config rather than restating its compilerOptions,
+  // so the control is checked under the same `strict`,
+  // `noUncheckedIndexedAccess`, `lib` and `moduleResolution` the real run
+  // uses. A hand-copied set of options would drift the day one of them
+  // changes and the control would quietly stop being a control.
+  //
+  // `include` is overridden to this directory alone: the parent's
+  // `["src", "site"]` would drag the whole tree in and the fixture run would
+  // take as long as the gate itself for no added evidence.
+  "extends": "../tsconfig.typecheck.json",
+  "include": [
+    "."
+  ]
+}
