@@ -390,6 +390,24 @@ const REGISTRY = {
    * that is what the transform model composes. Keying absolute values here is
    * exactly the bug this replaced: a layer at depth 1 animated 1→2 and clamped
    * to a static surface.
+   *
+   * **`ease: 'easeOut'` is deliberate, and it contradicts design §4.2. Do not
+   * "fix" it to `linear`.** §4.2 says all five verbs default to
+   * `ease: 'linear'` because "verbs are unopinionated primitives", and names
+   * opinionated defaults as the very thing that disqualified `emerge` from
+   * being a verb. But §4.2b requires `push` to compile to **precisely** what
+   * `emerge` did — that is the whole reason the golden corpus was captured
+   * before the rename, to prove the rename was a rename and not a rewrite —
+   * and `emerge` defaulted to `easeOut`. The exact-reproduction requirement is
+   * the stronger of the two, so it wins, and `push` is the one verb carrying an
+   * opinionated default: by inheritance, not by choice.
+   *
+   * Changing this word reddens `presets.golden.json` on both `push/bare` and
+   * `push/params`, and makes `presets.golden.test.ts`'s `OVERRIDE_EASE`
+   * reasoning wrong (`easeIn` is chosen there as the one easing no preset
+   * defaults to — which depends on this `easeOut`). If the conflict is to be
+   * resolved the other way, that is a design decision about whether `push`
+   * remains a faithful rename, not a one-word edit here.
    */
   push: (p, ctx) => overrides({
     keys: [
