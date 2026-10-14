@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evalTrack, composeAnim } from './track.js'
-import { IDENTITY } from '../types.js'
+import { IDENTITY, type Track } from '../types.js'
 
 describe('evalTrack', () => {
   const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }] }
