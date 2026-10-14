@@ -1091,11 +1091,38 @@ describe('planFit', () => {
     }
   })
 
-  it('tags re-render apart from rescale, and carries the display scale for both', () => {
-    // `displayScale` is CSS px shown ÷ backing-store px — what
-    // `imageRenderingFor` in site/smooth.ts takes, and NOT `Fit.scale`, which
-    // is device px ÷ backing-store px. The two differ by exactly `dpr`, and
-    // this is the field that keeps a caller from confusing them.
+  /**
+   * **The sixth copy of a refuted argument, rewritten in place.**
+   *
+   * What stood here read: *"`displayScale` is CSS px shown ÷ backing-store px —
+   * what `imageRenderingFor` in site/smooth.ts takes, and NOT `Fit.scale`,
+   * which is device px ÷ backing-store px. The two differ by exactly `dpr`, and
+   * this is the field that keeps a caller from confusing them."*
+   *
+   * Every arithmetic clause of that is true and the attribution is backwards.
+   * The browser resamples the backing store onto the **device** grid; CSS px
+   * are a layout unit and nothing is ever resampled into them. So the smoothing
+   * policy takes the device ratio — `RescalePlan.devicePerBackingScale`, which
+   * *is* `Fit.scale`, the quantity this comment went out of its way to rule
+   * out — and `displayScale` is the layout ratio and only that. Corrected in
+   * production at `65e4f03`; this was the sixth place the old claim was written
+   * down and the last one still standing, left behind because `scale.test.ts`
+   * was outside the file set of the change that rewrote the other five.
+   *
+   * Which ratio each quantity actually feeds, since that is the part a reader
+   * needs: `fit.scale` → `devicePerBackingScale` → `imageRenderingFor`;
+   * `fit.scale / dpr` → `displayScale` → `style.width` and the stylesheet.
+   *
+   * The assertions below never changed and never needed to — they pinned
+   * `displayScale === fit.scale / dpr`, which is still exactly right. Only the
+   * sentence about what the field is *for* was wrong, which is why it is
+   * rewritten rather than deleted: a reader who finds only the corrected rule
+   * has no reason to check it, and the division is a no-op at dpr 1 so nothing
+   * but a second dpr ever shows the difference. The policy's own end-to-end
+   * assertion lives in `playerplan.test.ts`; what is asserted here is that both
+   * ratios are carried and that they differ by exactly `dpr`.
+   */
+  it('tags re-render apart from rescale, and carries both ratios for both', () => {
     for (const size of SCENES) {
       for (const box of BOXES) {
         for (const dpr of DPRS) {
@@ -1109,12 +1136,24 @@ describe('planFit', () => {
               expect(plan.displayScale, `${where} ${mode}`).toBeCloseTo(plan.fit.scale / dpr, 9)
               expect(plan.displayScale, `${where} ${mode}`)
                 .toBeCloseTo(plan.fit.cssWidth / plan.backingWidth, 9)
+              // The device ratio, carried under its own name so the call site
+              // that bridges fit and smoothing does not have to choose by
+              // doing arithmetic. Asserted here because the comment above
+              // names it, and a comment claiming more than its assertions do
+              // is the defect this file has already been through once.
+              expect(plan.devicePerBackingScale, `${where} ${mode}`).toBe(plan.fit.scale)
+              expect(plan.devicePerBackingScale, `${where} ${mode}`)
+                .toBeCloseTo(plan.displayScale * dpr, 9)
             } else {
               // A re-render is 1:1 in DEVICE px by construction, so its display
               // scale is 1/dpr and never anything else.
               expect(plan.displayScale, `${where} ${mode}`).toBeCloseTo(1 / dpr, 12)
               expect(plan.displayScale, `${where} ${mode}`)
                 .toBeCloseTo(plan.plan.cssWidth / plan.plan.backingWidth, 9)
+              // ...and in device px it is 1 at every dpr, which is the clearest
+              // single demonstration that the two readings are not the same
+              // number wearing different units.
+              expect(plan.devicePerBackingScale, `${where} ${mode}`).toBe(1)
             }
           }
         }
