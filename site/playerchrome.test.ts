@@ -21,6 +21,12 @@ import {
   nodesOf,
   pathToRole,
 } from './playerchrome.js'
+// The whole namespace as well as the names above, so the role *count* can be
+// read off the module rather than kept in this file — see the node-floor block.
+// `chromedom.test.ts` does the same, for the same recorded reason: however a
+// constant is spelled, annotated or re-exported, it is a key of the module
+// object at runtime, where a source-text regex has three known holes.
+import * as chrome from './playerchrome.js'
 import type { ChromeActivity, ChromeNode, Framing } from './playerchrome.js'
 
 const SOURCE = readFileSync(new URL('./playerchrome.ts', import.meta.url), 'utf8')
@@ -107,6 +113,80 @@ describe('the framings are enumerable, and every one of them has a spec', () => 
       const spec = chromeSpec(framing)
       expect(spec.role).toBe(ROLE_WRAPPER)
     }
+  })
+})
+
+/**
+ * `MIN_CHROME_NODES` is a hand-maintained literal whose docblock promises it
+ * "tracks the smallest *conformant* tree", and nothing made that true.
+ *
+ * It is the floor every structural rule in this module rests on — each is of
+ * the form "no node does X", which a tree with no nodes satisfies — and it has
+ * already been wrong once in exactly the way a hand-kept count goes wrong. It
+ * said five against a real count of six, so it carried one node of slack, and
+ * measured, that slack was the whole guard: deleting `ROLE_FULLSCREEN` from the
+ * control list dropped the control from all four framings and left the entire
+ * suite green at 1151 passed. `e21e954` repaired the value. Nothing stopped it
+ * re-acquiring the slack the next time a control is added, with the identical
+ * symptom — a deletable control and a green suite.
+ *
+ * So the count is derived from the module's own role constants and compared
+ * against the literal. Every structural rule here gives a role **at most one**
+ * node (asserted per framing below, "uses each role at most once"), and the
+ * smallest conformant tree is the one that gives each required role exactly
+ * one — so the node floor and the role count are the same number, and the role
+ * count is something the namespace knows.
+ *
+ * Read from the namespace rather than from a list typed here, for
+ * `chromedom.test.ts`'s recorded reason: a source-text regex misses a type
+ * annotation, a renamed re-export and a `satisfies` clause, and however a
+ * constant is spelled it is a key of the module object at runtime. A role added
+ * tomorrow, by somebody who never opens this file, is counted or else fails.
+ *
+ * **The floor stays a literal in `playerchrome.ts` and this is deliberate, not
+ * a limitation worked around.** The constant is what the module *promises*;
+ * deriving it in the module would make the promise follow whatever the role
+ * list happens to say, which is the opposite of a floor — a control deleted
+ * along with its role constant would lower the floor to meet it and stay green.
+ * Asserting the two agree keeps one of them a decision and the other a
+ * measurement, and reds when they part. Adding a role now forces an explicit
+ * answer to "does the smallest conformant tree contain it", which is the
+ * question the slack was hiding.
+ */
+describe('the node floor tracks the module’s roles, rather than being remembered', () => {
+  const roleValues = Object.entries(chrome as unknown as Record<string, unknown>)
+    .filter(([name]) => /^ROLE_[A-Z_]+$/.test(name))
+    .map(([, value]) => value as string)
+
+  it('found the role constants, rather than counting nothing and passing', () => {
+    // The vacuity floor. The comparison below is against `roleValues.length`,
+    // so an enumeration that found nothing would demand a floor of zero and
+    // red for the right reason — but an enumeration that found *some* would
+    // quietly demand a lower floor, which is the failure worth naming.
+    expect(roleValues.length).toBeGreaterThanOrEqual(6)
+    expect(new Set(roleValues).size, 'two roles share a value').toBe(roleValues.length)
+    for (const role of roleValues) expect(typeof role).toBe('string')
+  })
+
+  it('agrees with MIN_CHROME_NODES, and the count is split so a failure says which arrived', () => {
+    const controls = roleValues.filter(isControlRole)
+    const structural = roleValues.filter(role => !isControlRole(role))
+    // Both kinds are non-empty, which is what makes `isControlRole` a working
+    // discriminator here rather than a predicate that happens to answer the
+    // same way for everything — the shape that would let the split in the
+    // failure message below name the wrong kind.
+    expect(controls.length, 'no role is a control, so the split is not discriminating')
+      .toBeGreaterThan(0)
+    expect(structural.length, 'every role is a control, so the split is not discriminating')
+      .toBeGreaterThan(0)
+    expect(
+      MIN_CHROME_NODES,
+      `the module declares ${structural.length} structural roles and ${controls.length} ` +
+      `controls, so the smallest conformant tree has ${roleValues.length} nodes and the ` +
+      `floor says ${MIN_CHROME_NODES}. A role was added or removed without deciding whether ` +
+      'that tree contains it — leaving the floor with slack, which is a control that can be ' +
+      'deleted with the suite green (measured once already: 1151 passed)',
+    ).toBe(roleValues.length)
   })
 })
 
