@@ -12,6 +12,13 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import {
+  CLASS_CONTROL,
+  CLASS_PLATE,
+  CLASS_TRANSPORT,
+  CLASS_WRAPPER,
+  PLAYER_STYLESHEET,
+} from './chromedom.js'
 
 /**
  * Assertions about the **built** site, mirroring `src/core/purity.test.ts`.
@@ -248,10 +255,46 @@ describe.skipIf(!freshPlayer)('the built player', () => {
   it('references a script and a stylesheet, so the greps are not vacuous', () => {
     const local = assetRefs(html).filter(ref => !isExternal(ref))
     expect(local.some(r => r.endsWith('.js'))).toBe(true)
-    // The stylesheet half is not decoration: `site/player.css` is what gives
-    // the transport its `pointer-events` and the wrapper its positioning
-    // context, and a build that dropped it would still render a plate.
+    // Deliberately only a floor, and labelled as one. "Some stylesheet" is
+    // satisfied by `playerpage.css` alone, so dropping `player.css` — the
+    // sheet that gives the transport its `pointer-events` and the wrapper its
+    // positioning context — left this green while shipping a control strip
+    // that ate every click aimed at the plate. The claim this test used to be
+    // mistaken for is asserted properly in the two blocks that follow.
     expect(local.some(r => r.endsWith('.css'))).toBe(true)
+  })
+
+  it('emitted the chrome rules, so the sheet is in the BUILD and not just linked', () => {
+    /**
+     * The strong half of the pair, and the one that survives a rename: it
+     * does not care which file the rules came from or what the emitted bundle
+     * is called, only that the bytes which make the transport click-through
+     * reached the deploy.
+     *
+     * Measured, which is why it exists: deleting the `player.css` link from
+     * `site/player.html` and rebuilding left the entire suite green — 1145
+     * passed — with the emitted stylesheet containing **zero**
+     * `pointer-events` declarations and none of the `stst-` selectors. What
+     * that ships is design §8.2's corrected mistake restored in full: a strip
+     * spanning the plate that eats every click aimed at it, and a wrapper
+     * that is no longer the overlaid transport's containing block. The only
+     * visible symptom is a plate that stopped responding.
+     */
+    const css = files.filter(f => f.endsWith('.css')).map(f => readFileSync(f, 'utf8')).join('\n')
+    expect(css.length, 'no stylesheet was emitted at all').toBeGreaterThan(200)
+    for (const cls of [CLASS_WRAPPER, CLASS_PLATE, CLASS_TRANSPORT, CLASS_CONTROL]) {
+      expect(css, `.${cls} appears in no emitted stylesheet`).toContain(`.${cls}`)
+    }
+    // The two declarations the whole arrangement rests on, read out of the
+    // deployed bytes rather than out of the source sheet `chromedom.test.ts`
+    // reads. Minification-tolerant: it is the selector, a brace, and the
+    // declaration, with whatever whitespace esbuild left behind.
+    expect(css).toMatch(
+      new RegExp(`\\.${CLASS_TRANSPORT}[^{}]*\\{[^}]*pointer-events\\s*:\\s*none`),
+    )
+    expect(css).toMatch(
+      new RegExp(`\\.${CLASS_CONTROL}[^{}]*\\{[^}]*pointer-events\\s*:\\s*auto`),
+    )
   })
 
   it('uses no root-relative URL in its CSS either', () => {
@@ -279,6 +322,30 @@ describe.skipIf(!freshPlayer)('the built player', () => {
   it('contains no code from src/node or src/cli', () => {
     const leaks = files.filter(f => readFileSync(f, 'utf8').includes('yuv444p'))
     expect(leaks.map(f => relative(ROOT, f))).toEqual([])
+  })
+})
+
+/**
+ * The source half of the stylesheet pair, and it needs no build — which is
+ * the point of stating it separately. The built check above proves the rules
+ * reached the deploy; this proves the *entry* asks for the sheet the renderer
+ * names, so the two artifacts cannot drift apart by a rename on either side.
+ *
+ * `PLAYER_STYLESHEET` is imported rather than typed, so a renamed sheet is a
+ * one-line edit in `chromedom.ts` and not a hunt through test files.
+ */
+describe('the player entry links the renderer’s own stylesheet', () => {
+  it('references the file PLAYER_STYLESHEET names', () => {
+    const entry = readFileSync(join(ROOT, 'site', PLAYER_ENTRY), 'utf8')
+    const refs = assetRefs(entry)
+    // Vacuity floor: an entry that referenced nothing, or a regex that
+    // stopped matching, must not read as a pass.
+    expect(refs.length, 'no asset references found in the entry at all').toBeGreaterThan(1)
+    expect(
+      refs,
+      `site/${PLAYER_ENTRY} does not link ${PLAYER_STYLESHEET}, so the transport ships ` +
+      `without its pointer-events and eats every click aimed at the plate (design §8.2)`,
+    ).toContain(`./${PLAYER_STYLESHEET}`)
   })
 })
 
