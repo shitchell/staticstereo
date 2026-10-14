@@ -87,6 +87,79 @@ function importsAnyOf(source: string, modules: readonly string[]): boolean {
   ).test(source)
 }
 
+/**
+ * `EDITOR_MODULES` and `importsAnyOf` exist twice — here and in
+ * `transportdriver.test.ts` — and until now nothing asserted the copies agree.
+ *
+ * `5b9b05f`'s whole rationale is that one list living in several files with one
+ * of them guarded is this repo's signature defect: the animatable-channel list
+ * is guarded in `track.ts` and duplicated unguarded in `src/cli/scene.ts` and
+ * `site/scene.ts`, which is why both site validators silently drop channels. A
+ * two-copy ban predicate drifts the same way, and the copies have already been
+ * edited together twice — once to widen the quoting, once to widen the path.
+ * The third time is the one that gets done in one file.
+ *
+ * ## Why an identity assertion and not a shared module
+ *
+ * Both ways of actually sharing it cost more than they fix, which is a judgement
+ * and so is recorded rather than implied:
+ *
+ *  - **A non-test `site/` module.** Anything under `site/` that does not end
+ *    `.test.ts` enters `dist.test.ts`'s freshness source set, so editing a
+ *    test helper would mark both built directories stale and silently skip
+ *    every Pages-critical assertion until the next build — the exact trap this
+ *    phase has already lost one suite to (`1130 passed | 20 skipped`). It also
+ *    puts test scaffolding on the shipped module's typecheck surface.
+ *  - **Importing the other `.test.ts`.** A test file's `describe`s register
+ *    into whichever suite imports it, so the other file's assertions would run
+ *    twice and the suite count would stop meaning what it says.
+ *
+ * So the duplication stays and the *agreement* is asserted, which is what was
+ * actually missing. It is cheap, it needs no new machinery, and it reds
+ * whichever copy drifts — the assertion is symmetric, so one of it is enough
+ * for one fact and a second copy would reintroduce the problem it is about.
+ *
+ * Text identity rather than agreement on probe inputs, for the reason this file
+ * already records one block down about the frame grid: "a behavioural test
+ * would pass against a divergent copy until the day the two implementations
+ * disagreed." Whitespace is normalised so that prettier rewrapping a line is
+ * not a failure; comments are stripped because the two docblocks differ
+ * deliberately, one carrying the rationale and the other pointing at it.
+ */
+describe('the import ban is one predicate, even though it is written twice', () => {
+  const banSource = (file: string): string => {
+    const code = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .replace(/^\s*\/\/.*$/gm, '')
+    const block = /const EDITOR_MODULES = \[[\s\S]*?\n\}\n/.exec(code)?.[0] ?? ''
+    return block.replace(/\s+/g, ' ').trim()
+  }
+
+  it('is byte-identical in both files, once comments and wrapping are set aside', () => {
+    const mine = banSource('transport.test.ts')
+    const theirs = banSource('transportdriver.test.ts')
+    // Vacuity floor, and it is the load-bearing half: an extraction that
+    // matched nothing in both files would return two empty strings and compare
+    // them happily. Named per file so the failure says which one moved.
+    for (const [file, text] of [['transport.test.ts', mine], ['transportdriver.test.ts', theirs]]) {
+      expect(text.length, `${file}: the ban block was not found — it was renamed or moved`)
+        .toBeGreaterThan(200)
+      expect(text, file).toContain('EDITOR_MODULES')
+      expect(text, file).toContain('function importsAnyOf')
+      // The two widenings, so a copy reverted to either old pattern is caught
+      // by this check and not only by its own positive controls.
+      expect(text, `${file}: the quote class is gone`).toContain(`['"`)
+      expect(text, `${file}: the path prefix is anchored on ./ again`).toContain('{1,2}')
+    }
+    expect(
+      theirs,
+      'the two copies of the import ban have drifted apart: one of them was widened, ' +
+      'narrowed or re-listed and the other was not, which is the defect 5b9b05f set out ' +
+      'to avoid reproducing',
+    ).toBe(mine)
+  })
+})
+
 describe('the frame grid, moved here from controls.ts', () => {
   /**
    * Identity, not equality of behaviour.

@@ -42,7 +42,10 @@ const SOURCE = readFileSync(new URL('./transportdriver.ts', import.meta.url), 'u
  * A strict superset of the pattern it replaces, in both widenings: all three
  * quote characters, `import`/`require` with or without call parentheses, and
  * any relative path. Full rationale in `transport.test.ts`, which carries the
- * other copy of this predicate.
+ * other copy of this predicate — and which now **asserts the two copies are
+ * identical**, so editing one of them without the other is a red test rather
+ * than a drift nothing watches. Edit this block and that check will tell you
+ * which file you forgot.
  */
 const EDITOR_MODULES = [
   'controls', 'main', 'examples', 'legibility', 'diagnostics', 'depthmap', 'stageguide',
