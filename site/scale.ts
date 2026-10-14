@@ -182,6 +182,53 @@ type AssertNever<T extends never> = T
 /** Slack for the `floor`, so a ratio that is 1.9999999 in binary reads as 2. */
 const EPS = 1e-9
 
+/**
+ * Is this a `devicePixelRatio` the arithmetic here can use?
+ *
+ * Finite and positive, and nothing else. Every function in this module reads a
+ * `dpr` that arrived from `window.devicePixelRatio` or from a caller that read
+ * it, so the rule has to be a *coercion* rather than a rejection: a detached
+ * document, a headless context or a resize handler firing mid-teardown can all
+ * report 0, and a layout pass that threw on one would take out the page it was
+ * laying out. `plateWidth` and `plateHeight` are the opposite case — those are
+ * a programming error and they throw.
+ *
+ * ## Why it is one function and not nine copies
+ *
+ * It is one line, which is exactly why it had been written out inline at every
+ * site that needed it: eight copies of
+ * `Number.isFinite(dpr) && dpr > 0 ? dpr : 1` here, a ninth spelled with `??`
+ * inside {@link planFit}, and a tenth under two more names in
+ * `site/playerplan.ts` whose own docblock recorded the duplication rather than
+ * removing it. **Nothing pinned the fallback**: every dpr loop in
+ * `site/scale.test.ts` was finite and positive, the degenerate sweeps swept
+ * lengths and plate sizes instead, and a verifier changed one copy's fallback
+ * to `7` without the suite noticing. That is this repo's signature recorded
+ * defect — one policy in several files, only some of them guarded, as with the
+ * animatable-channel list — so the copies are gone and
+ * `site/scale.test.ts`'s `usableDpr` block asserts the rule both directly and
+ * through every function that applies it.
+ *
+ * `undefined` is unusable by the same predicate, which is what makes the seven
+ * signatures here that spell the fallback as a `dpr = 1` default parameter
+ * agree with this function by construction rather than by coincidence.
+ */
+export function isUsableDpr(dpr: number | undefined): dpr is number {
+  return typeof dpr === 'number' && Number.isFinite(dpr) && dpr > 0
+}
+
+/**
+ * The ratio {@link isUsableDpr} accepts, or **1**.
+ *
+ * 1 and not 0: `dpr` is a divisor — `cssWidth` is `deviceWidth / dpr` — so 0 is
+ * unusable as a fallback for the same reason it is unusable as an input, and 1
+ * is the ratio of a display that does not scale, which is the honest reading of
+ * "we were not told".
+ */
+export function usableDpr(dpr: number | undefined): number {
+  return isUsableDpr(dpr) ? dpr : 1
+}
+
 export interface SnapInput {
   /** Backing-store width in px — `canvas.width`, `noiseScale` already applied. */
   readonly plateWidth: number
@@ -227,7 +274,7 @@ export function snapScale({ plateWidth, availableWidth, dpr = 1 }: SnapInput): S
       `${JSON.stringify(plateWidth)}`,
     )
   }
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const avail = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
   const scale = Math.max(1, Math.floor((avail * ratio) / plateWidth + EPS))
   const deviceWidth = scale * plateWidth
@@ -362,7 +409,7 @@ const isWhole = (x: number): boolean => Math.abs(x - Math.round(x)) < NEAR
 export const OFFSET_SEARCH = 256
 
 export function snapOffset(spare: number, dpr = 1): number {
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const room = Number.isFinite(spare) && spare > 0 ? spare : 0
   const ideal = Math.floor((room / 2) * ratio + NEAR)
   // The plate must still end inside the box, so an offset above the ideal is
@@ -430,7 +477,7 @@ export function fitScale({
   const byHeight = snapScale({ plateWidth: plateHeight, availableWidth: availableHeight, dpr })
 
   const scale = Math.min(byWidth.scale, byHeight.scale)
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const deviceWidth = scale * plateWidth
   const deviceHeight = scale * plateHeight
   const cssWidth = deviceWidth / ratio
@@ -543,7 +590,7 @@ export function containFit({
       `${JSON.stringify(plateHeight)}`,
     )
   }
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
   const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
 
@@ -795,7 +842,7 @@ export function renderFit({
   // to throw.
   const { margins } = plateLayoutOf(scene)
   const noiseScale = noiseScaleOf(scene)
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
   const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
 
@@ -975,7 +1022,7 @@ export type FitPlan = RescalePlan | RerenderPlan
  * which in a layout path would read as "no scale" and paint nothing.
  */
 export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
-  const ratio = Number.isFinite(input.dpr) && (input.dpr ?? 1) > 0 ? (input.dpr ?? 1) : 1
+  const ratio = usableDpr(input.dpr)
   const rescale = (named: 'snap' | 'contain', fit: Fit, backing: BackingStore): RescalePlan => ({
     kind: 'rescale',
     mode: named,
@@ -1029,7 +1076,7 @@ export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
  * that has no columns.
  */
 export function fitNote(fit: Fit, dpr = 1): string {
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const head =
     `Presenting at exactly ${fit.scale}x — ${fit.deviceWidth}x${fit.deviceHeight} ` +
     `device px, devicePixelRatio ${+ratio.toFixed(3)}.`
@@ -1135,7 +1182,7 @@ export function viewLayout({
 
   const finish = (snap: Snap, stacked: boolean, reason: StackReason): ViewLayout => ({
     ...snap,
-    cssHeight: (snap.scale * plateHeight) / (Number.isFinite(dpr) && dpr > 0 ? dpr : 1),
+    cssHeight: (snap.scale * plateHeight) / usableDpr(dpr),
     stacked,
     reason,
     trackWidth,
@@ -1167,7 +1214,7 @@ export function viewLayout({
  * invite the reader to check the wrong arithmetic.
  */
 export function scaleNote(layout: ViewLayout, dpr = 1): string {
-  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const ratio = usableDpr(dpr)
   const deviceHeight = Math.round(layout.cssHeight * ratio)
   const head =
     `Displayed at exactly ${layout.scale}x — ${layout.deviceWidth}x${deviceHeight} ` +

@@ -4,8 +4,8 @@ import { plateLayoutOf } from '../src/core/index.js'
 import { FIT_MODES } from './fit.js'
 import type { FitMode } from './fit.js'
 import {
-  OFFSET_SEARCH, backingStoreOf, containFit, fitNote, fitScale, planFit, renderFit, scaleNote,
-  snapOffset, snapScale, viewLayout,
+  OFFSET_SEARCH, backingStoreOf, containFit, fitNote, fitScale, isUsableDpr, planFit, renderFit,
+  scaleNote, snapOffset, snapScale, usableDpr, viewLayout,
 } from './scale.js'
 import type { RenderFit } from './scale.js'
 import type { Scene, SirdsOpts, StereoOpts } from '../src/core/types.js'
@@ -1218,6 +1218,127 @@ describe('scaleNote', () => {
 
   it('names devicePixelRatio, because that is the thing that was snapped', () => {
     expect(at(1280, 1.5)).toContain('devicePixelRatio 1.5')
+  })
+})
+
+/* --------------------------------------------------- the dpr coercion, once */
+
+/**
+ * One rule for an unusable `devicePixelRatio`, and the nine places that had
+ * their own copy of it.
+ *
+ * `dpr` reaches this module off the DOM, so it is coerced rather than rejected,
+ * and until {@link usableDpr} existed the coercion was written out inline at
+ * every site that needed it — eight copies of
+ * `Number.isFinite(dpr) && dpr > 0 ? dpr : 1`, a ninth spelled with `??` inside
+ * `planFit`, and a tenth under two more names in `site/playerplan.ts`.
+ *
+ * **Nothing pinned the fallback.** Every dpr loop in this file was finite and
+ * positive (`DPRS`, `CONTAIN_DPRS`, and about twenty inline lists); the
+ * degenerate sweeps that do exist sweep *lengths and plate sizes*, never `dpr`;
+ * and `undefined` was pinned nowhere at all, because seven signatures here
+ * reach the fallback through a `dpr = 1` default parameter rather than through
+ * the predicate. A verifier changed one copy's fallback to `7` and the suite
+ * stayed green.
+ *
+ * So the rule is asserted twice over: directly on the helper, and *through*
+ * every exported function that applies it. The second is the one that matters,
+ * because a shared coercion one call site has quietly stopped calling is the
+ * same defect with a tidier diff.
+ */
+describe('usableDpr', () => {
+  /**
+   * Everything a browser can hand us that the arithmetic cannot use, including
+   * both spellings of absence. `-0` is in here because it is finite and the
+   * predicate has to reject it on the comparison rather than on `isFinite`.
+   */
+  const UNUSABLE: Array<[string, number | undefined]> = [
+    ['zero', 0],
+    ['negative zero', -0],
+    ['negative', -2],
+    ['NaN', Number.NaN],
+    ['+Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['undefined', undefined],
+  ]
+
+  it('passes a finite positive ratio through untouched', () => {
+    for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 0.5, 1 / 3, 1e9, Number.MIN_VALUE]) {
+      expect(isUsableDpr(dpr), `${dpr}`).toBe(true)
+      expect(usableDpr(dpr), `${dpr}`).toBe(dpr)
+    }
+  })
+
+  it('substitutes exactly 1 — not 0, not the input, not any other number', () => {
+    // The direct pin. `dpr` is a divisor (`cssWidth` is `deviceWidth / dpr`),
+    // so 0 is unusable as a fallback for the same reason it is unusable as an
+    // input, and 1 is the ratio of a display that does not scale — the honest
+    // reading of "we were not told".
+    for (const [name, dpr] of UNUSABLE) {
+      expect(isUsableDpr(dpr), name).toBe(false)
+      expect(usableDpr(dpr), name).toBe(1)
+    }
+  })
+
+  /** Every exported function in this module that reads a `dpr`, in one bundle. */
+  const everythingAt = (dpr: number | undefined, box: [number, number]) => {
+    const scene = sceneOf([640, 360])
+    const common = { availableWidth: box[0], availableHeight: box[1], dpr }
+    const fit = fitScale({ ...DEFAULT_PLATE, ...common })
+    const view = viewLayout({ ...DEFAULT_PLATE, containerWidth: box[0], gap: 16, dpr })
+    return {
+      snap: snapScale({ plateWidth: 1500, availableWidth: box[0], dpr }),
+      fit,
+      contain: containFit({ ...DEFAULT_PLATE, ...common }),
+      render: renderFit({ scene, ...common }),
+      offset: snapOffset(2425, dpr),
+      view,
+      plans: (['snap', 'contain', 'render'] as FitMode[])
+        .map(mode => planFit(mode, { scene, ...common })),
+      fitNote: fitNote(fit, dpr),
+      scaleNote: scaleNote(view, dpr),
+    }
+  }
+
+  it('is the ONE rule every exported function here applies', () => {
+    let checked = 0
+    for (const box of BOXES) {
+      const one = everythingAt(1, box)
+      for (const [name, dpr] of UNUSABLE) {
+        expect(everythingAt(dpr, box), `${name} in ${box[0]}x${box[1]}`).toEqual(one)
+        checked++
+      }
+    }
+    // Vacuity floor: a loop that stopped iterating would assert nothing, and
+    // this test's whole value is that it covers every site rather than one.
+    expect(checked).toBe(BOXES.length * UNUSABLE.length)
+    expect(checked).toBeGreaterThan(50)
+  })
+
+  it('treats an explicit undefined dpr exactly like an absent one', () => {
+    // The hole the default parameters left: `{ dpr: undefined }` and an object
+    // with no `dpr` key at all travel different routes to the same fallback,
+    // and nothing asserted they arrive together.
+    const scene = sceneOf([640, 360])
+    const box = { availableWidth: 1280, availableHeight: 800 }
+    expect(snapScale({ plateWidth: 1500, availableWidth: 1280, dpr: undefined }))
+      .toEqual(snapScale({ plateWidth: 1500, availableWidth: 1280 }))
+    expect(fitScale({ ...DEFAULT_PLATE, ...box, dpr: undefined }))
+      .toEqual(fitScale({ ...DEFAULT_PLATE, ...box }))
+    expect(containFit({ ...DEFAULT_PLATE, ...box, dpr: undefined }))
+      .toEqual(containFit({ ...DEFAULT_PLATE, ...box }))
+    expect(renderFit({ scene, ...box, dpr: undefined })).toEqual(renderFit({ scene, ...box }))
+    expect(snapOffset(2425, undefined)).toBe(snapOffset(2425))
+    expect(viewLayout({ ...DEFAULT_PLATE, containerWidth: 1400, gap: 16, dpr: undefined }))
+      .toEqual(viewLayout({ ...DEFAULT_PLATE, containerWidth: 1400, gap: 16 }))
+    for (const mode of ['snap', 'contain', 'render'] as FitMode[]) {
+      expect(planFit(mode, { scene, ...box, dpr: undefined }), mode)
+        .toEqual(planFit(mode, { scene, ...box }))
+    }
+    const fit = fitScale({ ...DEFAULT_PLATE, ...box })
+    expect(fitNote(fit, undefined)).toBe(fitNote(fit))
+    const view = viewLayout({ ...DEFAULT_PLATE, containerWidth: 1400, gap: 16 })
+    expect(scaleNote(view, undefined)).toBe(scaleNote(view))
   })
 })
 

@@ -49,7 +49,7 @@ import { parseSceneHash } from './hash.js'
 import { chromeSpec } from './playerchrome.js'
 import type { ChromeNode, Framing } from './playerchrome.js'
 import { isPresenting } from './present.js'
-import { planFit } from './scale.js'
+import { isUsableDpr, planFit, usableDpr } from './scale.js'
 import type { FitPlan, PlanFitInput } from './scale.js'
 import { scaleScene } from './scalescene.js'
 import { validateScene } from './scene.js'
@@ -259,22 +259,20 @@ export interface PlayerPlan {
 
 /* ------------------------------------------------------------- the coercion */
 
-/**
- * Is this a `devicePixelRatio` the arithmetic can use?
+/*
+ * `isUsableDpr` and `usableDpr` are **imported from `site/scale.ts`**, not
+ * declared here.
  *
- * The same predicate `scale.ts` applies internally — finite and positive —
+ * This module used to carry its own copies, and the docblock on them said why:
+ * "the same predicate `scale.ts` applies internally — finite and positive —
  * stated here rather than inferred, because this module has to *report* the
  * coercion that one performs silently. Two spellings of the same rule would be
- * a plan that said "dpr was fine" while the arithmetic substituted 1.
+ * a plan that said 'dpr was fine' while the arithmetic substituted 1." The
+ * reasoning was right and the remedy was not: restating a rule is how two
+ * spellings of it come to exist, and this was the second of four. `scale.ts`
+ * now exports the predicate it applies, so the plan's `dpr-unusable` notice and
+ * the arithmetic's substitution cannot disagree — they are the same call.
  */
-function isUsableDpr(dpr: number): boolean {
-  return Number.isFinite(dpr) && dpr > 0
-}
-
-/** `dpr` if usable, else 1 — `scale.ts`'s fallback, applied where it is visible. */
-function usableDpr(dpr: number): number {
-  return isUsableDpr(dpr) ? dpr : 1
-}
 
 /** A measured length if it is one, else 0 — again matching `scale.ts`. */
 function usableLength(value: unknown): number {
