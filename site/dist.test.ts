@@ -308,12 +308,23 @@ describe.skipIf(!freshPlayer)('the built player', () => {
     // reason attached rather than only as a 404 three hundred lines later.
     const documents = files.filter(f => f.endsWith('.html')).map(f => relative(DIST_PLAYER, f))
     expect(documents, 'the player build emitted no HTML at all').not.toEqual([])
+    // The **exact** set, not membership, which is what the surrounding
+    // docblocks already claim — `DIST_PLAYER`'s says two directories "make the
+    // set exact". `toContain` does not say it: a tree carrying both
+    // `player.html` and `index.html` satisfies it, and that is precisely the
+    // half-applied rename this assertion exists to catch. It is unreachable
+    // from the current config, because `directoryIndexEntry` throws if
+    // `bundle[to]` already exists — but "unreachable" and "asserted" are not
+    // the same property, and that distinction has already cost this branch one
+    // import ban.
     expect(
       documents,
-      `the player's entry must be emitted as ${PLAYER_ENTRY}: a static host answers the ` +
-      `bare directory URL /staticstereo/${PLAYER_DEPLOY_DIR}/ with the directory index and ` +
-      `with nothing else, and that URL is the one an embedder writes into an iframe (R14)`,
-    ).toContain(PLAYER_ENTRY)
+      `the player's entry must be emitted as ${PLAYER_ENTRY} and as nothing else: a static ` +
+      `host answers the bare directory URL /staticstereo/${PLAYER_DEPLOY_DIR}/ with the ` +
+      `directory index and with nothing else, and that URL is the one an embedder writes ` +
+      `into an iframe (R14). A second document beside it means the rename was applied to a ` +
+      `copy rather than to the entry, and the old name is still being deployed`,
+    ).toEqual([PLAYER_ENTRY])
   })
 
   it('references no asset by an absolute path', () => {
