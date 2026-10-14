@@ -486,6 +486,13 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    reddened *and* three unasserted measurements moved, one of them an emitted-stereogram
    measurement that no assertion would ever have mentioned. Diff the values, sorted with
    their labels; raw order is unstable.
+
+   **Anywhere this procedure is referenced, name both halves of it.** "Re-run the
+   mutation" is an instruction to do half — it reproduces the reddened *tests* and not the
+   moved *measurements*. A comment or brief that says only the first is pointing a future
+   reader at the weaker of the two procedures, which is how a note that looks like a
+   pointer becomes a dead end. The orchestrator wrote exactly that wording into a fix
+   instruction and a verifier caught it.
 6. Deviations either reverted or recorded in the design document.
 
 The orchestrator reads the report of 1–6 and merges. It does not re-verify.
