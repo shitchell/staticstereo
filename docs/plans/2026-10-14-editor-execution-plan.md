@@ -477,6 +477,15 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    leaves every rendered frame byte-identical. That "proof" could not have detected the
    error it was offered against — and the far endpoint is precisely the quantity that had
    previously been wrong by 17.33px.
+
+   **An unasserted `report()` or `[measured]` line is an instrument with no failure
+   mode.** This repo holds roughly 126 of them: they print and nothing asserts them. So a
+   claim of the form "nothing in the suite sees X", resting on that corpus, is inadmissible
+   under this rule unless the measured **values** are diffed under the mutation rather than
+   its pass/fail. That is how V-B found a claim overstated — under one mutation five tests
+   reddened *and* three unasserted measurements moved, one of them an emitted-stereogram
+   measurement that no assertion would ever have mentioned. Diff the values, sorted with
+   their labels; raw order is unstable.
 6. Deviations either reverted or recorded in the design document.
 
 The orchestrator reads the report of 1–6 and merges. It does not re-verify.
@@ -750,6 +759,7 @@ Each already cost a correction. Hand this table to every worker.
 | the plate can be cropped to the stage | Margins are the fusion partners of the stage's edge columns. |
 | `comm -12` reported no overlap, so there is none | Not without `LC_ALL=C`. `sort` and `comm` disagree on collation otherwise and silently report **no** overlap — a fail-open answer to "do these two sets intersect". Nearly cost a rebase check. |
 | `grep -n` gave me the line number | Not over diff output it did not — that numbers the *diff*, not the file. It produced `:1665` and `:1728` for a 1281-line file, and the impossible numbers then travelled through two reports before anyone checked them against `git show <sha>:<path> \| grep -n`. |
+| a hand-written list of "the places that do X" is a check | It goes stale silently the day a second place does X. Derive it from the thing that makes a site one of them — the call sites, the registry, the token table — never from an enumeration someone typed. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 
 ---
