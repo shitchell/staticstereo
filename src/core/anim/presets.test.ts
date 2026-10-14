@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { compilePreset, PRESETS } from './presets.js'
 import { evalTrack } from './track.js'
-import { CTX as ctx } from './ctx.fixture.js'
+import { CTX as ctx } from '../testing/ctx.fixture.js'
 
 /** Fully off the plate on each side, in stage coordinates (§10). */
 const OFF_LEFT = -(ctx.contentW + ctx.marginLeft)   // -1310

@@ -9,7 +9,7 @@
  * the wrong one, or added the same one twice, would still pass with a
  * symmetric fixture.
  */
-import type { PresetCtx } from './presets.js'
+import type { PresetCtx } from '../anim/presets.js'
 
 export const CTX: PresetCtx = {
   sceneW: 800, sceneH: 450, contentW: 1200, contentH: 90, layerDepth: 1,

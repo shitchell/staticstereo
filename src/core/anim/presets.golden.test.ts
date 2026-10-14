@@ -32,7 +32,7 @@ import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { compilePreset, PRESETS } from './presets.js'
-import { GOLDEN_CTX } from './ctx.fixture.js'
+import { GOLDEN_CTX } from '../testing/ctx.fixture.js'
 import type { Preset, Track } from '../types.js'
 
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
