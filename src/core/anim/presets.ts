@@ -274,6 +274,31 @@ const REGISTRY = {
   },
 
   /**
+   * Grow or shrink. `from`/`to` are **absolute multipliers** and both default
+   * to 1.
+   *
+   * **Absolute, not a delta — and that is not an inconsistency with the other
+   * verbs.** `composeAnim` *multiplies* this one channel and sums every other,
+   * so `scale`'s rest value is 1 rather than 0; for a multiplicative channel
+   * the absolute factor already *is* the delta from rest, and there is nothing
+   * to subtract. Writing `to − 1` to match the additive verbs would make the
+   * default track key 0 → 0 and collapse every bare `scale` layer to a point
+   * — a zero-scale catastrophe, not a rounding difference.
+   *
+   * Uniform only: `Transform` has one `scale`, deliberately, because a
+   * non-uniform pair and a `rotateY` describe overlapping deformations and the
+   * rotation is the one that carries depth meaning (§ `Transform`).
+   */
+  scale: p => overrides({
+    keys: [
+      { t: 0, scale: num(p, 'from', 1) },
+      { t: 1, scale: num(p, 'to', 1) },
+    ],
+    ease: 'linear',
+    repeat: 'once',
+  }, p),
+
+  /**
    * Enter from off-frame and come to rest at the layer's own position. Only the
    * axis being entered on is keyed, so the other axis stays composable with
    * e.g. `bob`.

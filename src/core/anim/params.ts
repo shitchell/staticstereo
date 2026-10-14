@@ -113,6 +113,14 @@ const DEGREES = (name: string): NumericParam =>
   ({ name, unit: 'degrees', shape: 'scalar' })
 
 /**
+ * A dimensionless factor. **Does not scale under `fit=render`** — that is the
+ * whole point of giving it a unit of its own rather than leaving it untagged:
+ * doubling a container's width must not double a layer's `scale`.
+ */
+const MULTIPLIER = (name: string): NumericParam =>
+  ({ name, unit: 'multiplier', shape: 'scalar' })
+
+/**
  * The descriptors, keyed by the registry's own literal union.
  *
  * `Record<PresetKind, …>` is the tie: registering a verb without describing
@@ -137,6 +145,9 @@ export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
     // real, distinct turn. `flip`'s axis enum is two — see there for why.
     { name: 'axis', unit: 'enum', values: ['x', 'y', 'z'] },
   ],
+  // Absolute factors, not deltas — `composeAnim` multiplies this channel and
+  // its rest value is 1, so the factor is the delta. See `presets.ts`.
+  scale: [MULTIPLIER('from'), MULTIPLIER('to')],
   'slide-in': [
     // The edge entered from, not a distance: the offset is computed from the
     // measured content and the plate margins, so there is nothing here for a

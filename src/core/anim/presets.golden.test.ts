@@ -68,6 +68,7 @@ const FULL: Record<string, Record<string, unknown>> = {
   move: { from: [-13, 7], to: [250, -40] },   // defaults [0,0], [0,0]
   push: { from: 0.2, to: 0.85 },              // defaults 0 and ctx.layerDepth
   rotate: { from: -30, to: 210, axis: 'x' },  // defaults 0, 0, 'z'
+  scale: { from: 0.25, to: 3.5 },             // defaults 1 and 1
   'slide-in': { from: 'bottom' },             // default 'left'
 }
 

@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { compilePreset, PRESETS } from './presets.js'
-import { evalTrack } from './track.js'
+import { composeAnim, evalTrack } from './track.js'
 import { CTX as ctx } from '../testing/ctx.fixture.js'
+import type { Track } from '../types.js'
 
 /** Fully off the plate on each side, in stage coordinates (§10). */
 const OFF_LEFT = -(ctx.contentW + ctx.marginLeft)   // -1310
@@ -20,7 +21,7 @@ function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: nu
 describe('presets', () => {
   it('registers the v1 set', () => {
     expect(Object.keys(PRESETS).sort()).toEqual(
-      ['bob', 'bounce', 'marquee', 'move', 'push', 'rotate', 'slide-in'],
+      ['bob', 'bounce', 'marquee', 'move', 'push', 'rotate', 'scale', 'slide-in'],
     )
   })
 
@@ -287,5 +288,51 @@ describe('rotate', () => {
   it('rejects an axis that is not x, y or z', () => {
     expect(() => compilePreset({ kind: 'rotate', axis: 'w' }, ctx)).toThrow(/must be one of/)
     expect(() => compilePreset({ kind: 'rotate', axis: 'w' }, ctx)).toThrow(/x, y, z/)
+  })
+})
+
+/**
+ * `scale` — the one channel `composeAnim` does not sum.
+ *
+ * Every other channel is an additive offset from rest, so the rest value is 0
+ * and a verb writes a delta. `scale` is multiplied and `IDENTITY.scale` is 1,
+ * so for this channel the absolute factor *is* the delta, and the usual
+ * "subtract the rest value" reflex is a catastrophe rather than a nuance.
+ */
+describe('scale', () => {
+  it('multiplies rather than adds when composed with another animator', () => {
+    // The acceptance criterion: 2 alongside 3 is 6, not 5. A raw track supplies
+    // the second factor so the test does not depend on two presets at once.
+    const doubled = { kind: 'scale', to: 2 }
+    const tripled: Track = { keys: [{ t: 0, scale: 3 }, { t: 1, scale: 3 }] }
+    expect(composeAnim([doubled, tripled], 1, 1, ctx, compilePreset).scale).toBe(6)
+  })
+
+  it('is absolute, so `to: 2` is a doubling', () => {
+    const tr = compilePreset({ kind: 'scale', to: 2 }, ctx)
+    expect(evalTrack(tr, 1, 1).scale).toBe(2)
+  })
+
+  it('defaults to the multiplicative identity at both ends, not to zero', () => {
+    // The guard on the whole design. Writing `to − 1` would make the *default*
+    // track 0 → 0 and collapse every bare `scale` layer to nothing — a
+    // zero-scale catastrophe that an additive reading of "delta from rest"
+    // produces directly.
+    const tr = compilePreset({ kind: 'scale' }, ctx)
+    expect(evalTrack(tr, 0, 1).scale).toBe(1)
+    expect(evalTrack(tr, 1, 1).scale).toBe(1)
+    expect(composeAnim([{ kind: 'scale' }], 1, 1, ctx, compilePreset).scale).toBe(1)
+  })
+
+  it('shrinks on a factor below 1 and honours an explicit from', () => {
+    const tr = compilePreset({ kind: 'scale', from: 2, to: 0.5 }, ctx)
+    expect(evalTrack(tr, 0, 1).scale).toBe(2)
+    expect(evalTrack(tr, 1, 1).scale).toBe(0.5)
+  })
+
+  it('keys only scale, so it composes with a move on the same layer', () => {
+    const tr = compilePreset({ kind: 'scale', to: 3 }, ctx)
+    expect(JSON.stringify(tr)).not.toContain('"x"')
+    expect(JSON.stringify(tr)).not.toContain('"y"')
   })
 })

@@ -547,6 +547,79 @@
       }
     },
     {
+      "kind": "scale",
+      "label": "bare",
+      "input": {
+        "kind": "scale"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 1
+          },
+          {
+            "t": 1,
+            "scale": 1
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "scale",
+      "label": "params",
+      "input": {
+        "kind": "scale",
+        "from": 0.25,
+        "to": 3.5
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 0.25
+          },
+          {
+            "t": 1,
+            "scale": 3.5
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "scale",
+      "label": "params+overrides",
+      "input": {
+        "kind": "scale",
+        "from": 0.25,
+        "to": 3.5,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 0.25
+          },
+          {
+            "t": 1,
+            "scale": 3.5
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
       "kind": "slide-in",
       "label": "bare",
       "input": {
