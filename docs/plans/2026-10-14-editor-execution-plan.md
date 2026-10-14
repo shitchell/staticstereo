@@ -134,6 +134,45 @@ successor that *surveys* rather than inheriting narration is the check that caug
 PM-PLAYER-2's independent state survey contradicted its predecessor's handover on two
 points, and both times the survey was right.
 
+### 1.2d Falsifiability binds retractions, and the tier below is the check on the tier above
+
+`b0f4552` made claims falsifiable. It did not cover the inverse, and the inverse happened
+within hours: PM-MODEL retracted a verifier report as fabricated, having checked nothing
+against the tree. **The report was real.** What it had actually fabricated was the memory
+of never receiving it — and then a retraction built on that memory. One `git show` would
+have stopped it.
+
+**An unfounded retraction costs more than an unfounded claim.** A false claim adds work
+that a verifier removes. A false retraction *discards true findings* and dispatches
+workers to undo correct work. It nearly cost a task that had already been done right.
+
+So:
+
+1. **A retraction carries evidence, exactly as a claim does.** "I think I made this up" is
+   not grounds to withdraw a finding; a command whose output contradicts it is.
+2. **A PM auditing its own memory is unreliable in both directions.** Check the tree, not
+   the recollection — and when neither confirms nor denies, hold the item *unverified*
+   rather than resolving it by assumption either way. PM-MODEL did exactly this with
+   cluster 7, which is the correct ending.
+
+**What actually caught it was a worker.** It had already measured the claims — a
+17-significant-digit float and a character-exact error reproduction — and when the PM's
+correction arrived it refused to accept an assertion over its own evidence, put the
+rebuttal in its report, and included the one item where the PM's *original* finding had
+been wrong. Right in both directions, against its own supervisor.
+
+**Brief this into every worker**, because it does not happen by default:
+
+> Your measurements outrank any assertion from your PM. If a correction contradicts
+> something you measured, say so, show the measurement, and do not silently comply. If you
+> cannot reach your PM, put the dissent in your final report — it reaches the orchestrator.
+
+That fallback is load-bearing and currently fragile: workers attempting to reply get
+`No agent named 'general-purpose' is reachable`, so this rebuttal survived only because
+the worker wrote it into its final output. **A worker that cannot reach its PM, under a PM
+issuing a wrong correction, is one step from silent compliance.** Until the mesh is
+reliable, every worker brief must say that the final report is the channel of record.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
