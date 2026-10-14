@@ -32,10 +32,26 @@ const NEWTON_ITERATIONS = 8
  * tolerance of 1e-7 buys a y accuracy of 1e-7 only where the curve happens
  * to run at slope 1. **Measured over 4097 samples**, against a forward
  * evaluation of the same curves: the x-tolerance form errs 1.7e-7 on
- * `(.42,0,.58,1)`, 5.0e-7 on `(.68,-.55,.265,1.55)` and 1.1e-5 on
- * `(1,0,0,1)`; converging the parameter instead gives 7.8e-16, 3.4e-14 and
- * 2.9e-6 on the same three. Eight orders of magnitude on ordinary curves,
- * for the same iteration count.
+ * `(.42,0,.58,1)` and 5.0e-7 on `(.68,-.55,.265,1.55)`; converging the
+ * parameter instead gives 7.8e-16 and 3.4e-14 on the same two. Eight orders
+ * of magnitude on ordinary curves, for the same iteration **budget** — but
+ * not for free: the parameter test fires one step later than the x test, so
+ * the realised work is one more Newton step per call (2.97 against 1.97 on
+ * the first curve, 4.34 against 3.33 on the second). That step is where the
+ * accuracy comes from, which is what makes the trade a good one rather than
+ * a free one.
+ *
+ * **A third curve, `(1,0,0,1)`, used to be quoted here at 1.1e-5 for the
+ * x-tolerance form against 2.9e-6 for this one. It is withdrawn: it does not
+ * reproduce.** Two independent reconstructions, under the same forward-
+ * evaluation method that reproduces the four figures above to two
+ * significant digits, measured the x-tolerance form on it at 2.9e-6 and at
+ * 4.0e-3 — neither of them 1.1e-5, and neither agreeing with the other.
+ * Nothing in the decision rests on it, because that curve is the one where
+ * the two forms are *expected* to agree: it is flat in x at its midpoint, so
+ * both bail to bisection there and both land on the precision floor
+ * described next. Re-deriving it and getting a third answer is not a mistake
+ * on the reader's part.
  *
  * The 2.9e-6 that survives is not the tolerance. `(1,0,0,1)` is flat in x at
  * its midpoint by construction (`x'(s) = 3(2s−1)²`), so `x(s) − 0.5` grows as

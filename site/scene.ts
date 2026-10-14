@@ -7,7 +7,7 @@ import {
   resolveStereo,
   STEREO_KEYS,
 } from '../src/core/index.js'
-import type { Anim, Easing, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
+import type { Anim, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
  * Validate an untrusted scene — one that arrived from `location.hash` or from
@@ -197,7 +197,11 @@ function validateTrack(v: Record<string, unknown>, path: string): Track {
         `${CUBIC_BEZIER_SYNTAX}, got ${JSON.stringify(ease)}`,
       )
     }
-    track.ease = ease as Easing
+    // No cast: `fail()` returns `never` and `isEasing` is a type predicate,
+    // so `ease` is already `Easing` here. Spelling it out again would assert
+    // what the guard proves, and would keep asserting it if the guard were
+    // later weakened.
+    track.ease = ease
   }
   if (v['repeat'] !== undefined) track.repeat = requireOneOf(v['repeat'], REPEATS, `${path}.repeat`)
   if (v['start'] !== undefined) track.start = requireFinite(v['start'], `${path}.start`)

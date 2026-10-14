@@ -82,10 +82,15 @@ describe('cubicBezier', () => {
     //
     // The bound below is therefore an envelope around a precision limit, not
     // a solver tolerance — which is also why it is asserted as a bound rather
-    // than pinned as a value. Measured worst case here is 2.9e-6; the
-    // x-tolerance solver this one deliberately is not (see `EPSILON` in
-    // `bezier.ts`) measures 1.1e-5 on the same curve while reporting itself
-    // converged to 1e-7.
+    // than pinned as a value. Measured worst case here is 2.9e-6.
+    //
+    // A companion figure of 1.1e-5 for the x-tolerance solver on this same
+    // curve used to be quoted here and in `EPSILON`. It is withdrawn as
+    // unreproduced — see `EPSILON` in `bezier.ts` for the two reconstructions
+    // that disagree with it and with each other. This curve is the one where
+    // the two solvers are *expected* to agree anyway: both bail to bisection
+    // at the flat midpoint and both land on the floor described above, so it
+    // was never the figure the choice of tolerance rests on.
     const f = cubicBezier(1, 0, 0, 1)
     for (const s of SAMPLES) {
       expect(Math.abs(f(forward(1, 0, s)) - forward(0, 1, s)), `s=${s}`)

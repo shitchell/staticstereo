@@ -36,10 +36,27 @@ type _NoChannelExtra = AssertNever<Exclude<Channel, keyof Transform>>
  * an easing share a solver, and so a `WeakMap` is not needed to avoid
  * retaining tracks.
  *
- * Unbounded, deliberately. The keys are easing strings written by a scene
- * author, so the population is the number of *distinct curves in the scene
- * file* — a handful. An eviction policy here would be machinery guarding
- * against a scene nobody writes.
+ * Unbounded, deliberately — **and that rests on an assumption about the
+ * caller that is true today and will stop being true.** The keys are easing
+ * strings, so while they are written by a scene author the population is the
+ * number of distinct curves in the scene *file*: a handful, and an eviction
+ * policy would be machinery guarding against a scene nobody writes.
+ *
+ * The editor breaks that assumption rather than stretching it. Design §4.4
+ * puts an inline bezier preview beside four draggable numbers, and §7.6
+ * reserves the space for a value-graph editor; dragging one of those numbers
+ * emits a *new* easing string on every frame of the drag, each one a distinct
+ * key and each one a permanent `Map` entry retaining a closure over six
+ * coefficients. The population stops being "curves in the file" and becomes
+ * "curves ever scrubbed through", which is unbounded in a session that never
+ * reloads.
+ *
+ * So this is a decision about a scene renderer, not a decision about the
+ * cache. **Whoever builds that control owns this line**: the options are an
+ * LRU, a cache the editor clears when the drag ends, or resolving the
+ * in-flight curve outside the cache and only interning it on commit. Leaving
+ * it as-is is also allowed — but as a measured choice, not by inheriting a
+ * rationale that was about scene files.
  */
 const BEZIER_SOLVERS = new Map<string, (t: number) => number>()
 
