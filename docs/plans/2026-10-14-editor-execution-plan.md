@@ -82,6 +82,18 @@ lives in the scratchpad as `P<n>-LEDGER.md` and always carries: criteria status 
 commit for each, orchestrator rulings status, current gate numbers, open escalations, and
 the next task. A PM that maintains this can be replaced for free.
 
+**The ledger is never a citation target from committed artifacts.** It lives in a
+per-session tmp directory and is untracked *by design* — it is working state for agents
+inside a phase, not a record anything may point at. A reviewer caught a shipped
+`src/core/plate.ts` comment citing `scratchpad/P0B-LEDGER.md`, a path that does not resolve
+from the repo, is in no commit, and will not survive the session. It also did not contain
+what the sentence claimed. **The orchestrator shares that error** — mandating the location
+here without forbidding the citation is what made it available.
+
+Where a measurement needs to outlive its phase, it goes in the **commit message** or in
+`docs/`. Commit messages are the durable record and this build has been using them that
+way throughout; the ledger is the scaffold, not the building.
+
 **A PM that senses its context running out says so and stops.** That is a successful
 outcome, not a failure — a successor reads the ledger and loses nothing. A PM that pushes
 on until it degrades costs the orchestrator a reconstruction it is not allowed to do by
@@ -737,6 +749,7 @@ Each already cost a correction. Hand this table to every worker.
 | `sans-serif` resolves everywhere | It resolved to dingbats in `@napi-rs/canvas` for a day. |
 | the plate can be cropped to the stage | Margins are the fusion partners of the stage's edge columns. |
 | `comm -12` reported no overlap, so there is none | Not without `LC_ALL=C`. `sort` and `comm` disagree on collation otherwise and silently report **no** overlap — a fail-open answer to "do these two sets intersect". Nearly cost a rebase check. |
+| `grep -n` gave me the line number | Not over diff output it did not — that numbers the *diff*, not the file. It produced `:1665` and `:1728` for a 1281-line file, and the impossible numbers then travelled through two reports before anyone checked them against `git show <sha>:<path> \| grep -n`. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 
 ---
