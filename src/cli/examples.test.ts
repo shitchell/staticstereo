@@ -3,26 +3,13 @@ import { readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { resolve } from 'node:path'
 import { loadScene } from './scene.js'
-import type { Anim, Layer, Preset, Track } from '../core/types.js'
+// The vocabulary and the `Anim` flattener moved to `core/testing` when the
+// site's starter scenes got a sweep of their own (`site/examples.test.ts`):
+// two corpora checking two copies of the list is how one of them drifts.
+import { VERBS, animators } from '../core/testing/verbs.js'
+import type { Layer, Preset } from '../core/types.js'
 
 const EXAMPLES = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../examples')
-
-/**
- * The verb vocabulary design §4.2b narrows `PRESETS` to — written out rather
- * than read from the registry on purpose.
- *
- * `Object.keys(PRESETS)` would make this test agree with whatever the registry
- * currently holds, which is exactly the thing being decided; it would have
- * passed while the examples still used `marquee` and `bounce`. The list is a
- * design decision, so it is pinned as one. `presets.test.ts` is where the
- * registry itself is held to the same five.
- */
-const VERBS = ['flip', 'move', 'push', 'rotate', 'scale']
-
-function animators(anim: Anim | undefined): (Track | Preset)[] {
-  if (!anim) return []
-  return Array.isArray(anim) ? anim : [anim]
-}
 
 describe('the shipped example scenes', () => {
   const files = readdirSync(EXAMPLES).filter(f => f.endsWith('.yaml')).sort()
