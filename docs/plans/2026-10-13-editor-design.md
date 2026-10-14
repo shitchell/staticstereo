@@ -295,6 +295,16 @@ Five of these are decisions rather than transcriptions:
   same picture. **A correct literal here would have been unfalsifiable, which is the whole
   argument for deriving it.**
 
+  **For whoever builds the timeline templates, because it changes how you test them: no
+  far-endpoint change in these scenes can ever be validated by rendering.** It has to be
+  validated at the `Track` level — compile the preset and compare the keyframes. The
+  condition is scene duration sitting inside the derived duration, which holds for all three
+  shipped scrolls (6s against 17.00s, 6s against 11.70s, 4s against 19.98s), so a rendered
+  frame is simply the wrong instrument for the question. P6 re-derives these endpoints in a
+  template; it needs this before it writes one. This is also why the corpora's zero-movement
+  check rested on a `Track`-level comparison and why its render-level half was vacuous — see
+  the plan's §6.5a, which this is the worked example of.
+
   **Outstanding: §4.2b-pre's scalability obligation.** A token resolves from an
   already-scaled `PresetCtx`, so it must be marked *not* scalable or `fit=render`
   double-counts it — and there is no field to mark it in. `NumericParam` is
