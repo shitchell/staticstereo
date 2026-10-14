@@ -169,6 +169,15 @@
 
 import { DEFAULT_STEREO, plateLayoutOf } from '../src/core/index.js'
 import type { Margins, Scene } from '../src/core/index.js'
+import type { FitMode } from './fit.js'
+
+/**
+ * Errors unless its argument is `never` — the repo's exhaustiveness idiom, as
+ * used in `src/core/types.ts` and `src/core/anim/track.ts`. Declared locally
+ * there too; it is three words long and sharing it would couple two modules
+ * that have nothing else to say to each other.
+ */
+type AssertNever<T extends never> = T
 
 /** Slack for the `floor`, so a ratio that is 1.9999999 in binary reads as 2. */
 const EPS = 1e-9
@@ -561,6 +570,55 @@ export function containFit({
   }
 }
 
+/* ------------------------------------------- scene → backing store, shared */
+
+/**
+ * The scene's resolved `noiseScale`, which is the plate px → backing-store px
+ * factor and nothing else.
+ *
+ * Merged over {@link DEFAULT_STEREO} rather than through `resolveStereo`: that
+ * function validates the *whole* stereo block and throws for settings that have
+ * no bearing on geometry, and a layout pass that refused to measure a plate
+ * because `sepNear` was 1 would be answering a question it was not asked. The
+ * check here is only what this arithmetic needs — a positive, finite factor.
+ * `resolveStereo` remains the authority at render time, and it is stricter
+ * (a positive **integer**, because the factor is a pixel replication count).
+ */
+function noiseScaleOf(scene: Scene): number {
+  const noiseScale = scene.stereo?.noiseScale ?? DEFAULT_STEREO.noiseScale
+  if (!Number.isFinite(noiseScale) || noiseScale <= 0) {
+    throw new Error(
+      `stereo.noiseScale must be a finite positive number, got ${JSON.stringify(noiseScale)}`,
+    )
+  }
+  return noiseScale
+}
+
+/** A canvas's `width`/`height`, in **backing-store px**. */
+export interface BackingStore {
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * The backing store a scene renders into: `plateLayoutOf(scene).plate` — margins
+ * included — multiplied by `noiseScale`.
+ *
+ * This is the bridge from the scene to the two spaces {@link fitScale} and
+ * {@link containFit} work in, and it is exported because every caller of theirs
+ * needs it and a second derivation is a second thing that can disagree. The
+ * `plateWidth` those functions take is this `width`, **not** `scene.size[0]`:
+ * passing the scene size would drop the margins and double-count nothing, but
+ * passing the plate without `noiseScale` would under-count by a factor of 2 at
+ * the defaults, which is the double-count the file header warns about wearing
+ * its other face.
+ */
+export function backingStoreOf(scene: Scene): BackingStore {
+  const { plate } = plateLayoutOf(scene)
+  const noiseScale = noiseScaleOf(scene)
+  return { width: plate.width * noiseScale, height: plate.height * noiseScale }
+}
+
 /* -------------------------------------------------- render (re-render, R21) */
 
 export interface RenderFitInput {
@@ -725,13 +783,7 @@ export function renderFit({
   // scene whose `sepFar` cannot be measured, and that is the right place for it
   // to throw.
   const { margins } = plateLayoutOf(scene)
-  const noiseScale = scene.stereo?.noiseScale ?? DEFAULT_STEREO.noiseScale
-  if (!Number.isFinite(noiseScale) || noiseScale <= 0) {
-    throw new Error(
-      `renderFit: stereo.noiseScale must be a finite positive number, got ` +
-      `${JSON.stringify(noiseScale)}`,
-    )
-  }
+  const noiseScale = noiseScaleOf(scene)
   const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
   const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
   const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
@@ -780,6 +832,123 @@ export function renderFit({
     overflows: cssWidth > availW + 1e-6 || cssHeight > availH + 1e-6,
     limit: tied ? 'both' : byWidth < byHeight ? 'width' : 'height',
     clamped,
+  }
+}
+
+/* ----------------------------------------------- the three modes, dispatched */
+
+/**
+ * One input for all three modes.
+ *
+ * Identical to {@link RenderFitInput} by construction rather than by copy: the
+ * scene is the only thing any of them needs that the container does not supply,
+ * and a caller should not have to know which mode wants a plate size and which
+ * wants a scene. {@link backingStoreOf} does that conversion once.
+ */
+export type PlanFitInput = RenderFitInput
+
+/**
+ * A plan that changes **how an already-rendered backing store is displayed**.
+ *
+ * `snap` and `contain` both land here. They disagree about the scale and about
+ * nothing else, which is why they share a payload: the caller's job is identical
+ * for both — set `style.width`/`height`, set the offsets, do not re-render.
+ */
+export interface RescalePlan {
+  readonly kind: 'rescale'
+  readonly mode: 'snap' | 'contain'
+  /** The layout, in the same shape for both modes. See {@link Fit}. */
+  readonly fit: Fit
+  /** The backing store the plan was computed against, in backing-store px. */
+  readonly backingWidth: number
+  readonly backingHeight: number
+  /**
+   * **CSS px shown ÷ backing-store px** — `fit.scale / dpr`, *not* `fit.scale`.
+   *
+   * This is the ratio `imageRenderingFor` in `site/smooth.ts` takes, and it is
+   * carried here so that the one call site bridging fit and smoothing cannot
+   * get the pixel space wrong: `Fit.scale` is device px ÷ backing-store px, and
+   * handing *that* to the smoothing policy would call a 1x plate on a dpr-2
+   * panel an upscale and pixelate a picture that is in fact being halved.
+   */
+  readonly displayScale: number
+}
+
+/**
+ * A plan that changes **what gets rendered**.
+ *
+ * Only `render` lands here. The distinction from {@link RescalePlan} is the
+ * reason this is a discriminated union and not one wide object: a caller that
+ * cannot tell them apart will resample a re-rendered frame — pay for
+ * pixel-exactness and then throw it away — and nothing downstream would report
+ * it, because the result merely looks slightly soft.
+ */
+export interface RerenderPlan {
+  readonly kind: 'rerender'
+  readonly mode: 'render'
+  readonly plan: RenderFit
+  /**
+   * `1 / dpr`, always: a re-render is displayed one backing pixel per **device**
+   * pixel by construction. Carried for the same reason as
+   * {@link RescalePlan.displayScale} — so the smoothing policy is given one
+   * field with one meaning whatever the mode.
+   */
+  readonly displayScale: number
+}
+
+/** What {@link planFit} returns. Discriminated on `kind`. */
+export type FitPlan = RescalePlan | RerenderPlan
+
+/**
+ * The fit mode's arithmetic, chosen by name.
+ *
+ * Parsing is **not** done here — `parseFit` in `site/fit.ts` is the caller's
+ * job and this module is arithmetic. The split is deliberate: a URL is
+ * untrusted and a `FitMode` is not, and mixing the two would make every test of
+ * the arithmetic also a test of the query string.
+ *
+ * The `switch` ends in an {@link AssertNever} guard rather than a `default` that
+ * falls back to a mode. That is the mechanism design §11's "moving a fit mode
+ * costs one registration" turns on: adding a fourth member to `FitMode` makes
+ * this file a **compile error**, naming the exact place the new mode's
+ * arithmetic is missing, instead of silently letterboxing it. The runtime throw
+ * behind the guard is not dead code — it is what a caller lying to the compiler
+ * (an `as FitMode`, a registry read at runtime) gets instead of `undefined`,
+ * which in a layout path would read as "no scale" and paint nothing.
+ */
+export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
+  const ratio = Number.isFinite(input.dpr) && (input.dpr ?? 1) > 0 ? (input.dpr ?? 1) : 1
+  const rescale = (named: 'snap' | 'contain', fit: Fit, backing: BackingStore): RescalePlan => ({
+    kind: 'rescale',
+    mode: named,
+    fit,
+    backingWidth: backing.width,
+    backingHeight: backing.height,
+    displayScale: fit.scale / ratio,
+  })
+  switch (mode) {
+    case 'snap':
+    case 'contain': {
+      const backing = backingStoreOf(input.scene)
+      const args: FitInput = {
+        plateWidth: backing.width,
+        plateHeight: backing.height,
+        availableWidth: input.availableWidth,
+        availableHeight: input.availableHeight,
+        dpr: input.dpr,
+      }
+      return rescale(mode, mode === 'snap' ? fitScale(args) : containFit(args), backing)
+    }
+    case 'render': {
+      const plan = renderFit(input)
+      return { kind: 'rerender', mode: 'render', plan, displayScale: 1 / ratio }
+    }
+    default: {
+      // `mode` is `never` here, and stops being `never` the moment a mode is
+      // added to `FitMode` without a case above.
+      const unhandled: AssertNever<typeof mode> = mode
+      throw new Error(`planFit: unhandled fit mode ${JSON.stringify(unhandled)}`)
+    }
   }
 }
 

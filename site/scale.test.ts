@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { agreement, encoderFor, nearestScaleX, report, slabDepth } from '../src/core/testing/metamorphic.js'
 import { plateLayoutOf } from '../src/core/index.js'
+import { FIT_MODES } from './fit.js'
+import type { FitMode } from './fit.js'
 import {
-  OFFSET_SEARCH, containFit, fitNote, fitScale, renderFit, scaleNote, snapOffset, snapScale,
-  viewLayout,
+  OFFSET_SEARCH, backingStoreOf, containFit, fitNote, fitScale, planFit, renderFit, scaleNote,
+  snapOffset, snapScale, viewLayout,
 } from './scale.js'
 import type { RenderFit } from './scale.js'
 import type { Scene, SirdsOpts, StereoOpts } from '../src/core/types.js'
@@ -432,7 +434,7 @@ describe('containFit', () => {
   ]
   const WIDTHS = [1, 200, 320, 760, 1280, 1920, 2560, 3840]
   const HEIGHTS = [1, 200, 480, 720, 1080, 2160]
-  const DPRS = [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]
+  const CONTAIN_DPRS = [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]
 
   const sweep = (
     f: (plate: { plateWidth: number; plateHeight: number },
@@ -441,7 +443,7 @@ describe('containFit', () => {
     for (const plate of PLATES) {
       for (const availableWidth of WIDTHS) {
         for (const availableHeight of HEIGHTS) {
-          for (const dpr of DPRS) {
+          for (const dpr of CONTAIN_DPRS) {
             f(plate, availableWidth, availableHeight, dpr,
               `${plate.plateWidth}x${plate.plateHeight} in ` +
               `${availableWidth}x${availableHeight} @ ${dpr}`)
@@ -616,6 +618,22 @@ const sceneOf = (size: [number, number], stereo?: Partial<StereoOpts>): Scene =>
   stereo ? { size, layers: [], stereo } : { size, layers: [] }
 
 /**
+ * The sweep every scene-shaped mode runs over. Shared by `renderFit` and
+ * `planFit` deliberately: the dispatcher has to agree with the functions it
+ * delegates to over the *same* inputs, and two drifting lists would make a
+ * disagreement look like a pass. Extremes included, because an affine solve is
+ * where a long thin scene stops behaving like a proportional one.
+ */
+const SCENES: Array<[number, number]> = [
+  [640, 360], [1920, 1080], [16, 16], [2000, 4], [4, 2000], [300, 160], [800, 450],
+]
+const BOXES: Array<[number, number]> = [
+  [320, 200], [760, 480], [1280, 800], [1920, 1080], [2560, 1440], [3840, 2160],
+  [1080, 1920], [400, 300], [100, 100],
+]
+const DPRS = [1, 1.25, 1.5, 2, 3]
+
+/**
  * The plan for re-rendering, and the single fact its arithmetic turns on.
  *
  * `renderFit` computes a plan, not a render: the chain it has to get right is
@@ -676,15 +694,6 @@ describe('renderFit', () => {
     expect(r.limit).toBe('both')
     expect(r.clamped).toBe(false)
   })
-
-  const SCENES: Array<[number, number]> = [
-    [640, 360], [1920, 1080], [16, 16], [2000, 4], [4, 2000], [300, 160], [800, 450],
-  ]
-  const BOXES: Array<[number, number]> = [
-    [320, 200], [760, 480], [1280, 800], [1920, 1080], [2560, 1440], [3840, 2160],
-    [1080, 1920], [400, 300], [100, 100],
-  ]
-  const DPRS = [1, 1.25, 1.5, 2, 3]
 
   const sweepRender = (
     f: (r: RenderFit, size: [number, number], box: [number, number], dpr: number,
@@ -855,6 +864,167 @@ describe('renderFit', () => {
     expect(() => renderFit({
       scene: sceneOf([640, 360], { sepFar: 1 }), availableWidth: 800, availableHeight: 600,
     })).toThrow(/sepFar/)
+  })
+})
+
+/* -------------------------------------------------------- planFit (all 3) */
+
+/**
+ * The three modes behind one call, and the two outcomes behind the three modes.
+ *
+ * `snap` and `contain` change how an **already-rendered** backing store is
+ * displayed; `render` changes **what gets rendered**. A caller that cannot tell
+ * those apart will resample a re-rendered frame — i.e. pay for pixel-exactness
+ * and then throw it away — so the tag that separates them is asserted here, not
+ * the scale values, which are each mode's own tests' business.
+ */
+describe('planFit', () => {
+  const INPUT = { scene: sceneOf([640, 360]), availableWidth: 1280, availableHeight: 800, dpr: 1.5 }
+
+  it('derives the backing store from the scene, once, for every mode', () => {
+    // The scene → backing-store bridge: plate px (margins included) x
+    // noiseScale. The default scene's 640x360 stage is a 750x360 plate and a
+    // 1500x720 backing store, which is what `canvas.width`/`height` carry.
+    expect(backingStoreOf(sceneOf([640, 360]))).toEqual({ width: 1500, height: 720 })
+    for (const size of SCENES) {
+      for (const noiseScale of [1, 2, 3]) {
+        const scene = sceneOf(size, { noiseScale })
+        const layout = plateLayoutOf(scene)
+        expect(backingStoreOf(scene), `${size[0]}x${size[1]} @ ns ${noiseScale}`).toEqual({
+          width: layout.plate.width * noiseScale,
+          height: layout.plate.height * noiseScale,
+        })
+      }
+    }
+  })
+
+  it("delegates 'snap' to fitScale without drifting from it", () => {
+    const plan = planFit('snap', INPUT)
+    expect(plan.kind).toBe('rescale')
+    expect(plan.mode).toBe('snap')
+    const backing = backingStoreOf(INPUT.scene)
+    if (plan.kind !== 'rescale') throw new Error('unreachable')
+    expect(plan.fit).toEqual(fitScale({
+      plateWidth: backing.width,
+      plateHeight: backing.height,
+      availableWidth: INPUT.availableWidth,
+      availableHeight: INPUT.availableHeight,
+      dpr: INPUT.dpr,
+    }))
+  })
+
+  it("delegates 'contain' to containFit without drifting from it", () => {
+    const plan = planFit('contain', INPUT)
+    expect(plan.kind).toBe('rescale')
+    expect(plan.mode).toBe('contain')
+    const backing = backingStoreOf(INPUT.scene)
+    if (plan.kind !== 'rescale') throw new Error('unreachable')
+    expect(plan.fit).toEqual(containFit({
+      plateWidth: backing.width,
+      plateHeight: backing.height,
+      availableWidth: INPUT.availableWidth,
+      availableHeight: INPUT.availableHeight,
+      dpr: INPUT.dpr,
+    }))
+  })
+
+  it("delegates 'render' to renderFit without drifting from it", () => {
+    const plan = planFit('render', INPUT)
+    expect(plan.kind).toBe('rerender')
+    expect(plan.mode).toBe('render')
+    if (plan.kind !== 'rerender') throw new Error('unreachable')
+    expect(plan.plan).toEqual(renderFit(INPUT))
+  })
+
+  it('agrees with a direct call for every mode, over a sweep', () => {
+    // The equality above at one point is a spot check; this is the guarantee.
+    // If the dispatcher ever grows its own copy of any mode's arithmetic, this
+    // is what fails.
+    for (const size of SCENES) {
+      for (const box of BOXES) {
+        for (const dpr of DPRS) {
+          const input = {
+            scene: sceneOf(size), availableWidth: box[0], availableHeight: box[1], dpr,
+          }
+          const backing = backingStoreOf(input.scene)
+          const common = {
+            plateWidth: backing.width,
+            plateHeight: backing.height,
+            availableWidth: box[0],
+            availableHeight: box[1],
+            dpr,
+          }
+          const where = `${size[0]}x${size[1]} in ${box[0]}x${box[1]} @ ${dpr}`
+          const snap = planFit('snap', input)
+          const contain = planFit('contain', input)
+          const render = planFit('render', input)
+          if (snap.kind !== 'rescale' || contain.kind !== 'rescale') {
+            throw new Error('unreachable')
+          }
+          if (render.kind !== 'rerender') throw new Error('unreachable')
+          expect(snap.fit, where).toEqual(fitScale(common))
+          expect(contain.fit, where).toEqual(containFit(common))
+          expect(render.plan, where).toEqual(renderFit(input))
+        }
+      }
+    }
+  })
+
+  it('tags re-render apart from rescale, and carries the display scale for both', () => {
+    // `displayScale` is CSS px shown ÷ backing-store px — what
+    // `imageRenderingFor` in site/smooth.ts takes, and NOT `Fit.scale`, which
+    // is device px ÷ backing-store px. The two differ by exactly `dpr`, and
+    // this is the field that keeps a caller from confusing them.
+    for (const size of SCENES) {
+      for (const box of BOXES) {
+        for (const dpr of DPRS) {
+          const input = {
+            scene: sceneOf(size), availableWidth: box[0], availableHeight: box[1], dpr,
+          }
+          const where = `${size[0]}x${size[1]} in ${box[0]}x${box[1]} @ ${dpr}`
+          for (const mode of ['snap', 'contain', 'render'] as FitMode[]) {
+            const plan = planFit(mode, input)
+            if (plan.kind === 'rescale') {
+              expect(plan.displayScale, `${where} ${mode}`).toBeCloseTo(plan.fit.scale / dpr, 9)
+              expect(plan.displayScale, `${where} ${mode}`)
+                .toBeCloseTo(plan.fit.cssWidth / plan.backingWidth, 9)
+            } else {
+              // A re-render is 1:1 in DEVICE px by construction, so its display
+              // scale is 1/dpr and never anything else.
+              expect(plan.displayScale, `${where} ${mode}`).toBeCloseTo(1 / dpr, 12)
+              expect(plan.displayScale, `${where} ${mode}`)
+                .toBeCloseTo(plan.plan.cssWidth / plan.plan.backingWidth, 9)
+            }
+          }
+        }
+      }
+    }
+  })
+
+  it('handles every registered fit mode — no key in FIT_MODES falls through', () => {
+    // Iterated off the registry rather than written out, so adding a mode to
+    // FIT_MODES without handling it here fails THIS test as well as the
+    // compiler: the switch's exhaustiveness guard throws on an unknown mode
+    // rather than returning undefined.
+    const modes = Object.keys(FIT_MODES) as FitMode[]
+    // Vacuity floor: a registry that stopped enumerating would otherwise pass.
+    expect(modes.length).toBeGreaterThanOrEqual(3)
+    for (const mode of modes) {
+      const plan = planFit(mode, INPUT)
+      expect(plan.mode, mode).toBe(mode)
+      expect(['rescale', 'rerender'], mode).toContain(plan.kind)
+      expect(FIT_MODES[mode].mode, mode).toBe(mode)
+    }
+    // ...and the two outcomes are both really reachable, so a dispatcher that
+    // tagged everything 'rescale' could not pass either.
+    const kinds = new Set(modes.map(m => planFit(m, INPUT).kind))
+    expect(kinds).toEqual(new Set(['rescale', 'rerender']))
+  })
+
+  it('throws rather than returning undefined for a mode it does not know', () => {
+    // The runtime half of the exhaustiveness guard. Reachable only by lying to
+    // the compiler, which is exactly what an un-updated registry would do.
+    expect(() => planFit('cover' as FitMode, INPUT)).toThrow(/fit mode/)
   })
 })
 
