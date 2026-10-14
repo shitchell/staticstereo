@@ -34,12 +34,19 @@
  * has and the validator does not, *and* a key the validator has and core does
  * not.
  *
- * The cost is that this file is coupled to the wording of two messages. That
- * is deliberate rather than conceded — the wording is asserted by
- * `scene.test.ts` already, `site/scene.ts:155-160` records that it was copied
- * "down to listing the valid keys sorted, so the two read as one product", and
- * {@link rosterFrom} throws rather than returning `[]` when the clause is
- * missing, so a reworded message is a loud failure and never a silent pass.
+ * The cost is that this file is coupled to the wording of two messages, and
+ * that cost is real: **nothing else in the repo pins the "— valid keys:"
+ * clause.** `grep -rn 'valid keys' src/ site/ --include='*.test.ts'` finds no
+ * assertion on it, so rewording `unknownKeys()` reddens this file alone and
+ * the sensor has to be re-fitted rather than merely re-read.
+ *
+ * It is still the right trade, for two reasons. The clause is load-bearing
+ * product rather than incidental phrasing — `site/scene.ts:155-160` records
+ * copying it "down to listing the valid keys sorted, so the two read as one
+ * product" — so it is not a string that moves quietly. And {@link rosterFrom}
+ * **throws** rather than returning `[]` when the clause is absent, so a
+ * reworded message is a loud failure naming the message it could not read,
+ * never a sensor that reports clean over a list it stopped being able to see.
  */
 import { describe, expect, it } from 'vitest'
 import { LAYER_KEYS, SCENE_KEYS } from '../core/index.js'
