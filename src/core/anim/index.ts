@@ -1,5 +1,6 @@
 /** Public surface of the animation engine. */
-export { EASINGS } from './easing.js'
+export { CUBIC_BEZIER_SYNTAX, EASINGS, isEasing, resolveEasing } from './easing.js'
+export { cubicBezier } from './bezier.js'
 export { CHANNELS, evalTrack, composeAnim } from './track.js'
 export type { AnimCompiler, Channel } from './track.js'
 export { PRESETS, compilePreset } from './presets.js'

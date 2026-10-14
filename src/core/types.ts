@@ -237,7 +237,38 @@ export const IDENTITY: Transform = {
 /** A keyframe. `t` is normalised 0..1 within the track's own window. */
 export type Key = { t: number } & Partial<Transform>
 
-export type Easing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'easeOutBounce'
+/**
+ * The five curves shipped as functions, and the key type of `EASINGS`.
+ *
+ * Kept as its own name rather than folded into `Easing` because these five
+ * are an **enumerable, exhaustive** set and the rest of `Easing` is not:
+ * `EASINGS` is `Record<NamedEasing, fn>`, which is what makes "every named
+ * curve has an implementation" a compile error to break rather than a
+ * convention. Widening `Easing` in place would have turned that record into
+ * a promise to implement infinitely many curves.
+ */
+export type NamedEasing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'easeOutBounce'
+
+/**
+ * A CSS `cubic-bezier(a, b, c, d)`.
+ *
+ * A template literal rather than `string`, and the difference is the whole
+ * point: `string` would make `Easing` accept every typo the named union
+ * currently catches at compile time — `easeout`, `ease-out`, `easeOutBonce`
+ * would all become valid scenes that silently render with the wrong motion.
+ * This keeps the prefix checked.
+ *
+ * What a template literal **cannot** express is "four finite numbers with the
+ * first and third in 0..1", so the argument list is `string` here and
+ * `isEasing` is the real check. The split is deliberate rather than a
+ * shortfall: the type catches a misspelled *name*, which is what a scene
+ * author gets wrong while typing, and the runtime guard catches a malformed
+ * *argument list*, which is what they get wrong while tuning — and which only
+ * the validators, with a file and a path to name, can report usefully.
+ */
+export type CubicBezierEasing = `cubic-bezier(${string})`
+
+export type Easing = NamedEasing | CubicBezierEasing
 
 export interface Track {
   keys: Key[]

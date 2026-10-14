@@ -1,4 +1,4 @@
-import { EASINGS } from './easing.js'
+import { resolveEasing } from './easing.js'
 import { IDENTITY } from '../types.js'
 import type { Anim, AssertNever, Easing, Key, Preset, Track, Transform } from '../types.js'
 import type { PresetCtx } from './presets.js'
@@ -53,7 +53,12 @@ function channelAt(keys: Key[], ch: Channel, u: number, ease: Easing): number | 
   const a = pts[i]!, b = pts[i + 1]!
   const span = b.t - a.t
   const local = span <= 0 ? 0 : (u - a.t) / span
-  const e = EASINGS[ease](local)
+  // The resolver, not `EASINGS[ease]`. This is the **fourth** easing
+  // touchpoint and the only one that is not a validator: it is the actual
+  // runtime resolution path, it never checked anything, and indexing a record
+  // keyed by the five named curves with a widened `Easing` yields `undefined`
+  // for a bezier string — a TypeError one line later, in the render loop.
+  const e = resolveEasing(ease)(local)
   return a[ch]! + (b[ch]! - a[ch]!) * e
 }
 

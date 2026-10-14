@@ -55,6 +55,21 @@ describe('public surface', () => {
     expect(Object.keys(core.EASINGS).length).toBeGreaterThan(0)
   })
 
+  it('exports the easing parser, resolver and solver', () => {
+    // `EASINGS` alone stopped describing what an `ease` may be once the type
+    // admitted `cubic-bezier(...)`. Both scene validators live outside core —
+    // one in `src/cli/`, one in `site/` — and each needs the guard rather
+    // than a fourth hand-rolled copy of the check; `site/scene.ts` can only
+    // reach it through this barrel.
+    for (const name of ['isEasing', 'resolveEasing', 'cubicBezier'] as const) {
+      expect(typeof core[name], name).toBe('function')
+    }
+    expect(core.isEasing('cubic-bezier(.17,.67,.83,.67)')).toBe(true)
+    // Exported so all three validators phrase the non-enumerable half of
+    // `Easing` identically in their error text.
+    expect(core.CUBIC_BEZIER_SYNTAX).toContain('cubic-bezier')
+  })
+
   it('does not export the test-only fake canvas', () => {
     // It is excluded from the build, so re-exporting it would break `npm run
     // build` — and ship a fake rasteriser to consumers if it ever did not.

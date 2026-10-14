@@ -38,11 +38,13 @@ export { DEFAULT_STEREO, IDENTITY, SIRDS_ALGORITHMS, STEREO_KEYS } from './types
 export type {
   Anim,
   AssertNever,
+  CubicBezierEasing,
   Depth,
   Easing,
   Key,
   Layer,
   MaskSource,
+  NamedEasing,
   Preset,
   Scene,
   SirdsAlgorithm,
@@ -85,7 +87,20 @@ export { degToRad, radToDeg } from './angle.js'
 
 /* ---------------------------------------------------------------- animation */
 
-export { CHANNELS, EASINGS, PARAM_UNITS, PRESETS, PRESET_PARAMS, compilePreset, composeAnim, evalTrack } from './anim/index.js'
+export {
+  CHANNELS,
+  CUBIC_BEZIER_SYNTAX,
+  EASINGS,
+  PARAM_UNITS,
+  PRESETS,
+  PRESET_PARAMS,
+  compilePreset,
+  composeAnim,
+  cubicBezier,
+  evalTrack,
+  isEasing,
+  resolveEasing,
+} from './anim/index.js'
 export type {
   AnimCompiler,
   Channel,
