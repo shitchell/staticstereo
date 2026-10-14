@@ -49,7 +49,7 @@ import { parseSceneHash } from './hash.js'
 import { chromeSpec } from './playerchrome.js'
 import type { ChromeNode, Framing } from './playerchrome.js'
 import { isPresenting } from './present.js'
-import { isUsableDpr, planFit, usableDpr } from './scale.js'
+import { isUsableDpr, planFit, usableDpr, usableLength } from './scale.js'
 import type { FitPlan, PlanFitInput } from './scale.js'
 import { scaleScene } from './scalescene.js'
 import { validateScene } from './scene.js'
@@ -253,8 +253,8 @@ export interface PlayerPlan {
 /* ------------------------------------------------------------- the coercion */
 
 /*
- * `isUsableDpr` and `usableDpr` are **imported from `site/scale.ts`**, not
- * declared here.
+ * `isUsableDpr`, `usableDpr` and `usableLength` are **imported from
+ * `site/scale.ts`**, not declared here.
  *
  * This module used to carry its own copies, and the docblock on them said why:
  * "the same predicate `scale.ts` applies internally — finite and positive —
@@ -265,12 +265,21 @@ export interface PlayerPlan {
  * spellings of it come to exist, and this was the second of four. `scale.ts`
  * now exports the predicate it applies, so the plan's `dpr-unusable` notice and
  * the arithmetic's substitution cannot disagree — they are the same call.
+ *
+ * The *length* coercion was left behind by that change and took longer to
+ * follow, which is worth recording because of how it read. It stayed here as a
+ * local `usableLength` whose entire docblock was "A measured length if it is
+ * one, else 0 — **again matching `scale.ts`**": a comment that documented the
+ * duplication rather than removing it, which is the sin the dpr change was
+ * commissioned to fix. It is the same call now, and `scale.ts` argues the
+ * constant — 0 for a length, 1 for a `dpr`, because a budget and a divisor do
+ * not have the same honest reading of "we were not told".
+ *
+ * The shared predicate keeps its `typeof` guard, so the totality this module
+ * needs survives: `container` is typed but arrives from a caller we do not
+ * control, and a non-number reaching the comparison would answer `false`
+ * rather than throw.
  */
-
-/** A measured length if it is one, else 0 — again matching `scale.ts`. */
-function usableLength(value: unknown): number {
-  return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0
-}
 
 /** An error's message, for a notice, without assuming it is an `Error`. */
 function messageOf(err: unknown): string {

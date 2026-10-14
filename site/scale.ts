@@ -231,6 +231,65 @@ export function usableDpr(dpr: number | undefined): number {
   return isUsableDpr(dpr) ? dpr : 1
 }
 
+/**
+ * Is this a measured CSS length the arithmetic here can use?
+ *
+ * The same predicate {@link isUsableDpr} applies, for the same reason and to a
+ * different quantity: every `availableWidth`, `availableHeight`,
+ * `containerWidth`, `gap` and `spare` in this module arrived from
+ * `getBoundingClientRect` or an `offsetWidth`, and a detached element, a
+ * `display: none` ancestor or a resize handler firing mid-teardown all measure
+ * 0 or `NaN`. A layout pass that threw on one would take out the page it was
+ * laying out. `plateWidth`/`plateHeight`/`scene.size` are the opposite case —
+ * those are a programming error and they throw.
+ *
+ * ## Why it is one function and not ten copies
+ *
+ * The sharing of {@link usableDpr} fixed exactly half of this. The length
+ * coercion `Number.isFinite(x) && x > 0 ? x : 0` was still written out inline
+ * **ten times** in this file — `snapScale`'s `avail`, `snapOffset`'s `room`,
+ * both of `fitScale`'s, both of `containFit`'s, both of `renderFit`'s and both
+ * of `viewLayout`'s — plus an eleventh under the same name in
+ * `site/playerplan.ts`, whose docblock read "again matching `scale.ts`", i.e. it
+ * **recorded the duplication instead of removing it**. That is verbatim the sin
+ * the `usableDpr` change was commissioned to fix, surviving one field over.
+ *
+ * And it was unpinned in exactly the way the dpr fallback had been. Measured
+ * before this function existed: changing `renderFit`'s `availW` fallback from
+ * `0` to `7` left `site/scale.test.ts` at **88 passed, exit 0** and
+ * `playerplan.test.ts` + `scalescene.test.ts` + `smooth.test.ts` at **90
+ * passed, exit 0**. The `usableDpr` sweeps all hold the lengths fixed and
+ * usable, and the degenerate-box tests assert a *property* of the answer
+ * (integer, ≥ 1, no throw) rather than that it is the answer for a zero box.
+ *
+ * `site/scale.test.ts`'s `usableLength` block now pins the rule directly and
+ * through every exported function that applies it, the way the `usableDpr`
+ * block does.
+ */
+export function isUsableLength(value: number | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+/**
+ * The length {@link isUsableLength} accepts, or **0**.
+ *
+ * **0 and not 1, which is the difference from {@link usableDpr} and the reason
+ * these are two functions rather than one generic "finite and positive".** A
+ * `dpr` is a *divisor* — `cssWidth` is `deviceWidth / dpr` — so its fallback has
+ * to be the ratio of a display that does not scale. A length is a *budget*, and
+ * the honest reading of "we could not measure the box" is that there is nowhere
+ * to draw yet, which is 0. Substituting 1 CSS px would invent a box a caller
+ * never had and let a layout be planned against it; substituting 0 makes
+ * `containFit` return a scale of 0 and `snapScale` report `overflows`, both of
+ * which are "not yet" rather than a wrong answer.
+ *
+ * The predicate is shared and the constant is not. Collapsing the two
+ * coercions into one would have to pick one fallback for both.
+ */
+export function usableLength(value: number | undefined): number {
+  return isUsableLength(value) ? value : 0
+}
+
 export interface SnapInput {
   /** Backing-store width in px — `canvas.width`, `noiseScale` already applied. */
   readonly plateWidth: number
@@ -277,7 +336,7 @@ export function snapScale({ plateWidth, availableWidth, dpr = 1 }: SnapInput): S
     )
   }
   const ratio = usableDpr(dpr)
-  const avail = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
+  const avail = usableLength(availableWidth)
   const scale = Math.max(1, Math.floor((avail * ratio) / plateWidth + EPS))
   const deviceWidth = scale * plateWidth
   const cssWidth = deviceWidth / ratio
@@ -412,7 +471,7 @@ export const OFFSET_SEARCH = 256
 
 export function snapOffset(spare: number, dpr = 1): number {
   const ratio = usableDpr(dpr)
-  const room = Number.isFinite(spare) && spare > 0 ? spare : 0
+  const room = usableLength(spare)
   const ideal = Math.floor((room / 2) * ratio + NEAR)
   // The plate must still end inside the box, so an offset above the ideal is
   // allowed only up to the whole remainder, not up to twice the half.
@@ -484,8 +543,8 @@ export function fitScale({
   const deviceHeight = scale * plateHeight
   const cssWidth = deviceWidth / ratio
   const cssHeight = deviceHeight / ratio
-  const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
-  const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
+  const availW = usableLength(availableWidth)
+  const availH = usableLength(availableHeight)
   return {
     scale,
     cssWidth,
@@ -623,8 +682,8 @@ export function containFit({
     )
   }
   const ratio = usableDpr(dpr)
-  const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
-  const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
+  const availW = usableLength(availableWidth)
+  const availH = usableLength(availableHeight)
 
   // The per-axis quotients, in device px ÷ backing-store px. Same two
   // expressions `snapScale` floors; here they are kept whole, which is the
@@ -949,8 +1008,8 @@ export function renderFit({
   const { margins } = plateLayoutOf(scene)
   const noiseScale = noiseScaleOf(scene)
   const ratio = usableDpr(dpr)
-  const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
-  const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
+  const availW = usableLength(availableWidth)
+  const availH = usableLength(availableHeight)
 
   // CSS px → device px → backing-store px → plate px. Three of the four spaces
   // in two lines; the fourth is what we are solving for.
@@ -1306,8 +1365,8 @@ export function viewLayout({
       `${JSON.stringify(plateHeight)}`,
     )
   }
-  const total = Number.isFinite(containerWidth) && containerWidth > 0 ? containerWidth : 0
-  const gutter = Number.isFinite(gap) && gap > 0 ? gap : 0
+  const total = usableLength(containerWidth)
+  const gutter = usableLength(gap)
   const trackWidth = Math.max(0, (total - gutter) / 2)
 
   const finish = (snap: Snap, stacked: boolean, reason: StackReason): ViewLayout => ({

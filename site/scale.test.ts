@@ -5,7 +5,8 @@ import { FIT_MODES } from './fit.js'
 import type { FitMode } from './fit.js'
 import {
   MAX_SCENE_SCALE, OFFSET_SEARCH, backingStoreOf, containFit, fitNote, fitScale, isUsableDpr,
-  planFit, renderFit, scaleNote, snapOffset, snapScale, usableDpr, viewLayout,
+  isUsableLength, planFit, renderFit, scaleNote, snapOffset, snapScale, usableDpr, usableLength,
+  viewLayout,
 } from './scale.js'
 import type { RenderFit } from './scale.js'
 import type { Scene, SirdsOpts, StereoOpts } from '../src/core/types.js'
@@ -1514,6 +1515,139 @@ describe('usableDpr', () => {
     expect(fitNote(fit, undefined)).toBe(fitNote(fit))
     const view = viewLayout({ ...DEFAULT_PLATE, containerWidth: 1400, gap: 16 })
     expect(scaleNote(view, undefined)).toBe(scaleNote(view))
+  })
+})
+
+/* ------------------------------------------------ the length coercion, once */
+
+/**
+ * The other half of the same ruling, which the `usableDpr` change left standing.
+ *
+ * Sharing the `dpr` coercion fixed one quantity. The **length** coercion
+ * `Number.isFinite(x) && x > 0 ? x : 0` was still written out inline ten times
+ * in `scale.ts` — `snapScale`'s `avail`, `snapOffset`'s `room`, both of
+ * `fitScale`'s, both of `containFit`'s, both of `renderFit`'s and both of
+ * `viewLayout`'s — plus an eleventh in `site/playerplan.ts` whose whole
+ * docblock was "again matching `scale.ts`", a comment that **recorded the
+ * duplication instead of removing it**.
+ *
+ * And it was unpinned in the same way. Measured before {@link usableLength}
+ * existed: changing `renderFit`'s `availW` fallback from `0` to `7` left this
+ * file at **88 passed, exit 0**, and `playerplan.test.ts` +
+ * `scalescene.test.ts` + `smooth.test.ts` at **90 passed, exit 0** — the exact
+ * scenario the `usableDpr` ruling exists to prevent, still true for lengths.
+ * The `usableDpr` sweeps all hold their lengths fixed and usable, and the
+ * degenerate-box tests assert a *property* of the answer (integer, ≥ 1, no
+ * throw) rather than that it is the answer a zero box gets.
+ *
+ * Three tests, because the fallback needs all three to be pinned:
+ *
+ * 1. **directly**, on the helper — which is what catches a wrong constant now
+ *    that there is one copy of it;
+ * 2. **differentially**, through every exported function that applies it — one
+ *    call site that stopped calling it, or grew a different fallback;
+ * 3. **by consequence**, on the two outputs where `0` and a small positive
+ *    number are distinguishable — which is what catches a fallback moved
+ *    *everywhere at once*, something (2) cannot see because it compares the
+ *    coerced answers with each other.
+ *
+ * Worth recording for whoever reads the measurement above: a `renderFit` whose
+ * length fallback is `7` is **behaviourally indistinguishable** from one whose
+ * fallback is `0`, at any dpr. A 7 CSS px budget minus the default scene's
+ * 110 plate px of margins is negative either way, so the one-pixel floor wins
+ * identically. No test of `renderFit` could have caught that mutation; the
+ * remedy had to be sharing the rule, not pinning each copy of it.
+ */
+describe('usableLength', () => {
+  /**
+   * Everything the DOM can hand us that is not a usable length, including both
+   * spellings of absence. `-0` is here because it is finite, so the predicate
+   * has to reject it on the comparison rather than on `isFinite`.
+   */
+  const UNUSABLE: Array<[string, number | undefined]> = [
+    ['zero', 0],
+    ['negative zero', -0],
+    ['negative', -1],
+    ['hugely negative', -1e9],
+    ['NaN', Number.NaN],
+    ['+Infinity', Number.POSITIVE_INFINITY],
+    ['-Infinity', Number.NEGATIVE_INFINITY],
+    ['undefined', undefined],
+  ]
+
+  it('passes a measured length through untouched', () => {
+    for (const px of [1, 0.5, 16, 320, 1280, 3840, 1e6, Number.MIN_VALUE]) {
+      expect(isUsableLength(px), `${px}`).toBe(true)
+      expect(usableLength(px), `${px}`).toBe(px)
+    }
+  })
+
+  it('substitutes exactly 0 — not 1, and not any other number', () => {
+    // A length is a BUDGET, so the honest reading of "the box could not be
+    // measured" is that there is nowhere to draw yet, which is 0. `usableDpr`
+    // substitutes 1 because a `dpr` is a DIVISOR. One predicate, two
+    // constants, which is why these are two functions and not one.
+    for (const [name, px] of UNUSABLE) {
+      expect(isUsableLength(px), name).toBe(false)
+      expect(usableLength(px), name).toBe(0)
+    }
+  })
+
+  /** Every exported function here that reads a measured length, in one bundle. */
+  const everythingWith = (px: number | undefined, dpr: number) => {
+    const scene = sceneOf([640, 360])
+    const box = { availableWidth: px as number, availableHeight: px as number }
+    const fit = fitScale({ ...DEFAULT_PLATE, ...box, dpr })
+    const view = viewLayout({
+      ...DEFAULT_PLATE, containerWidth: px as number, gap: px as number, dpr,
+    })
+    return {
+      snap: snapScale({ plateWidth: 1500, availableWidth: px as number, dpr }),
+      fit,
+      contain: containFit({ ...DEFAULT_PLATE, ...box, dpr }),
+      render: renderFit({ scene, ...box, dpr }),
+      offset: snapOffset(px as number, dpr),
+      view,
+      plans: (['snap', 'contain', 'render'] as FitMode[])
+        .map(mode => planFit(mode, { scene, ...box, dpr })),
+      fitNote: fitNote(fit, dpr),
+      scaleNote: scaleNote(view, dpr),
+    }
+  }
+
+  it('is the ONE rule every exported function here applies to a length', () => {
+    let checked = 0
+    for (const dpr of DPRS) {
+      const zeroed = everythingWith(0, dpr)
+      for (const [name, px] of UNUSABLE) {
+        expect(everythingWith(px, dpr), `${name} @ dpr ${dpr}`).toEqual(zeroed)
+        checked++
+      }
+    }
+    // Vacuity floor: a loop that stopped iterating would assert nothing, and
+    // this test's whole value is that it covers every site rather than one.
+    expect(checked).toBe(DPRS.length * UNUSABLE.length)
+    expect(checked).toBeGreaterThan(30)
+  })
+
+  it('substitutes a length the arithmetic downstream reads as "no box yet"', () => {
+    // The consequence half. The differential above compares coerced answers
+    // with each other, so a fallback changed at EVERY site at once is invisible
+    // to it; these two outputs are where 0 and a small positive number differ.
+    for (const [name, px] of UNUSABLE) {
+      // `containFit`'s own contract: "`scale >= 0`, and `0` **only** for a box
+      // that measures 0". A fallback of 7 CSS px makes this 7/1500.
+      expect(
+        containFit({
+          ...DEFAULT_PLATE, availableWidth: px as number, availableHeight: px as number, dpr: 1,
+        }).scale,
+        name,
+      ).toBe(0)
+      // ...and there is no spare room to centre in, so the plate goes flush
+      // rather than being offset into a box that was never measured. A
+      // fallback of 7 makes this 3.
+      expect(snapOffset(px as number, 1), name).toBe(0)
+    }
   })
 })
 
