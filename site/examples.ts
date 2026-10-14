@@ -70,11 +70,37 @@ export const EXAMPLES: Example[] = [
           size: 96,
           at: [0, 130],
           depth: 0.7,
-          // 640 stage + 55 right margin; the string measures ~1050px at this
-          // size and weight, plus a 110px left margin. Written out because no
-          // preset derives them any more (design §4.2b).
+          // Written out because no preset derives them any more (design
+          // §4.2b). Both endpoints are against the PLATE, not the stage, so
+          // "off-frame" means off the image that is actually emitted:
+          //
+          //   from =   sceneW + marginRight   =  640 + 55   =  695
+          //   to   = -(contentW + marginLeft) = -(1122.3299560546875 + 55)
+          //
+          // `contentW` is the MEASURED width of this string at this size and
+          // weight on the vendored face, and the margins are
+          // `sceneMargins(scene)` — 55 and 55, because the scene names no
+          // `stereo` block, so `algorithm` defaults to `linked` and `linked`
+          // splits `sepFar` evenly. (110 is the shift, not the left margin;
+          // only `shift` puts the whole 110 on the left.) Both numbers were
+          // read off the live rasteriser rather than estimated — the figure
+          // here was ~1050 against a 110px margin, two errors that partly
+          // cancelled, and `to` was 17.33px short of clearing the plate.
+          //
+          // Recompute `to` whenever the text, the size, the weight or the
+          // face changes: a wider string against a stale endpoint parks its
+          // tail on screen, which is the bug the `-contentW` term exists to
+          // prevent.
+          //
+          // Measured and left as it was: the travel is 1872.33px at 160px/s
+          // = 11.7s against a 6s scene, so the demo plays the first half of
+          // one cycle and never reaches `to`. Whether that was intended is
+          // not recorded. It is written down because it is what makes the
+          // exact value of `to` unobservable here, and therefore the reason
+          // this comment had drifted wrong without anything going visibly
+          // bad — an author raising `speed` is the one who will first see it.
           anim: {
-            kind: 'move', from: [695, 0], to: [-1160, 0], speed: 160, repeat: 'loop',
+            kind: 'move', from: [695, 0], to: [-1177.3299560546875, 0], speed: 160, repeat: 'loop',
           },
         },
       ],
