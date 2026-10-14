@@ -37,6 +37,7 @@ export type { Margins, PlateLayout, Rect } from './plate.js'
 export { DEFAULT_STEREO, IDENTITY, SIRDS_ALGORITHMS, STEREO_KEYS } from './types.js'
 export type {
   Anim,
+  AssertNever,
   Depth,
   Easing,
   Key,
@@ -74,8 +75,8 @@ export { makeRng } from './rng.js'
 
 /* ---------------------------------------------------------------- animation */
 
-export { EASINGS, PRESETS, compilePreset, composeAnim, evalTrack } from './anim/index.js'
-export type { AnimCompiler, PresetCtx, PresetFn } from './anim/index.js'
+export { CHANNELS, EASINGS, PRESETS, compilePreset, composeAnim, evalTrack } from './anim/index.js'
+export type { AnimCompiler, Channel, PresetCtx, PresetFn } from './anim/index.js'
 
 /* -------------------------------------------------------------- measurement */
 

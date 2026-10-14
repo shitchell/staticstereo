@@ -1,13 +1,17 @@
 import { EASINGS } from './easing.js'
 import { IDENTITY } from '../types.js'
-import type { Anim, Easing, Key, Preset, Track, Transform } from '../types.js'
+import type { Anim, AssertNever, Easing, Key, Preset, Track, Transform } from '../types.js'
 import type { PresetCtx } from './presets.js'
 
-const CHANNELS = ['x', 'y', 'depth', 'scale', 'rotate', 'rotateX', 'rotateY'] as const
-type Channel = typeof CHANNELS[number]
+/**
+ * The animatable channels, canonical. Exported through `core/index.ts` because
+ * the CLI and site scene validators each need the same list to decide which
+ * keyframe fields are legal, and each had grown its own unguarded copy — both
+ * of which missed `rotateX`/`rotateY` and so rejected them.
+ */
+export const CHANNELS = ['x', 'y', 'depth', 'scale', 'rotate', 'rotateX', 'rotateY'] as const
+export type Channel = typeof CHANNELS[number]
 
-/** Errors unless its argument is `never`. */
-type AssertNever<T extends never> = T
 // A channel added to `Transform` without being listed above would silently
 // stop interpolating — `evalTrack` only walks CHANNELS — and nothing else in
 // the codebase would notice. Same guard as `STEREO_KEYS` in `types.ts`.

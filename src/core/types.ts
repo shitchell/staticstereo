@@ -162,8 +162,16 @@ export const STEREO_KEYS = [
 
 export type StereoKey = typeof STEREO_KEYS[number]
 
-/** Errors unless its argument is `never`. */
-type AssertNever<T extends never> = T
+/**
+ * Errors unless its argument is `never`.
+ *
+ * Exported, and the only declaration: `anim/track.ts` had an independent copy
+ * guarding `CHANNELS`, so the one mechanism that keeps a hand-written list in
+ * step with a type was itself duplicated — and unavailable to the validators
+ * outside `core`, which is exactly where the unguarded copies of those lists
+ * ended up.
+ */
+export type AssertNever<T extends never> = T
 type _NoStereoKeyMissing = AssertNever<Exclude<keyof StereoOpts, StereoKey>>
 type _NoStereoKeyExtra = AssertNever<Exclude<StereoKey, keyof StereoOpts>>
 

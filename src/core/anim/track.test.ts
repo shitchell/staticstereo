@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { evalTrack, composeAnim } from './track.js'
+import { CHANNELS } from '../index.js'
 import { IDENTITY, type Track } from '../types.js'
 
 describe('evalTrack', () => {
@@ -149,5 +150,18 @@ describe('axis rotations', () => {
       0, 1, undefined, () => ({ keys: [] }),
     )
     expect(r.rotateX).toBeCloseTo(0.75)
+  })
+})
+
+describe('CHANNELS', () => {
+  // The list is only canonical if the validators can reach it; both carried
+  // their own unguarded copy because it was not on the package surface.
+  //
+  // `IDENTITY` is a runtime witness of `keyof Transform`, so comparing against
+  // its keys pins the *guarantee* — that the list tracks the type — rather than
+  // today's names. Spelling the names out here would be a third copy of the
+  // very list this export exists to deduplicate.
+  it('is exported from the package root and covers every Transform channel', () => {
+    expect(new Set(CHANNELS)).toEqual(new Set(Object.keys(IDENTITY)))
   })
 })
