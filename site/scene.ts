@@ -7,6 +7,7 @@ import {
   resolveStereo,
   STEREO_KEYS,
 } from '../src/core/index.js'
+import type { AssertNever, Channel } from '../src/core/index.js'
 import type { Anim, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
@@ -46,6 +47,16 @@ const REPEATS = ['once', 'loop', 'pingpong'] as const
  * the CLI and the rasteriser both handle.
  */
 const KEY_CHANNELS = ['t', ...CHANNELS] as const
+type KeyChannel = typeof KEY_CHANNELS[number]
+// The guard, not the spread, is what keeps this honest: it fails the build if
+// anyone writes the list out again, in either direction. Mirrors
+// `src/cli/scene.ts`, which has carried this pair since `69b2f4a` while this
+// file never had it. The asymmetry mattered: measured by replacing the spread
+// above with the drifted list it used to be, `npm run typecheck` exited 0 and
+// only `npm test` objected — so the one validator reachable from a shared link
+// was the one where the drift could reach a reviewer's eyes last.
+type _NoKeyChannelMissing = AssertNever<Exclude<Channel, KeyChannel>>
+type _NoKeyChannelExtra = AssertNever<Exclude<KeyChannel, Channel | 't'>>
 
 
 function fail(message: string): never {
@@ -214,7 +225,14 @@ function validateAnimOne(v: unknown, path: string): Track | Record<string, unkno
   if ('keys' in v) return validateTrack(v, path)
   if ('kind' in v) {
     const kind = v['kind']
-    if (typeof kind !== 'string' || !(kind in PRESETS)) {
+    // `Object.hasOwn`, **not** `kind in PRESETS`: `in` walks the prototype
+    // chain, `PRESETS` is a plain object literal, and `'constructor' in PRESETS`
+    // is `true`. So this validator accepted `anim: {kind: "constructor"}` from a
+    // hash and handed it on, where `compilePreset`'s own guard was bypassed the
+    // same way and returned a non-`Track` with nothing thrown — a shared link
+    // that renders a still and explains nothing. Same defect, same fix, as
+    // `parseFit` in `site/fit.ts`, which records the reasoning at length.
+    if (typeof kind !== 'string' || !Object.hasOwn(PRESETS, kind)) {
       // core's `compilePreset` produces this message too, but only once a frame
       // is actually rendered — from inside the rasteriser, with no field path.
       // Catching it here is the difference between "layers[1].anim: unknown

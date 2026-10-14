@@ -231,28 +231,104 @@ Five of these are decisions rather than transcriptions:
   Symbolic endpoints restore the `measureText → contentW → endpoint` chain to the
   production path. One verb, both affordances — the same move as folding `speed` in.
 
-  **Status: `speed` landed in P0; the symbolic endpoints did not.** The execution plan's P0
-  criteria list carried only the `speed` half of this bullet and was silent on the other,
-  so the phase matched the plan rather than the design. The consequences stand as written
-  above and are now measured rather than predicted: `scrolling-text.yaml` and
-  `site/examples.ts` carry hardcoded off-stage literals; `PresetCtx.contentW`/`contentH`/
-  `marginLeft`/`marginRight` have **no reader** (only `push` reads `layerDepth`); and the
-  endpoint formula `−(contentW + marginLeft)` has **no assertion anywhere** — it survives
-  only as a constant in two test files, either of which would stay green if §10.5 changed.
-  P0 restored the *producer* side instead (the measurement and the margins handed into
-  `PresetCtx` are witnessed, bidirectionally, by mutation), which is the half that was
-  restorable without a consumer.
+  **Status: `speed` landed in P0; the symbolic endpoints landed in P0b**, a follow-on phase
+  cut for them. P0's criteria list carried only the `speed` half of this bullet and was
+  silent on the other, so that phase matched the plan rather than the design; P0b closed the
+  gap, and closing it was the reversal this paragraph used to warn about rather than a blank
+  being filled.
 
-  A third consequence, found at review and worth recording because it explains how an
-  endpoint stayed wrong by 17px for several commits: **no shipped scene renders the far
-  endpoint of a scroll either.** All three corpora derive a travel duration far longer
-  than their scene (`scrolling-text.yaml` 17.0s against `duration: 6`; the README's 21.7s
-  against 4), so there is no witness of any kind — not a test, not a rendered frame. This
-  predates the rewrite and is unchanged by it.
+  **The spelling is per-slot**: a token stands where a number stands, so `from`/`to` stay one
+  parameter each — `from: [offRight, 0]`. `offLeft`/`offRight` are valid **only in slot 0**
+  and `offTop`/`offBottom` **only in slot 1**; the wrong axis throws, naming the axis, the
+  slot and the parameter. §4.2b's own table is the second authority for that reading: it
+  assigns off-stage endpoints to the *verb* and `slide-in`'s whole-direction token to a *P6
+  template*, so the axis-selecting form is spoken for elsewhere.
 
-  **Whoever closes this is reversing a decision, not filling a blank.** This bullet already
-  assigns the fix to `move`, in P0. Deferring it to P6's templates is a different choice
-  and should be made explicitly.
+  **Four tokens, two formula shapes**, and the asymmetry is correct rather than an oversight:
+
+  | token | resolves to |
+  |---|---|
+  | `offRight` | `ctx.sceneW + ctx.marginRight` |
+  | `offLeft` | `−(ctx.contentW + ctx.marginLeft)` |
+  | `offBottom` | `ctx.sceneH` |
+  | `offTop` | `−ctx.contentH` |
+
+  The vertical pair carries **no margin term** because `Margins` is `{left, right}` only and
+  `plateLayoutOf` applies no vertical padding (§10.2 **of the 2026-10-09 design** — this
+  document's own §10.2 is fusion comfort, so the bare cross-reference misleads). A blanket
+  "add the margin" would push
+  a `from: [0, offTop]` entry a plate-margin above the frame for no reason.
+
+  **A token resolves from the stage and the plate, never from the layer's `at`** — the
+  channel is still an offset from `at`, and both statements are true at once. What is *not*
+  true is that the result is off-frame for any layer: it is off-frame only when `at[0] === 0`.
+  That convention is recorded as load-bearing at `src/cli/scene.ts`'s `textScene`, and it has
+  one shipped exception worth knowing, because it needs no mistake by the author: a
+  `shape: circle` layer defaults `at` to the stage **centre**, where every other layer type
+  defaults to `[0, 0]`. So a tokenised circle starts half a stage short, and overshoots by
+  its radius besides, since the formula assumes `at` is the content's left edge.
+
+  **What the consequences cost, now that they are history.** `PresetCtx` had **six** fields
+  with no reader, not the four this paragraph used to name — `sceneW` and `sceneH` were as
+  unread as `contentW`/`contentH`/`marginLeft`/`marginRight`, and only `push` read
+  `layerDepth`. The formula `−(contentW + marginLeft)` had **no assertion anywhere**; it now
+  has a witness that fails in both directions, which the deleted `marquee` one did not — a
+  gross over-measurement (`contentW` forced to `12345.678`) used to redden nothing at all,
+  because the old witness sampled two columns either side of a boundary and over-measurement
+  cleared both.
+
+  **The consumer-side gap is closed, with its limit recorded.** A fixture now renders a
+  scroll's far endpoint, which no shipped scene did. The limit: it uses `repeat: 'once'`
+  where all three shipped scrolls use `loop`, so it renders the far endpoint of a scroll
+  *shaped like* the shipped ones rather than of one.
+
+  **And the sharpest thing P0b measured, which explains the 17.33px defect better than the
+  duration mismatch does.** This paragraph used to say the far endpoint is unwitnessed
+  because every corpus derives a travel longer than its scene — true (`scrolling-text.yaml`
+  17.0s against `duration: 6`; the README's 19.98s against 4, having been 21.67s before its
+  endpoints were tokenised). But the deeper reason is algebraic: `move` with `speed` sets
+  `duration = travel / speed`, so `x(s) = from − speed·s` and **`to` cancels out of every
+  rendered position, surviving only in the duration.** Substituting a grossly wrong `to` into
+  `scrolling-text.yaml` leaves all 72 frames byte-identical. The bound is real but generous —
+  shortening the move far enough *does* change frames, with break-even around `to ≈ −447` —
+  so the honest statement is that any endpoint beyond break-even, right or wrong, renders the
+  same picture. **A correct literal here would have been unfalsifiable, which is the whole
+  argument for deriving it.**
+
+  **For whoever builds the timeline templates, because it changes how you test them: no
+  far-endpoint change in these scenes can ever be validated by rendering.** It has to be
+  validated at the `Track` level — compile the preset and compare the keyframes. The
+  condition is scene duration sitting inside the derived duration, which holds for all three
+  shipped scrolls (6s against 17.00s, 6s against 11.70s, 4s against 19.98s), so a rendered
+  frame is simply the wrong instrument for the question. P6 re-derives these endpoints in a
+  template; it needs this before it writes one. This is also why the corpora's zero-movement
+  check rested on a `Track`-level comparison and why its render-level half was vacuous — see
+  the plan's §6.5a, which this is the worked example of.
+
+  **Outstanding: §4.2b-pre's scalability obligation.** A token resolves from an
+  already-scaled `PresetCtx`, so it must be marked *not* scalable or `fit=render`
+  double-counts it — and there is no field to mark it in. `NumericParam` is
+  `{name, unit, shape, default, per?}`, scalability is inferred from `unit`, and a token on
+  `move.from` is `scenePx` + `pair`, i.e. scalable by default. It may also be the wrong
+  shape: `from: [100, 0]` scales and `from: [offLeft, 0]` does not, **same parameter** — so
+  this is a property of the value, not of the descriptor. The descriptor additionally now
+  understates the accepted *domain*, so a control generated from it would offer two number
+  inputs and no way to say `offRight`.
+
+  **What makes that safe today is a fail-closed allow-list, not an absent feature.** An
+  earlier draft of this paragraph said `fit=render` did not exist yet. It does: it is a live
+  `FitMode` with user-facing copy, and the render plan calls `scaleScene`. What prevents the
+  double-count is that `scaleScene` scales only the preset kinds on an explicit allow-list —
+  `push` alone — and **refuses** anything else, returning `unscalable-preset` and naming the
+  verb. So a token string never reaches a multiplication, and there is no `NaN` route either.
+  `PRESET_PARAMS` having no production consumer is true but is not what is protecting us.
+
+  **That matters because it names the trigger condition.** The obligation goes live the
+  moment `move` joins that allow-list — which the scaler itself already contemplates as its
+  own task — rather than when some absent feature appears. A phase picking this up should
+  check the allow-list first, and should treat the descriptor question as *"what does a
+  scaler need in order to admit `move` safely"*, which is a sharper question than "mark it
+  not scalable". Deferred deliberately, with that reasoning, rather than overlooked.
 
 **`slide` and `emerge` are renames, not delegations.** An earlier revision of this section
 argued for keeping near-identical bodies rather than having `slide` delegate to `move`,
@@ -365,8 +441,20 @@ maintained the distinction. It is strictly less machinery than preserving them.
 remains worth doing, with a changed purpose: it proves the renames are *renames*. `move`
 must compile to precisely what `slide` did, and `push` to what `emerge` did, or the
 rename quietly became a rewrite and nothing else in the suite would notice. Deletions
-show up as removed fixture entries in a commit that says so. The golden is a one-shot
-refactor instrument, not a permanent pin.
+show up as removed fixture entries in a commit that says so.
+
+**The golden stays.** This paragraph called it "a one-shot refactor instrument, not a
+permanent pin", and that sentence was wrong twice over: the orchestrator ruled at P0's
+merge that the fixture is kept, and a value-pinning fixture that survives its refactor
+stops being an exception and becomes **precedent** — the next phase wanting to pin values
+will simply cite it. So the boundary is stated rather than the lifetime: execution plan
+§2.4 now admits a value-pinning fixture only where all three of **pure deterministic
+compiler**, **inputs enumerable from a registry**, and **exists to prove a refactor
+preserved behaviour** hold. The golden clears all three; a golden over a rasteriser or a
+renderer fails the first, which is why this one had to be kept strictly upstream of
+`raster.ts` — `Math.cos` and `@napi-rs/canvas` make everything below it machine-dependent.
+Its job is now continuous rather than one-shot: it is what makes a later rewrite of a
+`PresetFn` show up as a diff.
 
 **The cost is the examples, and it is not trivial.** All three `examples/*.yaml` use the
 old names, and `metamorphic.real.test.ts` reads them with *measured* assertions — row

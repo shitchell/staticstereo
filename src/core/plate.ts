@@ -67,34 +67,60 @@ export interface PlateLayout {
  * | `shift` | `sepFar` | `ceil(sepFar/2)` |
  * | `linked` | `ceil(sepFar/2)` | `ceil(sepFar/2)` |
  *
- * Two different losses are being covered, and conflating them is what produced
- * the retracted symmetric-margin claim in design §10.3:
+ * Two different losses are covered, and conflating them produced the retracted
+ * symmetric-margin claim in design §10.3:
  *
  * - **The encoding dead zone**, where depth physically cannot be encoded.
  *   `shift` computes `out[x] = out[x - sep(x)]` and has no source column for
- *   `x < sep`, so it discards that depth outright — `sepFar` in the worst case
- *   over depth, and **on the left only**. `linked` constrains the symmetric
- *   pair `(x - sep/2, x + sep/2)` and skips a pair with an out-of-range
- *   endpoint, so its dead zone is `sepFar/2` on *each* side. Both are swept
- *   with a probe in `metamorphic.test.ts` (`shift` 92/0, `linked` 44/44 at
- *   `sepNear`, growing to `sepFar` under `cross`).
- * - **The fusion fringe**, which is perceptual and symmetric for any algorithm:
- *   a percept is formed per pair `(P, P+sep)` and appears centred at
- *   `P + sep/2`, so the outermost `sep/2` columns of any plate carry no percept
- *   centre.
+ *   `x < sep`, so it discards that depth outright — `sepFar` worst case over
+ *   depth, and **on the left only**. `linked` constrains the symmetric pair
+ *   `(x - sep/2, x + sep/2)` and skips a pair with an out-of-range endpoint,
+ *   so its dead zone is `sepFar/2` on *each* side. Both are swept by a probe
+ *   in `metamorphic.test.ts` — measured, `shift` 92/0, `linked` 44/44 — but
+ *   those figures are **at `sepNear` only**: the probe is a near slab
+ *   (`slabDepth`'s default `z = 1`) and its `opts()` hard-codes `cross: false`,
+ *   which is why `shift` reads exactly `sepNear`. **That the zone grows to
+ *   `sepFar` is inferred from the `sep(z)` argument below, not swept** —
+ *   `deadZones` has one call site and nothing measures one under `cross` or at
+ *   another depth; sound, but not measured, so do not cite it as measurement.
+ * - **The fusion fringe**, perceptual and symmetric for any algorithm: a
+ *   percept forms per pair `(P, P+sep)` centred at `P + sep/2`, so the
+ *   outermost `sep/2` columns of any plate carry no percept centre.
  *
  * `sepFar` rather than `sepNear` because `sep(z)` ranges over
- * `[sepNear, sepFar]` and the margin has to cover the worst case over depth —
- * which is also what `cross` reaches, since inverting depth puts an authored
- * near object at `z = 0` and therefore at `sepFar`.
+ * `[sepNear, sepFar]` and the margin must cover the worst case over depth,
+ * which `cross` also reaches: inverting depth puts a near object at `z = 0`.
  *
  * **Honest note on the `shift` right margin.** It is there for the fusion
- * fringe, and no measurement in this repo can see it: `shift`'s pairs are
- * `(x - sep, x)`, so a slab flush against the stage's right edge is fully
- * encoded with a right margin of 0 (verified — `plate.test.ts` records it).
- * It is kept because §10.3 specifies it, it costs `ceil(sepFar/2)` emitted
- * columns, and the percept it buys cannot be measured monocularly. Unlike the
- * other three numbers here, mutating it to 0 does **not** turn any test red.
+ * fringe, and **no measurement of an emitted stereogram in this repo sees any
+ * loss of encoding when it is 0**: `shift`'s pairs are `(x - sep, x)`, so a
+ * slab flush against the stage's right edge is fully encoded at `right: 0`.
+ * Witnessed positively, not merely unobserved — at `right: 0` `plate.test.ts`
+ * still encodes all 120 right-edge stage columns where `linked` encodes 74,
+ * and two further encoding tests drawing margins from `marginsFor` itself stay
+ * green. Kept because §10.3 specifies it, it costs `ceil(sepFar/2)` emitted
+ * columns, and the percept it buys cannot be measured monocularly.
+ *
+ * **The claim is about loss of encoding, not about every reported number.**
+ * `report()` prints into the test log and asserts nothing
+ * (`testing/metamorphic.ts`), so a reported figure can move without reddening
+ * anything. Three move under `right: 0`, one a real measurement of an emitted
+ * stereogram — moving because the plate is narrower, not because a column
+ * stopped being encoded: its denominator is `plateW - sepNear`, ratio 100 %.
+ *
+ * **What the suite does pin is the number, and as an interface.** `right: 0`
+ * reddens five tests across `plate.test.ts`, `raster.test.ts` and
+ * `site/stageguide.test.ts`, each reading the number back out: the table above,
+ * the plate-width identity (`110 + 800 + 55 = 965`), its propagation into
+ * `PresetCtx`, the guide label. None renders a stereogram and measures it, so
+ * they say nothing about *the percept* and the claim above stands — and do not
+ * read those five reds as the fringe proving measurable: that invites cropping
+ * the plate back to the stage, which §10.4 and its recorded trap forbid.
+ * Reproducing the paragraph above takes both halves: re-run the mutation for
+ * the five test names — the files are named above — *and* diff the suite's
+ * `[measured]` lines, sorted, for the three moved values. "Re-run the mutation"
+ * alone is half the procedure: those three redden nothing, so they appear in no
+ * failure, and their raw order in the log is not stable enough to diff unsorted.
  */
 export function marginsFor(sepFar: number, algorithm: SirdsAlgorithm): Margins {
   if (!Number.isFinite(sepFar) || sepFar < 2) {

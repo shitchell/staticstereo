@@ -217,6 +217,51 @@ describe('resolveFontGenerics', () => {
     expect(resolveFontGenerics('48px Helvetica Neue')).toBe('48px Helvetica Neue')
   })
 
+  it('treats an inherited Object.prototype key as an ordinary family name', () => {
+    // `GENERIC_FAMILIES[key]` read straight through the prototype chain, so the
+    // `candidates === undefined` guard never fired for these two: the lookup
+    // returned `Object` and `Object.prototype` respectively, and neither is
+    // iterable, so a one-token typo in an authored scene threw `TypeError:
+    // candidates is not iterable` from inside the font resolver — the "never a
+    // TypeError from four frames deep" that src/cli/scene.ts opens by ruling
+    // out.
+    //
+    // The right semantic is pass-through, not a named error, and it was
+    // measured rather than assumed: this function leaves *every* non-generic
+    // family alone, installed or not (`48px Helvetica Neue` above is pinned
+    // unchanged and is not installed here). Resolving a generic is a different
+    // job from substituting for a missing family, so `constructor` must behave
+    // exactly like `Helvetica` — byte-identical, author's casing intact.
+    for (const key of ['constructor', '__proto__']) {
+      expect(resolveFontGenerics(`20px ${key}`)).toBe(`20px ${key}`)
+      // Casing preserved, which is what separates pass-through from the
+      // plausible wrong fix of returning the (lowercased) lookup key.
+      const titled = key[0]!.toUpperCase() + key.slice(1)
+      expect(resolveFontGenerics(`bold 48px ${titled}`)).toBe(`bold 48px ${titled}`)
+      // Beside a real generic: the prototype key passes through *while* the
+      // generic next to it is still rewritten.
+      //
+      // The `toBe` alone cannot say that, and the comment here used to claim
+      // it could. `sans` is computed by the function under test at the top of
+      // this `describe`, so with rewriting disabled wholesale — the resolver's
+      // per-key callback returning `undefined` for everything — both sides
+      // collapse to `48px <key>, sans-serif` and the line stays green.
+      // Measured: that mutation turns 6 other tests in this file red (among
+      // them `resolves to a family this machine actually has`, whose
+      // `expect(sans).not.toBe('sans-serif')` is what actually guards the
+      // file) and left this assertion passing.
+      //
+      // So the `not.toBe` below is the independent half: it spells the generic
+      // literally instead of via `sans`, and reddens the moment rewriting
+      // stops. It is machine-independent for the same reason `sans` is — the
+      // environment test above pins that no installed family is named after
+      // any CSS generic, so a correct resolution can never *be* `sans-serif`.
+      const beside = resolveFontGenerics(`48px ${key}, sans-serif`)
+      expect(beside).toBe(`48px ${key}, ${sans}`)
+      expect(beside).not.toBe(`48px ${key}, sans-serif`)
+    }
+  })
+
   it('rewrites only the generic entries of a comma-separated list', () => {
     expect(resolveFontGenerics('bold 240px "Some Font", sans-serif'))
       .toBe(`bold 240px "Some Font", ${sans}`)

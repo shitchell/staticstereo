@@ -19,14 +19,14 @@ import type { Preset, Track } from '../types.js'
  * `sceneW`/`sceneH` are the **stage** (design §10): the region that survives
  * fusion, and the space a layer's `at` and a track's `x`/`y` are expressed in.
  *
- * **No surviving verb reads anything but `layerDepth`.** `marquee` and
- * `slide-in` were the only consumers of the measurements and the margins, and
- * §4.2b deleted them. The fields stay, and stay required, for two reasons:
- * the context is built once per layer per frame by the rasteriser whether or
- * not a preset asks for it (`raster.ts`), so nothing is saved by trimming it;
- * and the UI templates P6 rebuilds those four kinds as are exactly the
- * consumers that need them back. A caller which has not thought about what
- * it is measuring against should still be a compile error.
+ * **Every field has a reader again.** `push` reads `layerDepth`; the other six
+ * are read by `move`'s symbolic off-stage endpoints (`OFF_STAGE` below), which
+ * is the `measureText → contentW → endpoint` chain that `marquee`'s deletion
+ * took off the production path and §4.2 puts back. They are required rather
+ * than optional for the reason they always were: the context is built once per
+ * layer per frame by the rasteriser whether or not a preset asks for it
+ * (`raster.ts`), so nothing is saved by trimming it, and a caller which has not
+ * thought about what it is measuring against should be a compile error.
  */
 export interface PresetCtx {
   sceneW: number
@@ -38,11 +38,12 @@ export interface PresetCtx {
    * (design §10). For computing an *off-frame* pose, so that "off-frame"
    * means off the whole emitted image rather than off a sub-rectangle of it.
    *
-   * **No preset reads these any more** — `marquee` and `slide-in` were the
-   * two, and §4.2b deleted both. `examples/scrolling-text.yaml` now writes
-   * the endpoints out, with this derivation in a comment, and P6's UI
-   * templates are what will compute them again. The measurement below is
-   * kept because it is the thing those templates must not re-decide.
+   * **Read by `move`'s `offLeft`/`offRight` tokens** (`OFF_STAGE` below), which
+   * are the two consumers `marquee` and `slide-in` used to be. The measurement
+   * below is why those tokens exist rather than being left to a caller: it is
+   * the thing an author writing the endpoint by hand must not have to
+   * re-decide, and got wrong by 17.33px when one did — `site/examples.ts`'s own
+   * derivation comment records that miss and that nothing caught it.
    *
    * **What this does and does not buy, measured.** Design §10.5 justifies these
    * with "a `marquee` travelling to `stageW` would pop in at the stage edge
@@ -134,17 +135,164 @@ function num(p: Preset, key: string, fallback: number): number {
   return v
 }
 
-function pair(p: Preset, key: string, fallback: [number, number]): [number, number] {
+function pairError(p: Preset, key: string, v: unknown): Error {
+  return new Error(
+    `preset "${p.kind}": "${key}" must be an [x, y] number pair, got ${JSON.stringify(v)}`,
+  )
+}
+
+/**
+ * The axis each slot of an `[x, y]` pair is, indexed by the slot itself so the
+ * two cannot drift in an error message.
+ */
+const SLOT_AXIS = ['x', 'y'] as const
+
+interface OffStageEndpoint {
+  /** `0` is the `x` slot of an `[x, y]` pair, `1` the `y` slot. */
+  readonly slot: 0 | 1
+  readonly of: (ctx: PresetCtx) => number
+}
+
+/**
+ * The symbolic off-stage endpoints `move`'s `from`/`to` accept in place of a
+ * number (design §4.2) — the arithmetic the deleted `marquee` and `slide-in`
+ * did, back on the production path. §4.2b's table says this in one line:
+ * `marquee` *becomes* "`move` with off-stage endpoints".
+ *
+ * **Computed from the stage and the plate, never from the layer's `at`.** A
+ * token resolves to a value for the `x`/`y` *channel*, and `raster.ts` applies
+ * that channel as `at[0] + t.x` — so a layer with `at[0] ≠ 0` ends up `at[0]`px
+ * away from off-frame rather than at it. That is not a defect in the
+ * resolution; it is the same convention every scroll in this repo
+ * relies on, and `src/cli/scene.ts`'s `textScene` records why it is
+ * load-bearing and what it costs. (`PresetCtx` carries no `at` deliberately:
+ * adding one would make the resolution depend on a quantity the compile context
+ * has never carried, and the golden asserts equality on the whole context.) The
+ * case to know about is not hypothetical — a `shape: circle` layer defaults its
+ * `at` to the stage centre (`raster.ts`), so a token on one lands half a stage
+ * short.
+ *
+ * **Four tokens, two formula shapes, and the asymmetry is correct.** The
+ * horizontal pair is off the *plate*: the near side by the content's own
+ * measured extent plus the margin on that side, the far side by the stage's
+ * width plus the margin on *its* side, so the travel spans the image that is
+ * actually emitted and a scroll's `speed` means px/sec across it. The vertical
+ * pair gets no margin term, because there is none to get — `Margins` is
+ * `{left, right}` only and `plateLayoutOf` applies no vertical padding (design
+ * §10.2, and see `marginLeft` above). A blanket "add the margin" would push an
+ * `offTop` start a plate-margin's worth above the frame for no reason, which is
+ * what `slide-in`'s own test was written to catch.
+ *
+ * **Per-slot, not per-vector.** §4.2 says `from`/`to` "accept a symbolic
+ * endpoint as well as a number", and they are pairs of numbers, so a token
+ * stands exactly where a number stands — in one slot. The alternative,
+ * `from: offLeft` as a whole-vector token that also *selects* an axis, is
+ * `slide-in`'s `from: 'left'`, and §4.2b's table assigns that spelling to a P6
+ * UI template rather than to the verb. Keeping it out of `move` is what keeps
+ * `from` one parameter with one shape instead of two.
+ */
+const OFF_STAGE: Readonly<Record<string, OffStageEndpoint>> = {
+  offLeft: { slot: 0, of: ctx => -(ctx.contentW + ctx.marginLeft) },
+  offRight: { slot: 0, of: ctx => ctx.sceneW + ctx.marginRight },
+  offTop: { slot: 1, of: ctx => -ctx.contentH },
+  offBottom: { slot: 1, of: ctx => ctx.sceneH },
+}
+
+/** The tokens valid in one slot, derived from the table so a message cannot go stale. */
+function tokensIn(slot: 0 | 1): string {
+  return Object.keys(OFF_STAGE).filter(name => OFF_STAGE[name]!.slot === slot).join(', ')
+}
+
+/**
+ * The token *names* only — the table, its slot assignments and its resolvers
+ * all stay module-private.
+ *
+ * The vocabulary is the one part of `OFF_STAGE` a consumer outside this module
+ * can need: enough to write a token where a number goes and see whether the
+ * verb accepts it. `site/scalescene.test.ts` needs exactly that and nothing
+ * more. It probes every registered verb's every descriptor with these names to
+ * *discover* which parameters accept a symbolic endpoint, rather than being
+ * told, and then asserts each one is tagged `scenePx` — which is the tag the
+ * `fit=render` allow-list check keys on, and therefore the thing that keeps a
+ * token out of the scaler's multiplication.
+ *
+ * `Object.keys`, not a written-out list, and that is the whole point of the
+ * shape: a fifth token joins the probe without anyone remembering to extend
+ * anything. A hand-listed copy here would be a second roster of a set that
+ * already exists one line above it, which is the exact drift this file's
+ * `tokensIn` was introduced to stop.
+ *
+ * Deliberately **not** re-exported from `anim/index.ts` or `core/index.ts`:
+ * this is a seam for a test inside this repo, not published API, and those
+ * barrels are explicit precisely so the two do not get confused.
+ */
+export const OFF_STAGE_TOKENS: readonly string[] = Object.keys(OFF_STAGE)
+
+/**
+ * One slot of an endpoint pair: a finite number, or a token for that slot's
+ * axis.
+ *
+ * **A token in the other axis's slot throws rather than resolving.** `offLeft`
+ * is a horizontal distance and writing it into `y` is an authoring mistake with
+ * no sensible reading — and on a design where the URL *is* the scene, a link
+ * someone else wrote cannot be debugged from the render, so a loud rejection
+ * beats a quiet wrong pose (design §4.1 makes that trade for keyframe channels
+ * for the same reason). The message names the axis, the slot it was written in
+ * and the slot it belongs in, because that is the whole fix.
+ */
+function endpoint(
+  p: Preset, key: string, v: unknown, slot: 0 | 1, ctx: PresetCtx, whole: unknown,
+): number {
+  if (typeof v === 'number') {
+    if (!Number.isFinite(v)) throw pairError(p, key, whole)
+    return v
+  }
+  // Anything that is neither a number nor a string keeps the pair reader's own
+  // message: widening this to accept tokens must not turn `to: [0, {}]` into a
+  // report about symbolic endpoints, which is not what went wrong.
+  if (typeof v !== 'string') throw pairError(p, key, whole)
+  // `Object.hasOwn`, not a bare `OFF_STAGE[v]`: the table is an object literal
+  // on `Object.prototype`, so `OFF_STAGE['constructor']` is a *function* and
+  // `OFF_STAGE['__proto__']` is an *object* — both truthy, both sailing past
+  // the guard below and landing in the axis-mismatch branch, where
+  // `token.slot` is `undefined`. The message that produced told the author to
+  // "write it as `from`[undefined]", which is a loud error about a token that
+  // does not exist in a slot that does not exist. `v` reaches here from a
+  // scene file, and on the site that means from a link someone else wrote —
+  // both validators pass preset parameters through byte-for-byte by design, so
+  // nothing upstream filters it. Third instance of this idiom in the repo;
+  // `site/fit.ts:111-116` records the first.
+  const token = Object.hasOwn(OFF_STAGE, v) ? OFF_STAGE[v] : undefined
+  if (!token) {
+    throw new Error(
+      `preset "${p.kind}": "${key}"[${slot}] must be a number or one of ` +
+      `${tokensIn(slot)}, got ${JSON.stringify(v)}`,
+    )
+  }
+  if (token.slot !== slot) {
+    throw new Error(
+      `preset "${p.kind}": "${key}"[${slot}] is the ${SLOT_AXIS[slot]} axis, and ` +
+      // "an x-axis", "a y-axis". The article is read off `SLOT_AXIS` rather
+      // than written as a literal `a`, which is what printed "is a x-axis
+      // endpoint" at an author. Derived from the same table the axis name is,
+      // so the two cannot disagree if the names ever change.
+      `${JSON.stringify(v)} is ${SLOT_AXIS[token.slot] === 'x' ? 'an' : 'a'} ` +
+      `${SLOT_AXIS[token.slot]}-axis endpoint — write it as ` +
+      `"${key}"[${token.slot}]. Valid in "${key}"[${slot}]: ${tokensIn(slot)}.`,
+    )
+  }
+  return token.of(ctx)
+}
+
+function endpointPair(
+  p: Preset, key: string, fallback: [number, number], ctx: PresetCtx,
+): [number, number] {
   const v = p[key]
   if (v === undefined) return fallback
-  if (
-    !Array.isArray(v) || v.length !== 2 ||
-    typeof v[0] !== 'number' || !Number.isFinite(v[0]) ||
-    typeof v[1] !== 'number' || !Number.isFinite(v[1])
-  ) {
-    throw new Error(`preset "${p.kind}": "${key}" must be an [x, y] number pair, got ${JSON.stringify(v)}`)
-  }
-  return [v[0], v[1]]
+  if (!Array.isArray(v) || v.length !== 2) throw pairError(p, key, v)
+  // The whole value is passed down so a bad slot still reports the pair the
+  // author wrote rather than the one element, which is not where they look.
+  return [endpoint(p, key, v[0], 0, ctx, v), endpoint(p, key, v[1], 1, ctx, v)]
 }
 
 /**
@@ -216,11 +364,14 @@ function overrides(tr: Track, p: Preset): Track {
  * deleted because each was a *composition* of these five rather than a
  * primitive beside them, and offering both spellings meant the same motion
  * had two names with different defaults. Each is still sayable as an
- * ordinary `Anim`: `marquee` is a `move` with a `speed` and `repeat: loop`,
- * `bounce` and `bob` are three-key `Track`s, `slide-in` is a `move` from an
- * off-plate offset. P6 rebuilds them as UI templates that emit exactly that.
- * What they compiled to is recorded in the commit that removed their golden
- * entries; that is the reference, not this file's history.
+ * ordinary `Anim`: `marquee` is a `move` between the two horizontal off-stage
+ * endpoints with a `speed` and `repeat: loop`, `slide-in` is a `move` from one
+ * of the four, and `bounce` and `bob` are three-key `Track`s. The first two are
+ * now sayable without computing anything — that is what `OFF_STAGE` above is
+ * for — and §4.2b assigns the remaining two, plus `slide-in`'s whole-direction
+ * `from`, to P6 UI templates that emit exactly those tracks. What each compiled
+ * to is recorded in the commit that removed their golden entries; that is the
+ * reference, not this file's history.
  *
  * Note what is *not* here: default durations. A track with no `duration` runs
  * for the remainder of the scene, which is the right default for one-shot
@@ -230,7 +381,10 @@ function overrides(tr: Track, p: Preset): Track {
  */
 const REGISTRY = {
   /**
-   * Straight A→B move. `from`/`to` are `[x, y]` offsets from the layer's `at`.
+   * Straight A→B move. `from`/`to` are `[x, y]` offsets from the layer's `at`,
+   * and either slot may be a symbolic off-stage endpoint instead of a number —
+   * see `OFF_STAGE` for the four, the axis each one belongs to, and why the
+   * resolution cannot see `at`.
    *
    * `speed` is optional, in **scene px per second**, and derives `duration`
    * from the distance travelled. It was `marquee`'s one distinct capability
@@ -242,9 +396,12 @@ const REGISTRY = {
    * `speed` is derived *from* the endpoints so that editing `to` keeps the
    * rate rather than silently changing it.
    */
-  move: p => {
-    const from = pair(p, 'from', [0, 0])
-    const to = pair(p, 'to', [0, 0])
+  move: (p, ctx) => {
+    // Resolved before anything downstream reads them, `speed` included: the
+    // derived duration is the distance between the *resolved* endpoints, which
+    // is what made `marquee` a `move` rather than a separate verb.
+    const from = endpointPair(p, 'from', [0, 0], ctx)
+    const to = endpointPair(p, 'to', [0, 0], ctx)
     const tr: Track = {
       keys: [
         { t: 0, x: from[0], y: from[1] },
@@ -432,11 +589,21 @@ export type PresetKind = keyof typeof REGISTRY
 
 /**
  * The registry as consumed. Deliberately **not** narrowed to `PresetKind`:
- * `compilePreset` below indexes it with a plain `string` taken from the scene
- * file, and both scene validators ask `kind in PRESETS` of unvalidated input.
+ * `compilePreset` below looks it up with a plain `string` taken from the scene
+ * file, and both scene validators ask the same question of unvalidated input.
  * Narrowing the public type would push a cast into all three call sites to buy
  * nothing — the compile-time tie we actually want is on the descriptor table,
  * where a missing entry is the failure mode, not here.
+ *
+ * **All three sites must ask `Object.hasOwn`, never `kind in PRESETS`.** This
+ * is a plain object literal, so `in` answers `true` for the dozen keys on
+ * `Object.prototype`. All three asked it the wrong way: `compilePreset` below
+ * indexed bare, and both scene validators asked `kind in PRESETS`. All three
+ * are now guarded — `site/scene.ts` and `compilePreset` together, `src/cli/
+ * scene.ts` after it, where the symptom was a validator *accepting* the scene
+ * rather than a wrong render. What makes a wide public type safe is the guard
+ * at each lookup, not the type, so a fourth consumer inherits nothing from
+ * these three being right.
  */
 export const PRESETS: Record<string, PresetFn> = REGISTRY
 
@@ -446,9 +613,23 @@ export const PRESETS: Record<string, PresetFn> = REGISTRY
  * Throws on an unknown kind. A no-op fallback here would render a perfectly
  * still scene with no diagnostic at all, so the error names the kind and lists
  * what is valid.
+ *
+ * `Object.hasOwn` is what makes the guard below reachable. A bare
+ * `PRESETS[p.kind]` found inherited properties, so `{kind: 'constructor'}`
+ * returned `Object` from the registry, `fn(p, ctx)` called it, and this
+ * function handed back the `Preset` object itself typed as a `Track` — no
+ * throw, nothing logged, a still frame. `{kind: 'toString'}` was worse: it
+ * returned the *string* `"[object Undefined]"` as a `Track`. `{kind:
+ * '__proto__'}` threw `TypeError: fn is not a function` from in here, naming
+ * no field and no scene. `{kind: 'valueOf'}` — the fourth, and the one both
+ * `presets.test.ts` and `site/scene.test.ts` carry in their `INHERITED` arrays
+ * — threw `TypeError: Cannot convert undefined or null to object`, from inside
+ * `Object.prototype.valueOf` called with no receiver, which names neither this
+ * function nor the scene. The kind is a string from a scene file, and on the
+ * site the scene is the URL, so none of those four are hypothetical.
  */
 export function compilePreset(p: Preset, ctx: PresetCtx): Track {
-  const fn = PRESETS[p.kind]
+  const fn = Object.hasOwn(PRESETS, p.kind) ? PRESETS[p.kind] : undefined
   if (!fn) {
     throw new Error(
       `unknown animation preset "${p.kind}" — valid kinds: ` +

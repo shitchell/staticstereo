@@ -242,23 +242,41 @@ async function prepare(
       const font = [layer.weight, `${size}px`, layer.font ?? DEFAULT_FONT_FAMILY]
         .filter(Boolean)
         .join(' ')
-      // Measured and handed to presets as `PresetCtx.contentW`. **No preset
-      // reads it today** — `marquee` and `slide-in` were the only two and
-      // §4.2b deleted them, leaving `push`'s `layerDepth` as the only ctx
-      // field any registered verb reads — so this is currently measured for a
-      // consumer that does not exist.
+      // Measured and handed to presets as `PresetCtx.contentW`, and **there is
+      // a reader of it on the production path**: `move`'s `offLeft` endpoint
+      // is `−(contentW + marginLeft)`, so this one call decides where a scroll
+      // stops. Between §4.2b deleting `marquee`/`slide-in` and `move` gaining
+      // the symbolic endpoints there was genuinely no consumer, and the note
+      // that stood here recording that fact is what made the call keep reading
+      // as dead code long after it had one.
       //
-      // **It is not, however, unwitnessed: do not delete it as dead code.**
+      // **Witnessed on both sides, so a mutation here is loud.**
       // `raster.test.ts`'s `rasterDepth preset context > text measurement`
-      // registers a probe preset and asserts this value three ways — the
-      // string and font it is measured under, that it arrives verbatim as
-      // `contentW`, and that a pose built from it lands the first painted
-      // column exactly there. Measured: `const contentW = 0` fails all three;
-      // keeping the call and discarding its answer fails two.
+      // pins the producer — the string and font it is measured under, that it
+      // arrives verbatim as `contentW`, and that a pose built from it lands
+      // the first painted column exactly there — and `move's off-frame
+      // endpoints against the plate` pins the consumer, that the endpoint a
+      // registered verb computes is derived from *this* number and not from a
+      // recomputation of it.
       //
-      // It stays because the UI templates P6 rebuilds those kinds as are
-      // exactly that consumer, and because an unmeasured (or zero) width is
-      // what leaves the tail of an over-wide string parked on screen.
+      // Measured, keeping the call and substituting its result: `0` and
+      // `× 0.5` redden all four tests of the consumer suite, while
+      // **`12345.678` reddens three of the four**. The survivor is `a scroll
+      // that reaches its far endpoint > enters the frame, crosses it and
+      // leaves it within the scene` — a gross over-measurement is invisible to
+      // an assertion of the form "an off-frame layer paints nothing", the
+      // layer being still off-frame and merely further off. The three that do
+      // catch it read the endpoint back out, which is why those boundary
+      // assertions exist and why the witness they replaced passed under this
+      // mutation. All three substitutions redden the producer suite as well —
+      // two of its three; the font-use test is indifferent to the width.
+      // Deleting the call instead reddens seven rather than six, but the extra
+      // one is that font-use test noticing an absent call rather than anything
+      // noticing a wrong width.
+      //
+      // An unmeasured (or zero) width is what leaves the tail of an over-wide
+      // string parked on screen, which is the bug the `−contentW` term exists
+      // to prevent.
       scratch.font = font
       const contentW = scratch.measureText(layer.text).width
       return {
