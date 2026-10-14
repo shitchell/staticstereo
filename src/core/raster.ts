@@ -243,12 +243,21 @@ async function prepare(
         .join(' ')
       // Measured and handed to presets as `PresetCtx.contentW`. **No preset
       // reads it today** — `marquee` and `slide-in` were the only two and
-      // §4.2b deleted them — so this is currently measured for a consumer
-      // that does not exist, and nothing can observe a regression in it. It
-      // stays because the UI templates P6 rebuilds those kinds as are exactly
-      // that consumer, and because an unmeasured (or zero) width is what
-      // leaves the tail of an over-wide string parked on screen. See
-      // `raster.test.ts`'s `rasterDepth over-wide text geometry`.
+      // §4.2b deleted them, leaving `push`'s `layerDepth` as the only ctx
+      // field any registered verb reads — so this is currently measured for a
+      // consumer that does not exist.
+      //
+      // **It is not, however, unwitnessed: do not delete it as dead code.**
+      // `raster.test.ts`'s `rasterDepth preset context > text measurement`
+      // registers a probe preset and asserts this value three ways — the
+      // string and font it is measured under, that it arrives verbatim as
+      // `contentW`, and that a pose built from it lands the first painted
+      // column exactly there. Measured: `const contentW = 0` fails all three;
+      // keeping the call and discarding its answer fails two.
+      //
+      // It stays because the UI templates P6 rebuilds those kinds as are
+      // exactly that consumer, and because an unmeasured (or zero) width is
+      // what leaves the tail of an over-wide string parked on screen.
       scratch.font = font
       const contentW = scratch.measureText(layer.text).width
       return {
