@@ -122,9 +122,16 @@ stay exactly as they are.
 
 - `id` — short base64url. **Assigned on first mutation, not on load**, and persisted
   thereafter. Loading a legacy scene and saving it unchanged is therefore byte-identical;
-  only editing introduces ids. Generation lives in `src/shared/` because there are **two**
-  `validateScene` implementations (`src/cli/scene.ts` and `site/scene.ts`) and they must
-  not diverge.
+  only editing introduces ids.
+
+  **The validators preserve ids; they never mint them.** `src/shared/` exports a pure
+  `newLayerId()`, and the editor's mutation path (P3) is the only caller. An earlier draft
+  said "both `validateScene`s generate ids identically" — that contradicts the sentence
+  above, because a validator that mints on load destroys the byte-identical round-trip.
+  What must be identical across the two implementations is *preservation*, and that is a
+  real requirement: the CLI validator returns the raw input after an allow-list check,
+  while the site validator **rebuilds field-by-field and silently drops anything it does
+  not name**, so without an explicit change it would strip ids on every URL round-trip.
 - `name` — derived from content when absent (`HELLO`, `ball.png`, `circle`). Pre-empts
   PowerPoint's biggest usability complaint, where the pane lists effects with useless
   default names and the documented first step is "go rename everything."
@@ -138,13 +145,42 @@ The mechanism is already right — `Preset { kind, ...params }` compiled by a `P
 into a `Track` *is* "action + parameters". And the vocabulary is **already half right**:
 `slide` (`presets.ts`) is `move` with `from`/`to`. What is missing is coverage and naming.
 
-| verb | writes | note |
-|---|---|---|
-| `move` | x **and** y | one verb, two properties |
-| `rotate` | rotate | degrees |
-| `scale` | scale | |
-| `push` | depth | this is "fade" — see below |
-| `flip` | scale | **needs a schema change — D1, §4.3** |
+All five honour `overrides()` (`ease`, `repeat`, `start`, `duration`, seconds) like every
+existing preset, and all default to `ease: 'linear'`, `repeat: 'once'` — **verbs are
+unopinionated primitives**, and opinionated defaults are exactly what made `emerge` a
+preset rather than a verb.
+
+| verb | params | defaults | unit | writes |
+|---|---|---|---|---|
+| `move` | `from`, `to` | `[0,0]`, `[0,0]` | scene px, **offset from the resting `at`** | x **and** y |
+| `rotate` | `from`, `to`, `axis` | `0`, `0`, `'z'` | **degrees**, delta from rest | `rotate` / `rotateX` / `rotateY` |
+| `scale` | `from`, `to` | `1`, `1` | **absolute multiplier** | scale |
+| `push` | `from`, `to` | `0`, `ctx.layerDepth` | depth 0..1 absolute, compiled as `− ctx.layerDepth` | depth |
+| `flip` | `axis` | `'y'` | — | constant `π` on `rotateX`/`rotateY` |
+
+Five of these are decisions rather than transcriptions:
+
+- **`move` is `slide` under its right name**, same offset semantics. Reusing the existing
+  convention avoids inventing a second answer to "absolute or relative".
+- **`rotate` takes degrees and converts inside the `PresetFn`.** Degrees is already this
+  schema's *authoring* unit (`shape.start`/`end`); radians is its *`Transform`* unit; and
+  the `PresetFn` is where every other unit translation already happens — `marquee`
+  converts px/sec into a duration. An author types `to: 180`, not `to: 3.14159`. The cost
+  is a hidden conversion, paid for by the golden fixture and an explicit `180 → Math.PI`
+  assertion. **Core gains an exported deg↔rad helper**; today the only one is private to
+  `raster.ts`.
+- **One `rotate` with an `axis`, not three verbs** — the three rotations are one family.
+  `axis` is `'x' | 'y' | 'z'`, naming the channel it writes rather than pitch/yaw/roll.
+- **`scale` is absolute, not a delta**, because `composeAnim` *multiplies* this channel
+  and `IDENTITY.scale` is 1. For a multiplicative channel the absolute factor *is* the
+  delta; writing `to − 1` would produce a zero-scale catastrophe.
+- **`flip` is static sugar, not a motion.** Animating a flip is
+  `rotate: {axis: 'y', from: 0, to: 180}`. No overlap between the two.
+
+**`slide` and `emerge` are deliberately not reimplemented as delegations** to `move` and
+`push`, despite near-identical bodies. A few duplicated lines are cheaper than risking
+"every legacy preset compiles to its previous output" in the very phase that establishes
+the golden corpus. Revisit once the golden exists.
 
 **"Fade" compiles to `push`.** `Transform` deliberately has no opacity: there is no
 meaningful transparency in depth space, so fading is motion in depth. R10's "ease-in

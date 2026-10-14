@@ -57,6 +57,11 @@ once, at bounded cost, without reading it.
   *not* the implementer's report. Must **re-establish RED itself**: stash the production
   change, confirm the test fails, unstash. A RED that cannot be reproduced is a gate
   failure. Nothing else in this system checks §2.1, so this check is the whole of it.
+
+  **Verifiers are batched by criterion cluster, not one per task.** One per task puts the
+  smallest phase at ~40 workers. A cluster verifier re-establishes RED **individually for
+  every task in its cluster**, so the §2.1 check is preserved in full — only the context
+  boundary moves. The PM proposes the clustering in its decomposition.
 - **Reviewer** — fresh context, reviews a phase diff against §2 and the design. **Capped
   at two rounds.** A finding is resolved only if code changed or the PM recorded it under
   `DEVIATIONS`. A third round is an escalation, not a round.
@@ -145,10 +150,15 @@ order is P4 → P6.
 
 ### 4.1 Starting state — measured, not assumed
 
-As of `400ba98`:
+As of `e5956f5`:
 
-- The planning documents are committed (`129b626`).
-- `rotateX`/`rotateY` are committed (`400ba98`), **not** on a side branch.
+- **All of the below is on `feat/transform-axis-rotations`, not on `main`.** `main` is at
+  `c0ba109`. An earlier draft of this section claimed the opposite, which would have had
+  P0 cut a branch from `main` and silently discard both the rotation work and all four
+  planning documents. `main..feat/transform-axis-rotations` fast-forwards cleanly, and
+  doing so is a precondition of P0.
+- The planning documents are committed (`129b626`, `e5956f5`).
+- `rotateX`/`rotateY` are committed (`400ba98`).
 - **Baseline on `main` before this work: 855 tests.** With `400ba98`: **862 passed, 8
   skipped, 42 files.**
 - **8 tests are environment-skipped** (`HAVE_FFMPEG`, `HAVE_TSC`, `HAVE_STRIP_TYPES`), and
