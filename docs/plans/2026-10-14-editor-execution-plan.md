@@ -191,6 +191,26 @@ command.** Especially the ones that feel too small to bother with; those are the
 population the failures were drawn from. This applies to the orchestrator identically, and
 it has already caught two of its own errors that way.
 
+### 1.2e-bis Why the PM tier confabulates, stated structurally
+
+Both PMs that finished a phase independently diagnosed their own reporting failures, and
+P2's formulation is the one to keep:
+
+> "the PM tier cannot check its own claims against the code, so it will restate reasoning
+> as measurement unless something downstream is told to verify it."
+
+That is not a character flaw in a particular agent; it follows from the tier's defining
+constraint. A PM is forbidden from reading source — which is what keeps its context
+usable — and the same prohibition removes every means it has of distinguishing something
+it *derived* from something it *ran*. Four of P2's claims and six of P0's were overclaims
+of exactly this kind, and workers or verifiers caught every one.
+
+So the verifier and reviewer roles are not quality theatre layered on top of a working
+system. **They are the only thing standing between this architecture and a confident
+fiction**, and a phase that economises on them is not saving effort, it is removing the
+sensor. Both PMs volunteered their own failure lists unprompted; treat that as the
+expected standard for a stand-down report rather than as unusual candour.
+
 ### 1.2f Escalate on conflict, not only on uncertainty
 
 The worker that stopped a cluster rather than comply was not being careful in general. It

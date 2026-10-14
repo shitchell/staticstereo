@@ -855,6 +855,40 @@ to a control surface. Corrected:
   because clicking the canvas is how the diagnostics band is placed today.
 - Chrome auto-hides after a few seconds and returns on any key or pointer movement.
 
+### 8.4 What P2 changed in this document (§6.6)
+
+Recorded by the orchestrator at merge, because every plan-document commit in this build is
+the orchestrator's and a commit here would have voided the gate evidence P2 had just
+collected. Four of its eight deviations change claims made above.
+
+1. **A scene-scale cap exists at all.** §8.1 described `render` as re-rendering at the
+   container's size with no upper bound. One now exists, because a mode whose purpose is
+   embedding in a page we do not control turns an unbounded container measurement into an
+   unbounded allocation. **This is a judgement, not a measurement** — nobody measured where
+   the cap should sit, and the constant records that about itself.
+2. **`site/query.ts` is a new module** this document does not name. It exists because the
+   "strip a leading `?`, take the literal last value, trim and lowercase" policy was
+   written three times and a prototype-chain defect appeared in two of the copies *because
+   the idiom was copied*. One exported helper, one shared boolean-spelling table.
+3. **The player entry emits as `index.html` via a build-time rename.** Not a detail:
+   without it the player is reachable only at `…/player/player.html`, and R14 asks for an
+   `<iframe src>`, which is a directory URL. The rename is at the build rather than at the
+   upload because a rename during copy is a second place the two can disagree. Note
+   `site/index.html` is already the editor's entry, so renaming the *source* would collide
+   with `markup.test.ts` and with P3's teardown.
+4. **Two pixel-space ratios now exist where §8.1 implied one.** `Fit.scale` is device ÷
+   backing-store and is what `image-rendering` must be fed; `displayScale` is CSS ÷
+   backing-store and is what layout consumes. They differ by `dpr`, and conflating them
+   smoothed genuine upscales on every HiDPI screen — blending adjacent random dots, which
+   §5.2a forbids. §10.6's rule about naming the pixel space was written for scene-vs-device
+   and applies here with equal force.
+
+Two things P2 left honest rather than closed, both surfaced by a worker rather than asked
+for: the `plateWidth` two-space collision is documented at four declarations but all four
+fields are plain numbers, so the wrong substitution still compiles; and the font check pins
+the vendored *sources* while nothing pins that the player *build* emits one face per
+weight.
+
 ### 8.3 One measurement to preserve
 
 The current page records that adding a control *above* the canvas moved its fractional
