@@ -141,7 +141,11 @@ describe('the import ban is one predicate, even though it is written twice', () 
     // Vacuity floor, and it is the load-bearing half: an extraction that
     // matched nothing in both files would return two empty strings and compare
     // them happily. Named per file so the failure says which one moved.
-    for (const [file, text] of [['transport.test.ts', mine], ['transportdriver.test.ts', theirs]]) {
+    const copies: readonly (readonly [string, string])[] = [
+      ['transport.test.ts', mine],
+      ['transportdriver.test.ts', theirs],
+    ]
+    for (const [file, text] of copies) {
       expect(text.length, `${file}: the ban block was not found — it was renamed or moved`)
         .toBeGreaterThan(200)
       expect(text, file).toContain('EDITOR_MODULES')
