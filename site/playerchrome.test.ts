@@ -531,10 +531,21 @@ describe('chrome auto-hides, as a pure policy (design §8.2)', () => {
    * would match the prose explaining the prohibition.
    *
    * **Word-boundaried, and that is load-bearing rather than tidy.** A bare
-   * `Node` matches `ChromeNode`, `nodesOf` and `MIN_CHROME_NODES` thirteen
-   * times in this very module, so the naive pattern is red on arrival — and
-   * the obvious way to make it green is to drop the term, which is the one
-   * term a renderer dragged in here would most plausibly arrive as.
+   * `Node` matches thirteen times in this very module, so the naive pattern is
+   * red on arrival — and the obvious way to make it green is to drop the term,
+   * which is the one term a renderer dragged in here would most plausibly
+   * arrive as.
+   *
+   * The attribution of those thirteen is corrected from what this docblock used
+   * to claim. It said they were `ChromeNode`, `nodesOf` and `MIN_CHROME_NODES`.
+   * Measured over the stripped source: all **thirteen** are `ChromeNode`, and
+   * the other two contribute **nothing** — the grep is case-sensitive, so
+   * `nodesOf` has a lowercase `n` and `MIN_CHROME_NODES` has an uppercase
+   * `NODES`. Right on the count, wrong on where it came from, and that mattered
+   * because the near-miss controls below were written from the wrong list: one
+   * of them returned `[]` under a plain substring grep too, so it discriminated
+   * nothing. The boundary is still load-bearing — via `ChromeNode` alone, which
+   * is enough for the argument and is now what the block asserts.
    */
   const DOM_VOCABULARY: readonly string[] = [
     'HTMLElement', 'Element', 'Node', 'NodeList', 'Document', 'document',
@@ -566,11 +577,40 @@ describe('chrome auto-hides, as a pure policy (design §8.2)', () => {
     expect(banned('const element = doc.createElement(node.tag)')).toContain('createElement')
     expect(banned('function parentOf(n: Node): Node | null { return n.parentNode }'))
       .toContain('Node')
-    // ...and the near-misses, every one of them a live identifier in the
-    // module under test. A substring grep reds on all three.
-    expect(banned('export interface ChromeNode { readonly role: string }')).toEqual([])
-    expect(banned('export function nodesOf(spec: ChromeNode): ChromeNode[]')).toEqual([])
-    expect(banned('export const MIN_CHROME_NODES = 6')).toEqual([])
+    // ...and the near-miss, as a discriminating *pair*: the substring grep
+    // reds on it and the boundaried one spares it. Stated as a pair because
+    // the `toEqual([])` half alone says nothing about whether the boundary did
+    // any work — which is exactly how the two lines this replaces got in.
+    //
+    // They were `banned('export function nodesOf(spec: ChromeNode): ...')` and
+    // `banned('export const MIN_CHROME_NODES = 6')`, offered as two more
+    // near-misses. The first discriminates only through the `ChromeNode` it
+    // happens to contain, so it was the line above again; the second returns
+    // `[]` under a substring grep too and discriminated nothing at all.
+    // Neither identifier is a near-miss: the grep is case-sensitive, `nodesOf`
+    // is lowercase and `MIN_CHROME_NODES` is uppercase.
+    const substringBanned = (text: string): string[] =>
+      DOM_VOCABULARY.filter(term => text.includes(term))
+    const nearMiss = 'export interface ChromeNode { readonly role: string }'
+    expect(substringBanned(nearMiss), 'the near-miss is not one, so it proves nothing')
+      .toEqual(['Node'])
+    expect(banned(nearMiss)).toEqual([])
+
+    // And the claim the three hand-written lines were standing in for, taken
+    // from the module instead of from a list typed here: `ChromeNode` is the
+    // *only* identifier in it that a substring ban would trip on. A second one
+    // arriving is a real event — another banned term now has a shadow in this
+    // module, and whether the boundary still discriminates or is now hiding a
+    // leak is a question for a human — so it reds rather than passing in
+    // silence, which is what the old controls did.
+    expect(
+      substringBanned(CODE),
+      'a DOM term has acquired a new substring shadow in playerchrome.ts',
+    ).toEqual(['Node'])
+    // ...and every one of those occurrences is `ChromeNode`, which is the
+    // corrected measurement rather than a count: strike the identifier and the
+    // term is gone from the module entirely.
+    expect(CODE.replace(/ChromeNode/g, '')).not.toMatch(/Node/)
   })
 
   it('records activity without disturbing anything else about the state', () => {
