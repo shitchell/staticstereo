@@ -449,6 +449,22 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    pre-authorised: `site/markup.test.ts`, rewritten against the player, in **P3**. Every
    other removal is an escalation.
 5. A reviewer worker, **two rounds maximum**, with no unresolved findings.
+5a. **A null measurement needs a paired control.** Where a criterion is discharged by
+   evidence of the form "nothing changed", the verifier must also exhibit a control
+   mutation that **the same instrument** turns non-null. In V-B's words:
+
+   > "Nothing moved" is evidence only to the extent that something could have moved and
+   > been seen; without a paired control a null is indistinguishable from a broken
+   > instrument.
+
+   This is **not** the rule that a mutation test must be shown capable of failing — that
+   is about the test. This is about the *instrument*: whether it could have seen the thing
+   it reported as absent. In P0b it caught a real hole. A criterion was presented with two
+   independent proofs of zero movement, and the render-level one is **vacuous for the far
+   endpoint**: because `duration = travel / speed`, substituting a grossly wrong `to`
+   leaves every rendered frame byte-identical. That "proof" could not have detected the
+   error it was offered against — and the far endpoint is precisely the quantity that had
+   previously been wrong by 17.33px.
 6. Deviations either reverted or recorded in the design document.
 
 The orchestrator reads the report of 1–6 and merges. It does not re-verify.
@@ -720,6 +736,8 @@ Each already cost a correction. Hand this table to every worker.
 | the canvas shows the stage | It shows the **plate**. Hit-testing crosses scene → plate → backing-store (×`noiseScale`) → device (×snap ÷ dpr). |
 | `sans-serif` resolves everywhere | It resolved to dingbats in `@napi-rs/canvas` for a day. |
 | the plate can be cropped to the stage | Margins are the fusion partners of the stage's edge columns. |
+| `comm -12` reported no overlap, so there is none | Not without `LC_ALL=C`. `sort` and `comm` disagree on collation otherwise and silently report **no** overlap — a fail-open answer to "do these two sets intersect". Nearly cost a rebase check. |
+| a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 
 ---
 
