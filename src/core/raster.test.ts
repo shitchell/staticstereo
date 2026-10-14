@@ -275,9 +275,15 @@ describe('rasterDepth layer transform', () => {
  * did not change and neither did the test count, so nothing marked the loss:
  * **measured at the time, forcing `contentW` to 0 in `raster.ts` left the
  * whole suite green. It no longer does.** The `rasterDepth preset context`
- * suite below closed that hole, and the same mutation now exits 1 — two
- * failures for `contentW = 0 * measureText(...)`, three if the `measureText`
- * call itself is dropped, all of them in that suite and none of them here.
+ * suite below closed that hole, and the same mutation now exits 1 — measured,
+ * `contentW = 0 * measureText(...)` reddens **six** tests: two in `rasterDepth
+ * preset context > text measurement`, and four in `move's off-frame endpoints
+ * against the plate`, the suite P0b added further down this same file. Seven
+ * if the `measureText` call itself is dropped, the extra one being the
+ * font-use test noticing the absent call. **Still none of them here** — this
+ * suite remains as blind to the measurement as it was, which is the point of
+ * the sentence above and the reason it is worth restating rather than
+ * trimming.
  *
  * It is kept rather than rewritten because what it still asserts is real and
  * otherwise uncovered — glyphs drawn across a travel that starts and ends off

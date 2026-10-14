@@ -544,9 +544,15 @@ export type MeasureText = (text: string, font: string) => number
  * `-contentW` / `+sceneW`, which is only off-frame if the layer's own origin
  * is the top-left corner. (The two presets that computed those, `marquee` and
  * `slide-in`, are gone under §4.2b, but the convention they relied on is
- * still the one a hand-written scroll uses — see
- * `examples/scrolling-text.yaml`.) That default is right for scene files and
- * wrong for a one-shot still, which would render in the corner. So the
+ * load-bearing still, and its consumer is now on the production path:
+ * `move`'s symbolic off-stage endpoints resolve to those same quantities, and
+ * `raster.ts` applies the result to the `x`/`y` channel on top of the layer's
+ * own `at` — so an origin that is *not* the top-left corner leaves a layer
+ * `at`px short of off-frame rather than at it. P0b tokenised
+ * `examples/scrolling-text.yaml`, so there is no hand-written scroll left in
+ * the repo to carry the convention by example; that is why the reason is
+ * recorded here rather than pointed at.) That default is right for scene
+ * files and wrong for a one-shot still, which would render in the corner. So the
  * centring lives *here*, in the CLI — and `--at` still overrides it.
  *
  * The type is also shrunk to fit when it would overflow the canvas, but only

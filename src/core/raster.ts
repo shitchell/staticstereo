@@ -261,13 +261,18 @@ async function prepare(
       //
       // Measured, keeping the call and substituting its result: `0` and
       // `× 0.5` redden all four tests of the consumer suite, while
-      // **`12345.678` reddens only its two boundary tests** — a gross
-      // over-measurement is invisible to every assertion of the form "an
-      // off-frame layer paints nothing", which is why those boundary tests
-      // exist and why the witness they replaced passed under it. All three
-      // redden the producer suite. Deleting the call instead reddens more
-      // tests but for a weaker reason: they notice the absent call rather
-      // than the wrong width.
+      // **`12345.678` reddens three of the four**. The survivor is `a scroll
+      // that reaches its far endpoint > enters the frame, crosses it and
+      // leaves it within the scene` — a gross over-measurement is invisible to
+      // an assertion of the form "an off-frame layer paints nothing", the
+      // layer being still off-frame and merely further off. The three that do
+      // catch it read the endpoint back out, which is why those boundary
+      // assertions exist and why the witness they replaced passed under this
+      // mutation. All three substitutions redden the producer suite as well —
+      // two of its three; the font-use test is indifferent to the width.
+      // Deleting the call instead reddens seven rather than six, but the extra
+      // one is that font-use test noticing an absent call rather than anything
+      // noticing a wrong width.
       //
       // An unmeasured (or zero) width is what leaves the tail of an over-wide
       // string parked on screen, which is the bug the `−contentW` term exists
