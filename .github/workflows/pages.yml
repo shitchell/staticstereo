@@ -58,6 +58,34 @@ jobs:
       # here is the only thing that makes them gate a deploy.
       - run: npm test
 
+      # `npm run build:site` emits TWO directories — `dist-site/` (the page)
+      # and `dist-player/` (the standalone player) — and only one artifact is
+      # ever uploaded. Without this step the player is built on every push,
+      # gated by every assertion in `site/dist.test.ts`, and then published
+      # nowhere: it exists at no URL at all, which for a component whose entire
+      # purpose is to be loaded as an `<iframe src>` by a stranger (R14) is the
+      # same as not shipping it.
+      #
+      # `dist-site/player/` and not a second artifact, because GitHub Pages
+      # publishes exactly one. The nesting is safe for precisely the reason
+      # `vite.player.config.ts` calls `base: './'` "the single most important
+      # line in this file": every emitted reference is relative to the
+      # document, so it resolves at `/staticstereo/player/` as unchanged as it
+      # does at the root. `site/dist.test.ts` proves that by materialising the
+      # nested layout and re-resolving against it, rather than trusting this
+      # paragraph.
+      #
+      # AFTER `npm test`, and that ordering is load-bearing rather than
+      # stylistic. `dist.test.ts` asserts `dist-site/` carries exactly three
+      # woff2 files; the player ships the same three, so copying before the
+      # suite runs makes it six and turns a correct build red. Keeping the
+      # directories disjoint until the moment of upload is also what lets
+      # "every file under `dist-player/` is the player's, by construction" —
+      # the premise of the no-editor-code check — stay true while it is being
+      # checked.
+      - name: Nest the player under the site so it has a URL
+        run: cp -r dist-player dist-site/player
+
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

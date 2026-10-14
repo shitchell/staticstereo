@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
-import { join, relative, resolve } from 'node:path'
+import {
+  cpSync,
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 /**
@@ -269,6 +279,141 @@ describe.skipIf(!freshPlayer)('the built player', () => {
   it('contains no code from src/node or src/cli', () => {
     const leaks = files.filter(f => readFileSync(f, 'utf8').includes('yuv444p'))
     expect(leaks.map(f => relative(ROOT, f))).toEqual([])
+  })
+})
+
+/* ===================================================================== */
+/*  deployment: a built player that reaches no URL has not shipped        */
+/* ===================================================================== */
+
+/**
+ * Everything above proves the player *builds* correctly. Nothing above proves
+ * it is ever *published*, and for most of this phase it was not: `build:site`
+ * emitted `dist-site/` and `dist-player/`, every assertion in this file ran
+ * against both, and `.github/workflows/pages.yml` uploaded only the first. A
+ * component whose stated purpose is to be loaded as an `<iframe src>` by a
+ * host we will never see (R14) existed at no URL at all, with the whole suite
+ * green — the exact shape of failure this file exists to catch, one level up
+ * from the bundle.
+ *
+ * GitHub Pages publishes exactly one artifact, so the player has to be nested
+ * inside the site's directory rather than uploaded beside it. The two checks
+ * below are the two halves of that being true: the workflow does the nesting,
+ * and the nesting does not break the player.
+ */
+const WORKFLOW = join(ROOT, '.github', 'workflows', 'pages.yml')
+/** Where the workflow is required to put the player, relative to the upload root. */
+const PLAYER_DEPLOY_DIR = 'player'
+
+describe('the Pages workflow publishes the player, not only the page', () => {
+  const workflow = readFileSync(WORKFLOW, 'utf8')
+  /** Every `run:` command in the workflow, as one string each. */
+  const runs = [...workflow.matchAll(/^[\s-]*run:\s*(.+)$/gm)].map(m => m[1]!.trim())
+
+  it('parsed the workflow, rather than matching nothing and passing', () => {
+    // The vacuity floor. Every assertion below is a search over `runs`, and a
+    // regex that stopped matching would make the *ordering* check below pass
+    // for the worst possible reason.
+    expect(runs.length).toBeGreaterThanOrEqual(5)
+    expect(runs).toContain('npm test')
+    expect(runs).toContain('npm run build:site')
+  })
+
+  it('uploads exactly one directory, so nesting is the only way the player ships', () => {
+    // Stated as an assertion rather than as prose because it is the premise of
+    // the next one: if a second artifact ever became possible, nesting would
+    // stop being forced and this whole block would be arguing for a
+    // constraint that no longer exists.
+    const paths = [...workflow.matchAll(/^\s*path:\s*(\S+)\s*$/gm)].map(m => m[1]!)
+    expect(paths).toEqual(['dist-site'])
+  })
+
+  it('copies the player output underneath that directory', () => {
+    // Matched on the two path operands and not on `cp -r`: `rsync`, `mv`, or a
+    // `mkdir -p` first are all equally correct, and a guard that pins one
+    // spelling of a copy would go red for a change that fixed nothing.
+    const nesting = runs.filter(
+      r => r.includes('dist-player') && r.includes(`dist-site/${PLAYER_DEPLOY_DIR}`),
+    )
+    expect(
+      nesting,
+      'no step in pages.yml puts dist-player/ inside dist-site/, so the player is built, ' +
+      'tested, and then published at no URL',
+    ).not.toEqual([])
+  })
+
+  it('does the nesting after the suite, which is not a matter of taste', () => {
+    // `dist-site/` is asserted above to carry exactly three woff2 files. The
+    // player ships the same three, so a copy that happened before `npm test`
+    // would make it six and turn a correct build red — and, less visibly, it
+    // would break the premise the no-editor-code check rests on, that every
+    // file under the player's directory is the player's by construction.
+    const index = (needle: string): number => runs.findIndex(r => r.includes(needle))
+    const suite = index('npm test')
+    const nest = index(`dist-site/${PLAYER_DEPLOY_DIR}`)
+    expect(suite).toBeGreaterThanOrEqual(0)
+    expect(nest).toBeGreaterThan(suite)
+    // ...and the upload is a `uses:`, not a `run:`, so it is located in the
+    // raw text instead.
+    expect(workflow.indexOf('upload-pages-artifact')).toBeGreaterThan(
+      workflow.indexOf(`dist-site/${PLAYER_DEPLOY_DIR}`),
+    )
+  })
+})
+
+describe.skipIf(!freshPlayer)('the player still resolves once nested a directory deeper', () => {
+  /**
+   * `base: './'` is what makes the nesting safe, and this is the assertion
+   * that makes "safe" a measurement rather than a belief. The flat checks
+   * above resolve `./assets/x.js` against `dist-player/`; published, the same
+   * reference resolves against `dist-site/player/`. Those agree only because
+   * every reference is relative to its own document, which is exactly the
+   * property an absolute path destroys — so the test materialises the real
+   * deployed layout and re-resolves against it.
+   */
+  it('resolves every local reference, in the HTML and in the CSS, at the deploy path', () => {
+    const scratch = mkdtempSync(join(tmpdir(), 'stst-pages-'))
+    try {
+      const uploadRoot = join(scratch, 'dist-site')
+      const deployed = join(uploadRoot, PLAYER_DEPLOY_DIR)
+      cpSync(DIST_PLAYER, deployed, { recursive: true })
+
+      const html = readFileSync(join(deployed, PLAYER_ENTRY), 'utf8')
+      const local = assetRefs(html).filter(ref => !isExternal(ref))
+      expect(local.length).toBeGreaterThan(0)
+      const missing = local.filter(
+        ref => !ref.startsWith('./') || !existsSync(join(deployed, ref.slice(2))),
+      )
+      expect(missing, 'references that do not resolve under dist-site/player/').toEqual([])
+
+      // The CSS half, which the HTML half cannot see: the woff2 urls were
+      // rewritten by vite relative to the *stylesheet*, one directory deeper
+      // again. A root-relative rewrite here would 404 under the subpath while
+      // every reference in the document still resolved.
+      const sheets = filesUnder(deployed).filter(f => f.endsWith('.css'))
+      expect(sheets.length).toBeGreaterThan(0)
+      const urls: string[] = []
+      for (const sheet of sheets) {
+        for (const match of readFileSync(sheet, 'utf8').matchAll(/url\(\s*['"]?([^'")]+)/g)) {
+          const url = match[1]!
+          if (isExternal(url)) continue
+          urls.push(url)
+          expect(existsSync(resolve(dirname(sheet), url)), `${relative(deployed, sheet)}: ${url}`)
+            .toBe(true)
+        }
+      }
+      expect(urls.length, 'no url() found — the fonts stopped being referenced').toBe(3)
+
+      // The positive control, run at the nested path so it proves the
+      // predicate *there*: an absolute reference is caught rather than
+      // silently resolved against the scratch root.
+      const absolute = ['/assets/player.js', 'assets/player.js'].filter(
+        ref => !ref.startsWith('./') || !existsSync(join(deployed, ref.slice(2))),
+      )
+      expect(absolute).toHaveLength(2)
+    } finally {
+      rmSync(scratch, { recursive: true, force: true })
+    }
   })
 })
 
