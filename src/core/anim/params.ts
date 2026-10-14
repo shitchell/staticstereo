@@ -33,8 +33,9 @@ import type { PresetCtx, PresetKind } from './presets.js'
  * `seconds` has no entry in `PRESET_PARAMS` below and that is correct, not an
  * omission: the only seconds-valued parameters are `start` and `duration`,
  * which `overrides()` applies to *every* preset uniformly. Repeating them in
- * all nine tables would say nothing a consumer could not get from the fact
- * that they are universal, and would rot the moment a tenth verb forgot them.
+ * every verb's table would say nothing a consumer could not get from the fact
+ * that they are universal, and would rot the moment a newly registered verb
+ * forgot them.
  * The tag exists so that whoever does surface them has the word already fixed.
  *
  * **There are four universal parameters, not two, and the other two have no

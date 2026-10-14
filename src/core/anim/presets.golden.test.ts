@@ -178,8 +178,9 @@ interface Golden {
 const actual: Golden = { ctx: GOLDEN_CTX, cases: buildCases() }
 
 if (process.env['UPDATE_PRESET_GOLDEN']) {
-  // Generated, never hand-edited: a hand-maintained table of ~40 tracks would
-  // drift from the code it is supposed to witness.
+  // Generated, never hand-edited: a hand-maintained table holding several
+  // tracks for every registered verb would drift from the code it is supposed
+  // to witness.
   writeFileSync(GOLDEN, JSON.stringify(actual, null, 2) + '\n')
 }
 
@@ -226,9 +227,9 @@ describe('preset golden corpus', () => {
     expect(actual.cases.map(key)).toEqual(golden.cases.map(key))
     // Case by case rather than one deep-equal over the array. Editing any
     // single number in the fixture turns this red either way — that is the
-    // acceptance criterion — but a whole-corpus diff prints nineteen tracks
-    // and buries the one that moved, and reading this diff is the entire job
-    // of the rename task downstream.
+    // acceptance criterion — but a whole-corpus diff prints every track in
+    // the corpus and buries the one that moved, and reading this diff is the
+    // entire job of the rename task downstream.
     for (const [i, c] of actual.cases.entries()) {
       const want = golden.cases[i]!
       expect(c.input, `recorded input drifted for ${key(c)}`).toEqual(want.input)
