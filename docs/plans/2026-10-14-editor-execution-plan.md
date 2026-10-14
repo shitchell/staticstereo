@@ -1,374 +1,546 @@
 ---
 title: Editor rewrite — execution plan for a three-tier agent system
-description: How the editor design is decomposed into PM-owned phases and worker-owned tasks, with the invariants, contracts, gates and escalation rules that let an orchestrator run it without reading code
-status: proposed; awaiting review for fitness as an orchestration spec
+description: How the editor design is decomposed into PM-owned phases and worker-owned tasks, with the survey-worker pattern that makes the PM tier viable, plus contracts, gates, escalation rules and the traps that already cost a correction
+status: revision 2 — rebuilt after an orchestration-fitness review and a PM dry run
 date: 2026-10-14
 tags: [execution, orchestration, agents, plan, staticstereo, editor]
 ---
 
 # Editor rewrite — execution plan
 
-This is **not** a design document. The design is
-[`2026-10-13-editor-design.md`](2026-10-13-editor-design.md); the requirements are
-[`2026-10-13-editor-requirements.md`](2026-10-13-editor-requirements.md); the research is
-[`../2026-10-13-editor-ux-research.md`](../2026-10-13-editor-ux-research.md).
+Design: [`2026-10-13-editor-design.md`](2026-10-13-editor-design.md) ·
+Requirements: [`2026-10-13-editor-requirements.md`](2026-10-13-editor-requirements.md) ·
+Research: [`../2026-10-13-editor-ux-research.md`](../2026-10-13-editor-ux-research.md).
 
-This document specifies **how the work is executed by a three-tier agent system**, and it
-exists so that an orchestrator can run the build from status reports rather than from the
-code.
+This document specifies **how the work is executed**, not what it is. §13 records what
+revision 1 got wrong, because one of its errors was about the orchestration model itself.
 
 ---
 
 ## 1. The orchestration model
 
-| Tier | Who | May write code? | May run tests? | Job |
-|---|---|---|---|---|
-| 0 | **Orchestrator** (the main session) | No | No | Cross-phase decisions, escalations, talking to Shaun |
-| 1 | **PM** — one per phase | **No** | **No** | Decompose, delegate, verify via workers, report upward |
-| 2 | **Worker** — ephemeral, one per task | **Yes** | **Yes** | The only tier that touches the repo |
-| 3 | available | — | — | Reserved; a worker may spawn a helper for a genuinely separable sub-task |
+| Tier | Who | Writes code | Runs tests | Reads `src/`, `site/` | Reads `docs/` |
+|---|---|---|---|---|---|
+| 0 | **Orchestrator** | no | no | **no** | yes |
+| 1 | **PM**, one per phase | no | no | **no** | **yes — expected to** |
+| 2 | **Worker**, ephemeral | yes | yes | yes | yes |
+| 3 | worker's helper | yes | yes | yes | yes |
 
-**The constraint that makes this work: a PM never inspects the repo to answer a question.**
-It spawns a worker to answer it. A PM that reads code has become a worker with extra steps,
-and its context fills with detail the orchestrator then cannot see past.
+**The prohibition is on source code, tests and build output — not on documents.** A PM
+that has not read its design sections has not been briefed. A PM may never open a file
+under `src/` or `site/`; to learn anything about the code, it spawns a worker.
 
-**Two distinct worker roles**, and they must not be the same agent:
+### 1.1 The survey worker — what makes this tier viable
 
-- **Implementer** — does the work, TDD, reports what it did.
-- **Verifier** — fresh context, never sees the implementer's reasoning, independently runs
-  the suite and checks the acceptance criteria. Reports pass/fail with evidence.
+A dry run of this plan found a PM needed to open **14 source files** to decompose two
+phases, and 11 of those answers changed what the tasks *were*. A PM that obeys the
+prohibition would dispatch 14 discovery workers and then hold all 14 answers in context —
+arriving at exactly the state the prohibition exists to prevent, having paid twice.
 
-Separating them is the point. An implementer verifying its own work reports what it
-intended, not what happened.
+So: **task 0 of every phase is a survey worker.** It writes no code. Its brief is the
+phase's design sections; its deliverable is a report answering:
 
-### 1.1 Orchestrator rules
+- Which files exist today that this phase **replaces, extends, or must not touch**?
+- Which modules already hold the relevant logic, and how big are they?
+- Which existing tests cover them, and will they port, rewrite, or delete?
+- What is **duplicated** — the same list, constant or policy in more than one file?
+- What **recorded rationale** exists that this phase contradicts?
 
-- Do not read source files to answer "is X done?" — ask the PM.
-- Exception: a question answerable in **fewer than three commands** where delegation is
-  plainly more expensive (e.g. `git log --oneline -3`).
-- Do not re-plan a phase a PM is executing. Escalations come up; direction goes down.
+The survey report joins every later worker brief in that phase. The PM learns the repo
+once, at bounded cost, without reading it.
 
----
+### 1.2 Worker roles
 
-## 2. Invariants every agent must be told
+- **Survey** — reports, writes nothing. One per phase, first.
+- **Implementer** — does one task under TDD.
+- **Verifier** — fresh context, given the task's acceptance criterion and the **diff**,
+  *not* the implementer's report. Must **re-establish RED itself**: stash the production
+  change, confirm the test fails, unstash. A RED that cannot be reproduced is a gate
+  failure. Nothing else in this system checks §2.1, so this check is the whole of it.
+- **Reviewer** — fresh context, reviews a phase diff against §2 and the design. **Capped
+  at two rounds.** A finding is resolved only if code changed or the PM recorded it under
+  `DEVIATIONS`. A third round is an escalation, not a round.
+- **Gate runner** — runs §6's sequence and reports numbers. Implemented none of the phase.
 
-These are repo-specific and non-obvious. **Every worker prompt must carry §2 verbatim or
-by reference**, because a worker with fresh context will otherwise produce code that
-passes tests and fails review.
+### 1.3 Orchestrator rules
 
-1. **TDD is mandatory.** No production code without a failing test observed first. Report
-   the RED output and the GREEN output. A test that passed on first run is not evidence.
-2. **`src/core/` imports nothing from `src/node/` or `src/web/`.** `purity.test.ts`
-   enforces it. Svelte exists only in `site/`.
-3. **Comments carry rationale, not description.** This repo's comments record *why a value
-   is what it is and what measurement moved it*. Match that density. A constant with no
-   recorded reason is a review failure.
-4. **Assert on structure, not on values** — the project's own recorded testing rule. Pin
-   the guarantee, not the current output.
-5. **Never alpha-blend depth.** `depth[i] = max(depth[i], layerDepth × mask[i])`. There is
-   a regression test whose only job is to fail if this is "simplified".
-6. **Perceptual thresholds live in functions, never inlined** (R22). No downstream code
-   compares against a perceptual constant.
-7. **Scene px vs device px must be named** wherever a pixel count appears. `noiseScale`
-   defaults to 2 and silently scales nothing in the depth map but everything in the frame.
-8. **Do not reformat, reorganise, or "tidy" files you were not asked to change.** Diff
-   noise hides real changes from a reviewer who is reading reports.
-9. **Use the `git` wrapper on PATH**, never `/usr/bin/git`. It decides authorship itself.
-10. **No time estimates** anywhere, in code comments or reports.
+- Do not read source to answer "is X done?" — ask the PM.
+- Exception: **fewer than three commands**, where delegating plainly costs more (`git log`,
+  `git status`).
+- Direction goes down; escalations come up. Do not re-plan a phase in flight.
+- **Approve each PM's decomposition before it dispatches anyone** (§5.5). This is the one
+  chance to catch a sixty-worker phase, and it costs a list rather than a diff.
 
 ---
 
-## 3. Phase map and dependencies
+## 2. Invariants every worker is handed, verbatim
 
-```
-P0 model ──┬── P1 shared/.stst ──┐
-           ├── P2 player ────────┼── P3 shell ──┬── P4 canvas ──┬── P5 assets
-           └── P7 perception ────┘              └── P6 timeline ─┘
-                                                                  └── P8 polish
-```
-
-| Phase | Owner | Depends on | Closes | Ships alone? |
-|---|---|---|---|---|
-| **P0** Scene model | PM-MODEL | — | R9, R10 | — |
-| **P1** `shared/` + `.stst` | PM-MODEL | P0 | R17, R18 | — |
-| **P7** Perception module | PM-MODEL | P0 | R22 | — |
-| **P2** Player | PM-PLAYER | P0 | R14–R16, R20, R21 | **Yes** |
-| **P3** Editor shell | PM-SHELL | P0, P2 | R3, R4, R6, R7 | — |
-| **P4** Canvas, layers, depth strip | PM-CANVAS | P3 | R5(layers), R11, R12 | — |
-| **P6** Timeline | PM-TIME | P3, P0 | R5(timeline), R9 | — |
-| **P5** Asset import | PM-ASSETS | P3, P4, P1 | R5(upload), R13 | — |
-| **P8** Polish | PM-CANVAS | P4, P6 | *nothing — marked so* | — |
-
-**P0, P1 and P7 are one PM's remit** because they are all pure TypeScript with no UI, they
-share a reviewer's mental model, and splitting them across PMs would mean three agents
-holding the same scene-model context.
-
-**P2 is deliberately next and deliberately standalone.** It derisks the whole URL/fit/embed
-story before any editor exists and is the half with users who are not Shaun.
+1. **TDD is mandatory.** No production code without an observed failing test. Report RED
+   and GREEN output. A test that passed first run is not evidence.
+2. **`src/core/` imports nothing from `src/node/` or `src/web/`.** Svelte exists only in
+   `site/`.
+3. **Comments carry rationale, not description.** A constant with no recorded reason is a
+   review failure. Match the surrounding density.
+4. **Assert on structure, not on values.** Pin the guarantee, not today's output.
+   *(Exception: the preset golden in P0, which exists precisely to pin values. It is the
+   only one.)*
+5. **Never alpha-blend depth.** `depth[i] = max(depth[i], layerDepth × mask[i])`.
+6. **Perceptual thresholds live in functions, never inlined** (R22).
+7. **Name the pixel space** wherever a count appears — scene px, plate px, backing-store
+   px (×`noiseScale`, default **2**), device px (×snap scale ÷ dpr). Four spaces, not two.
+8. **Do not reformat or tidy files you were not asked to change.**
+9. **Use the `git` wrapper on PATH**, never `/usr/bin/git`.
+10. **No time estimates**, in code or reports.
+11. **Build before you test**, always — see §6. `npm test` on an unbuilt tree silently
+    skips the Pages-critical assertions and still reports green.
 
 ---
 
-## 4. Branch and integration model
+## 3. Phase map
 
-- **One branch per phase**, named `feat/<phase>-<slug>`, cut from `main`.
-- Workers commit **inside the PM's branch**, in-tree, **sequentially**. Worktree isolation
-  is used only when a PM has two tasks with provably disjoint file sets *and* a reason to
-  overlap them; the default is sequential, because merge resolution is work the
-  orchestrator cannot supervise from reports.
-- A phase branch merges to `main` only after its gate (§6) passes.
-- **Nothing is pushed and nothing is merged without Shaun's say-so.** PMs report "ready to
-  merge"; they do not merge.
+Dependencies, authoritative. There is no second diagram; revision 1 had one that
+contradicted this table.
 
-### In-flight work
+| Phase | Owner | Depends on | Closes |
+|---|---|---|---|
+| **P0** Scene model | PM-MODEL | — | R9, R10 |
+| **P1** `shared/` + `.stst` | PM-SHARED | P0 | R17, R18 |
+| **P7** Perception module | PM-SHARED | P0 | R22 *(model half)* |
+| **P2** Player | PM-PLAYER | P0 | R14–R16, R20, R21 |
+| **P3** Editor shell + teardown | PM-SHELL | P0, P2 | R2, R3, R4, R6, R7, R8, R13 |
+| **P4** Canvas, layers, depth strip, diagnostics | PM-CANVAS | P3, P7 | R5*(layers)*, R11, R12, R22 *(view half)* |
+| **P6** Timeline | PM-TIME | P3, P4 | R5*(timeline)*, R9 |
+| **P5** Asset import | PM-ASSETS | P3, P4, P1 | R5*(upload)*, R19 |
+| **P8** Polish | — | P4, P6 | *nothing — cut without ceremony* |
 
-Branch **`feat/transform-axis-rotations`** already exists and carries the `rotateX` /
-`rotateY` change from §4.3 of the design — `Transform`, `IDENTITY`, `CHANNELS` with an
-`AssertNever` guard, `composeAnim` summing both, and the rasteriser's cosine scale, plus
-tests at the track and raster levels. **It was written under TDD but the full suite and
-typecheck were never run.** It is P0's task 0: verify, finish, or repair. Do not assume it
-is correct.
+**R1 is closed by the effort, not a phase.** The build is not done until R1–R22 each appear
+in a merged phase's Closes column; the orchestrator checks this before declaring done.
+
+**PM-MODEL and PM-SHARED are separate**, where revision 1 merged them. The dry run put
+P0+P1+P7 at 30 tasks — three phases sharing one report stream. The merge was argued on
+*review* cost; the binding constraint is *supervision* cost, and they point opposite ways.
+
+**The P4↔P6 cycle is broken in P3.** Revision 1 claimed they were concurrent; they are
+mutually dependent — P6's filmstrip needs P4's depth canvas, P4's swept depth range needs
+P6's playhead. Resolution: **scene time and the transport primitive (`currentTime`,
+play/pause/seek) belong to P3's store**, not to the timeline. P2 already builds transport
+for the player; P3 lifts it into the editor. Then P4 and P6 both consume it, and the
+order is P4 → P6.
+
+**Genuine concurrency is P2 ∥ (P1 + P7)**, which share no files.
+
+---
+
+## 4. Branches
+
+- One branch per phase, `feat/<phase>-<slug>`, cut from `main`.
+- Workers commit in-tree, sequentially. Worktree isolation only for provably disjoint file
+  sets with a reason to overlap; the default is sequential, because merge resolution is
+  work the orchestrator cannot supervise from reports.
+- **A branch rebases onto `main` before its gate runs, and the gate runs after.** Gate
+  evidence must describe the tree that will actually merge. A conflicting rebase is an
+  escalation.
+- PMs report `ready-to-merge`. **The orchestrator merges**; nothing is pushed without
+  Shaun.
+
+### 4.1 Starting state — measured, not assumed
+
+As of `400ba98`:
+
+- The planning documents are committed (`129b626`).
+- `rotateX`/`rotateY` are committed (`400ba98`), **not** on a side branch.
+- **Baseline on `main` before this work: 855 tests.** With `400ba98`: **862 passed, 8
+  skipped, 42 files.**
+- **8 tests are environment-skipped** (`HAVE_FFMPEG`, `HAVE_TSC`, `HAVE_STRIP_TYPES`), and
+  `purity.test.ts` / `dist.test.ts` are `skipIf(!built)` with **mtime-based** freshness. The
+  count legitimately moves with machine and build state. It is not a gate on its own.
+- **`npm run typecheck` exits 2** — two `TS2304: Cannot find name 'Track'` at
+  `src/core/anim/track.test.ts:126` and `:131`. A missing type import.
+- **The animatable-channel list is duplicated three times** — `src/core/anim/track.ts`
+  (guarded), `src/cli/scene.ts` (`KEY_CHANNELS`, unguarded), `site/scene.ts` (hardcoded,
+  unguarded). Both validators currently drop `rotateX`/`rotateY`. The suite is green and
+  cannot see it.
+
+P0 inherits these as **facts**, not as an audit.
 
 ---
 
 ## 5. Contracts
 
-### 5.1 What the orchestrator gives a PM
+### 5.1 Orchestrator → PM
 
-A PM brief contains, and contains only:
+Scope and exit criteria (§7) · design sections by number · requirements by R-number ·
+**§2 invariants** · **§9 traps** · **design §12 (what is and is not testable here)** ·
+the phase's token scale from design §13 · **baseline: branch sha, `main` sha, test
+counts** · which phases have merged and at which sha · escalation triggers (§8).
 
-- the phase's **scope and exit criteria** (§7),
-- the **design sections** it implements, by number,
-- the **requirements** it closes, by R-number,
-- §2 invariants,
-- the **dependency state** — which phases have merged,
-- the **escalation triggers** (§8).
+Not included: how to decompose.
 
-Not included: how to decompose. That is the PM's job.
-
-### 5.2 What a PM gives a worker
+### 5.2 PM → worker
 
 | Field | Content |
 |---|---|
 | Task | One behaviour, one acceptance criterion |
-| Files | Expected to change; anything outside needs an escalation |
+| Files | Expected to change; outside needs escalation |
 | Design ref | The section it implements |
-| Invariants | §2, verbatim or by reference |
-| Acceptance | How the verifier will judge it — stated *before* the work |
+| Invariants | §2, verbatim |
+| Traps | §9, verbatim |
+| Survey | Task 0's report |
+| Baseline | sha and counts |
+| Acceptance | How the verifier will judge — stated *before* the work |
 | Forbidden | What not to touch |
 
-A task that cannot be stated with one acceptance criterion is two tasks.
-
-### 5.3 What a worker returns
+### 5.3 Worker → PM
 
 ```
 WHAT CHANGED   files, one line each
 RED            the failing output, quoted, per test
 GREEN          the passing output
-SUITE          full `npm test` tail
-TYPECHECK      `npm run typecheck` result
-DEVIATIONS     anything done differently from the task, and why
-UNCERTAIN      anything it is not confident about
+SUITE          build first, then `npm test`; exit code and counts
+TYPECHECK      exit code — see trap §9
+DEVIATIONS     anything done differently, and why
+UNCERTAIN      anything not confident about
 ```
 
-`UNCERTAIN` is load-bearing. A worker that reports nothing uncertain on a non-trivial task
-is to be treated as having not looked.
+A worker reporting nothing `UNCERTAIN` on a non-trivial task has not looked.
 
-### 5.4 What a PM returns to the orchestrator
+### 5.4 PM → orchestrator
 
 ```
 PHASE          id, branch
-STATE          not-started | in-progress | gate-pending | ready-to-merge | blocked
-DONE           acceptance criteria met, with the verifier's evidence
+STATE          not-started | surveying | decomposed | in-progress | gate-pending
+               | ready-to-merge | blocked
+BASELINE       branch sha, main sha rebased onto, baseline counts
+FILES          paths touched (paths only — this is what makes collisions visible)
+TASKS          n tasks, n implementers, n verifiers, n re-runs
+GATE           typecheck exit · build exit · build:site exit · test exit · passed/skipped/files
+REMOVED TESTS  name + one-line reason, or "none"
+DONE           one line per criterion
 NOT DONE       criteria outstanding, and why
-DEVIATIONS     anything that differs from the design, with reasoning
-ESCALATIONS    decisions the orchestrator or Shaun must make
+DEVIATIONS     differences from the design, with reasoning
+ESCALATIONS    decisions for the orchestrator or Shaun
 RISK           what is most likely to be wrong
 ```
 
-**No code in a PM report.** File paths and criteria, not diffs. If the orchestrator needs
-a diff, something has gone wrong with the decomposition.
+**No code and no diffs in a PM report.** `DONE` is capped at one line per criterion; the
+worker's full test output stops at the PM.
+
+### 5.5 Decomposition approval
+
+After its survey and before dispatching any implementer, a PM reports its **numbered task
+list** and waits. The orchestrator may veto or demand a split.
 
 ---
 
-## 6. Gates
+## 6. The gate
 
-A phase branch is `ready-to-merge` only when **all** of:
+A **gate runner** (implemented none of the phase) executes exactly this, in CI order, and
+reports the exit codes:
 
-1. Every acceptance criterion in §7 is met, evidenced by a **verifier** worker that did not
-   implement any of it.
-2. `npm test` green — the suite was 862 tests across 42 files before this work; a *drop* in
-   count is a finding, not a pass.
-3. `npm run typecheck` clean.
-4. Both builds succeed: `npm run build` and `npm run build:site`. CI runs builds **before**
-   tests on purpose — the Pages-critical assertions can only run against build output —
-   so a worker that skips them has not reproduced CI.
-5. A **fresh reviewer worker** — no prior context on the phase — has reviewed the diff
-   against §2's invariants and the design section, and reported no unresolved findings.
-6. Deviations from the design are either reverted or recorded in the design document.
+```sh
+git rebase main                                           # conflict ⇒ STOP, escalate
+npm run typecheck > /tmp/tc.log 2>&1; echo "typecheck=$?"
+npm run build      > /tmp/b1.log 2>&1; echo "build=$?"
+npm run build:site > /tmp/b2.log 2>&1; echo "buildsite=$?"
+npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
+```
 
-The orchestrator reads the PM's report of 1–6. It does not re-verify.
+`ready-to-merge` requires all of:
+
+1. Every exit criterion met, evidenced by **verifiers** who implemented none of it, each
+   having re-established RED itself (§1.2).
+2. All four exit codes 0.
+3. Counts compared against **the branch's own recorded baseline**, not a fixed number.
+   Builds must have run first or the comparison is void.
+4. **Any net test removal itemised by name with a one-line reason.** One removal is
+   pre-authorised: `site/markup.test.ts`, rewritten against the player, in **P3**. Every
+   other removal is an escalation.
+5. A reviewer worker, **two rounds maximum**, with no unresolved findings.
+6. Deviations either reverted or recorded in the design document.
+
+The orchestrator reads the report of 1–6 and merges. It does not re-verify.
 
 ---
 
 ## 7. Phase specifications
 
-Each phase lists its exit criteria. A PM decomposes these into tasks; the decomposition is
-the PM's, the criteria are not negotiable without an escalation.
+**Preamble, binding on every phase.** No tier in this system has a browser, and design §12
+excludes Svelte component DOM from testing. **Every criterion below must be restated by
+the PM as a predicate over a plain, importable module before it becomes a task.** A
+criterion that cannot be is an escalation *before* any worker is spawned; the orchestrator
+then funds a harness, restates it, or cuts it.
+
+> Worked example — "handles drawn 8–10px, hit-tested 24×24" becomes: *`hitTest(handles, p)`
+> returns the handle for any `p` within 12 **CSS** px of its centre, and `handleRadius()`
+> returns 4–5 CSS px; asserted on constructed inputs, no DOM.*
+
+Criteria are numbered for reference, not for dispatch order. **Several are explicitly
+multi-task**; the PM splits them per §5.2 and reports the split per §5.5.
 
 ### P0 — Scene model · PM-MODEL · design §4
 
-0. `feat/transform-axis-rotations` verified green, or repaired until it is.
-1. `Transform` carries `rotate`, `rotateX`, `rotateY`; rotations sum in `composeAnim`;
-   `rotateY = π` mirrors; `±π/2` renders nothing. `AssertNever` guards tie `CHANNELS` to
-   `Transform`.
-2. `Layer` gains optional `id` and `name`. Ids are assigned **on first mutation, not on
-   load**, so `examples/*.yaml` round-trip byte-identically. Generation lives in
-   `src/shared/` and both `validateScene` implementations use it.
-3. Verb vocabulary: `move`, `rotate`, `scale`, `push`, `flip`. `flip` is `rotateY`.
-4. Bundles `entrance` and `flyIn`, written out with concrete parameters (design §4.2).
-5. `PRESETS` gains a `uiVisible` flag; legacy kinds stay registered and are not listed.
-6. Easing gains `cubic-bezier(a,b,c,d)`.
-7. **Every legacy preset name still compiles to its previous output.** This is the
-   regression that matters most in P0.
+**Ordering is load-bearing: 1 before everything.**
 
-### P1 — `shared/` and `.stst` · PM-MODEL · design §6.2
+1. **Golden corpus first.** Every `PRESETS` kind compiled against a fixed `PresetCtx`,
+   serialised to a committed fixture, captured **before any other P0 task**. There is no
+   snapshot infrastructure in this repo and no record of current output. This is the §2.4
+   exception.
+2. Fix the typecheck break (§4.1) — two missing-import errors.
+3. One guarded channel list. `src/cli/scene.ts`'s `KEY_CHANNELS` and `site/scene.ts`'s
+   hardcoded list derive from the same constant as `track.ts`, with `AssertNever` on each.
+   Adding a `Transform` field becomes a compile error in all three.
+4. `Layer` gains optional `id` and `name`.
+5. Id generation in `src/shared/`, used by both validators.
+6. Both validators carry `id`/`name` through. **Note the site validator rebuilds
+   field-by-field and silently drops unknown keys** where the CLI errors — so this is two
+   different edits, and without it the site strips ids on every URL round-trip.
+7. Verbs `move`, `rotate`, `scale`, `push`, each with its parameters **specified in the
+   task brief** — the design names the verbs, not their signatures, and `rotate`'s unit
+   in particular is a §9 trap. `flip` is sugar over `rotateY: π` (design §4.3).
+8. Easing gains `cubic-bezier(a,b,c,d)`: parser, solver, widened type, four `in EASINGS`
+   call sites, two validators.
+9. **Every legacy preset name still compiles to its golden output** (criterion 1).
 
-1. Zip read/write over `CompressionStream('deflate-raw')`, no dependency.
-2. Contains `scene.json`, baked masks, original sources, a manifest.
-3. **The output is a valid zip** — assert by extracting with `unzip`, not by round-tripping
-   through our own reader.
-4. `stst` **reads and writes** it.
-5. CLI and site produce **identical bytes** for one scene.
+**Not in P0:** bundles (design §4.2a makes them a UI macro, owned by P6) and the verb
+picker's allow-list (also P6 — there is no UI in P0 to list them in).
 
-### P7 — Perception module · PM-MODEL · design §10
+**Escalation already known:** design §4.2 does not give parameter signatures for the
+verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
 
-1. `src/shared/perception.ts` exporting `encodableDepths`, `quantisationStep`,
-   `collidingPairs`, `fusionComfort`, `strokeLegibility`, `depthStops`, `cardboarding`.
-2. Each returns **quantities and a grade**, so a caller wanting numbers never touches the
-   judgement.
-3. **`fusionComfort` keys on the budget, not on `sepNear`.** Pin the revision-1 bug: it
-   must fire at `sepFar: 140, sepNear: 78` (budget 62) and stay silent at
-   `sepFar: 100, sepNear: 80` (budget 20).
-4. `encodableDepths` reports stage capacity **and** the dead strips under `linked`, where
-   columns within `sep/2` of each plate edge carry no depth.
-5. Today's legibility rule moves in **unchanged**. No new thresholds — that is effort #2.
-6. No perceptual constant is inlined anywhere outside this file.
+### P1 — `shared/` and `.stst` · PM-SHARED · design §6.2
+
+1. Zip writer over `CompressionStream('deflate-raw')` plus a hand-written central
+   directory. No dependency.
+2. Zip reader — **must read a zip produced by `/usr/bin/zip`**, not only our own writer.
+3. Output extracts cleanly under `/usr/bin/unzip -t`, asserted by shelling out.
+4. Container layout: `scene.json`, baked masks, original sources, manifest.
+5. **Determinism specified**: fixed mtimes, fixed entry order, fixed compression level.
+6. `stst` reads and writes `.stst`. **Subcommand names are an escalation** — `args.ts`'s
+   `COMMANDS` is `['render','still','preview']` and the design names no new one.
+7. CLI and site produce identical bytes for one scene. **If `CompressionStream` is not
+   bit-identical across Node and Chromium this is unachievable** — the survey worker
+   checks this first, and it is an escalation if false.
+8. A purity guard for `src/shared/`. There is none today, and both P1 and P7 put
+   browser-reachable code there.
+
+### P7 — Perception module · PM-SHARED · design §10
+
+1. `src/shared/perception.ts` — `encodableDepths`, `quantisationStep`, `collidingPairs`,
+   `fusionComfort`, `strokeLegibility`, `depthStops`, `cardboarding`.
+2. Each returns quantities **and** a grade; a caller wanting numbers never reads the grade.
+3. **`fusionComfort` keys on the budget, not `sepNear`.** Pinned: fires at
+   `sepFar:140, sepNear:78` (budget 62), silent at `100/80` (budget 20).
+4. `encodableDepths` reports stage capacity **and** the `linked` dead strips.
+5. Today's legibility rule moves in with **no threshold change**. The wrapper shape of
+   criterion 2 is the permitted change; the numbers are not.
+6. No perceptual constant inlined outside this file. **Scoped to a named list** — the
+   survey worker enumerates candidate constants and the PM fixes the list before dispatch,
+   because "is this constant perceptual?" is otherwise unjudgeable.
+
+**P7 does not touch `site/main.ts`.** Revision 1 had it rewiring a file P3 deletes, while
+running before P3. The module lands standalone; P4 consumes it.
 
 ### P2 — Player · PM-PLAYER · design §3.2, §8
 
-1. Separate Vite entry; `dist.test.ts` asserts **no editor code in the player bundle**.
-2. `?fit=contain|snap|render`, default `contain`. `?smooth=auto|on|off`, default `auto` —
-   smooth down, pixelated up. Query parameters, not fragment.
-3. `cover` is not implemented. If someone asks, it crops the margins and destroys edge
-   fusion.
-4. Present, iframe embed, and fullscreen all work, **all with play/pause** (R16).
-5. Fullscreen targets a **wrapper**, not the canvas. Transport container is
-   `pointer-events: none`, controls inside are `pointer-events: auto`.
-6. Canvas click target preserved.
-7. **The §8.3 sub-pixel constraint holds**: nothing added above the canvas in flow.
-8. Relative asset paths preserved — a leading-slash path 404s on a GitHub project Page.
+1. Separate Vite entry.
+2. `?fit=contain|snap|render`, default `contain`.
+3. `?smooth=auto|on|off`, default `auto` — smooth down, pixelated up. Query, not fragment.
+4. `cover` is not implemented, and the reason is recorded where someone will look.
+5. Transport primitive: play/pause/seek over scene time. **P3 lifts this into the editor
+   store**, so build it as a module, not as player-local state.
+6. Present mode, iframe embed, and fullscreen — each with transport (R16).
+7. Fullscreen targets a **wrapper**; transport container `pointer-events: none`, controls
+   `pointer-events: auto`; canvas click target preserved.
+8. Nothing added above the canvas in flow (design §8.3).
+9. Relative asset paths preserved.
+10. `dist.test.ts` asserts no editor code in the player bundle. **This is a tautology
+    until P3 exists** — flagged so it is re-verified as a P3 criterion rather than assumed
+    to have teeth now.
 
-### P3 — Editor shell · PM-SHELL · design §5.1, §9, §11
+### P3 — Editor shell and teardown · PM-SHELL · design §5.1, §9, §11, §3.4
 
-1. Svelte 5 in `site/` only; `purity.test.ts` still green.
-2. `LayoutConfig`, `PANELS`, `CONTROLS`, `OPERATIONS`, `SHADINGS`, `FIT_MODES` registries.
-3. Per-layer-variant `AssertNever` guards (design §9.1). **Do not attempt a single guard
-   over `Scene`** — it cannot be written; §9.1 says why.
-4. Each `PresetFn` declares its own parameter descriptors.
-5. The **reachability test**: for the default layout, every `CONTROLS` entry resolves to
-   exactly one mounted panel.
-6. **One registration test per registry** — a dummy entry appears without touching any
-   other file. This is what makes R7 falsifiable.
-7. Mark-based undo: one history entry per interaction.
+0. **Install Svelte 5**, the vite plugin, and `.svelte` handling in
+   `tsconfig.typecheck.json` and vitest. None of it is present today.
+1. A real guard that nothing under `src/` imports `svelte` or a `.svelte` file.
+   **`purity.test.ts` cannot do this** — it parses `dist/core` only and can never go red
+   from a change in `site/`.
+2. Registries: `LayoutConfig`, `PANELS`, `CONTROLS`, `OPERATIONS`, `SHADINGS`, `VIEWS`,
+   `FIT_MODES`. *(Seven. `VIEWS` was missing from revision 1; `FIT_MODES` is a retrofit
+   around what P2 already shipped.)* **This is seven tasks.**
+3. One registration test per registry — a dummy entry appears without touching another
+   file. **Seven more tasks.** This is what makes R7 falsifiable.
+4. Per-layer-variant `AssertNever` guards (design §9.1). **Do not attempt one guard over
+   `Scene`**; §9.1 says why.
+5. Each `PresetFn` declares its own parameter descriptors.
+6. Reachability: every `CONTROLS` entry resolves to exactly one mounted panel under the
+   default layout.
+7. Mark-based undo — one history entry per interaction.
+8. Scene store; **the URL hash becomes a projection of it** (design §3.4, R13).
+9. Scene time in the store, consuming P2's transport module (§3).
+10. **Teardown, with a per-file disposition table** — port / rewrite-against-player /
+    delete — covering `site/main.ts` (1346 lines), `site/index.html`, and
+    `controls.test.ts`, `markup.test.ts`, `present.test.ts`, `scale.test.ts`,
+    `diagnostics.test.ts`, `depthmap.test.ts`, `stageguide.test.ts`. The pre-authorised
+    removal in §6.4 is here.
+11. **R2/R8 architecture test**: a second `LayoutConfig` plus a visibility set yields a
+    reduced editor with no second app and no code outside the layout module.
 
-### P4 — Canvas, layers, depth strip · PM-CANVAS · design §5.2–§5.6
+**`CONTROLS` is complete; visibility sets select from it.** A filtered registry would fail
+criterion 6.
 
-1. Three views; four shadings with `ramp` default and a **configurable domain** `[near,
-   far]` defaulting `[1, 0]`, plus an `auto` fit-to-scene mode.
-2. Hold-to-reveal ground truth.
-3. Depth strip: ticks for flat layers, **bars for heightmaps**, swept ranges for animated
-   depth. Axis labelled in **scene px**.
-4. **No drag-reorder and no paint-order warning.** `max` is commutative; layer order is
-   inert. Sort by depth, with authoring order as an alternative.
-5. Depth-tie badge fires only on **overlapping** layers at equal depth.
-6. Structural operations (§5.6): create by type, delete, duplicate.
-7. Three canvases; dragging never waits on an encode.
-8. Handles drawn 8–10px, hit-tested 24×24.
+### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
+
+0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
+   for all four browser-reachable layer types. `rasterDepth` composites to one buffer and
+   `prepare()` is private, so this does not exist. **It is a `src/core/` change inside a
+   `site/` phase: escalate before starting**, since criteria 4, 5 and 8 all block on it.
+1. `VIEWS` entries: `depth`, `stereo`, `both`. View switcher out of normal flow (§8.3).
+2. `SHADINGS`: `grey` (byte-identical to today), `ramp` with configurable `[near, far]`
+   domain defaulting `[1, 0]` plus an `auto` mode, `relief` (azimuth constrained above
+   horizon), `turbo`. **Four tasks plus the domain control.**
+3. Hold-to-reveal greyscale; hold-to-peek stereogram.
+4. Depth strip: ticks for flat layers, **bars for heightmaps**, swept ranges for animated
+   depth following the playhead, dual axis labelled **scene px**, stop detents from P7.
+   **Five tasks.**
+5. Layer panel: eye, lock, thumbnail, inline rename with Tab-to-next, multi-select, sort
+   by depth or authoring order. **No drag-reorder** — `max` is commutative and the gesture
+   would be a no-op. **Six tasks.**
+6. Depth-tie badge, firing only on **overlapping** equal-depth layers.
+7. `OPERATIONS`: layer create-by-type, delete, duplicate. **Action and keyframe operations
+   belong to P6**; P4 must leave the registry open for extension without modification,
+   which is what P3's registration test proves.
+8. Three canvases at their own cadences; dragging never waits on an encode.
+9. 8-handle bbox, rotation handle, and the modifier set. **Six tasks.**
+10. Handles drawn 8–10 CSS px, hit-tested 24×24 CSS px.
+11. **Diagnostics panel and the occupied-levels histogram** (design §10.7), plus
+    fusion-comfort surfaced on the `sepFar`/`sepNear` controls (§10.2). This is R22's view
+    half, which revision 1 assigned to nobody.
+12. **Amend `site/depthmap.ts`'s recorded rationale in place** — do not delete it. It
+    argues against a default ramp; design §5.2 records why R12 overrides it.
 
 ### P6 — Timeline · PM-TIME · design §7
 
-1. Layer rows expanding to **property rows**; actions attach to a property by right-click.
-2. Action bars labelled with the **semantic action**, collapsed; expansion opt-in.
-3. **Composition is sum/multiply**, matching `composeAnim`. Not last-wins. The inspector
-   shows the composed value alongside each contribution.
-4. Repeat, derived-duration (`marquee` from `speed`) and absent-duration bars each render
-   distinguishably (design §7.3).
+1. Layer rows expanding to property rows; actions attach to a property by right-click.
+2. Action bars labelled with the semantic action, collapsed; expansion opt-in.
+3. **Composition is sum/multiply**, matching `composeAnim`. The inspector shows the
+   composed value alongside each contribution.
+4. Repeat-ghosting, derived-duration (`marquee` from `speed`, which writes back into a
+   parameter the bar does not represent), and open-ended absent-duration bars. **Three
+   tasks.**
 5. Design/Animate mode toggle.
-6. Transport: playhead drag, `,`/`.`, `Shift` ×10, Option-drag to scale timing.
+6. Transport UI over P3's scene time: playhead drag, `,`/`.`, `Shift` ×10, Option-drag to
+   scale timing. **Four tasks.**
 7. Scrub against the depth map; re-encode on scrub-end.
 8. Depth-thumbnail filmstrip on the ruler.
-9. Built, not vendored (design §7.5). Real estate reserved for a later curve editor.
+9. **Bundles as UI macros** (design §4.2a) — `entrance` and `flyIn` write `Anim` arrays at
+   attach time. Plus the verb picker's allow-list, hiding the legacy kinds.
+10. `OPERATIONS`: action attach/detach/duplicate/expand, keyframe insert/delete/duplicate.
+11. Built, not vendored. Real estate reserved for a later curve editor.
 
 ### P5 — Asset import · PM-ASSETS · design §6.1, §6.3
 
-1. PNG → silhouette mask or heightmap, baked at scene resolution.
-2. Source cached in IndexedDB; **the scene renders without it**. Eviction degrades to
-   "re-upload to re-derive", never breaks.
+1. PNG → silhouette mask (alpha or luma threshold) or heightmap (**luminance**, design
+   §5.2a), baked at scene resolution.
+2. Source cached in IndexedDB; **the scene renders without it**.
 3. Re-derive on scene resize and on threshold change.
-4. Link-size meter with a shareability band, visible during heightmap import.
+4. Heightmap imports warn on URL viability; `.stst` is the supported path when they do not
+   fit.
+5. Link-size meter with a shareability band.
 
-### P8 — Polish · PM-CANVAS
+### P8 — Polish
 
 Eyedropper, motion paths, onion skin, `U` key, Option-drag timing scale. **Closes no
-requirement and is marked so.** Cut without ceremony if anything above slips.
+requirement.** Cut without ceremony.
 
 ---
 
 ## 8. Escalation
 
-A PM escalates to the orchestrator — it does not decide — when:
+A PM escalates rather than deciding when:
 
-- A design section is **wrong about the codebase**. This already happened five times in one
-  review pass; treat it as likely, not exceptional.
+- A design section is **wrong about the codebase**. This happened five times in one review
+  pass and twice more in the dry run. Treat it as likely.
+- An exit criterion cannot be restated as a module-level predicate (§7 preamble).
 - An exit criterion cannot be met as written.
-- A task needs to touch files outside its phase.
-- Two phases would conflict in the same file.
-- A requirement (R-number) looks unsatisfiable.
-- A worker reports something in `UNCERTAIN` that the PM cannot resolve with one more
-  worker.
+- A task must touch files outside its phase.
+- Two phases would conflict in one file.
+- A requirement looks unsatisfiable.
+- **A verifier and an implementer disagree.** The PM does not adjudicate — it cannot read
+  the code. It forwards both reports.
+- **A worker's change turns a test red in a file owned by an already-merged phase.**
+- **A rebase onto `main` conflicts.**
+- A worker's `UNCERTAIN` cannot be resolved with one more worker.
+
+**While escalated, a PM continues only on tasks provably independent of the open question,
+and names the parked tasks in its report.**
 
 The orchestrator escalates to Shaun when a decision changes **what is built** rather than
-how. Everything else it decides.
+how.
 
 ---
 
 ## 9. Known traps
 
-Each of these cost a correction already and will be rediscovered by a fresh agent:
+Each already cost a correction. Hand this table to every worker.
 
 | Trap | Reality |
 |---|---|
-| "layer order is paint order" | `max` is commutative — order is inert |
-| "later animator wins" | `composeAnim` sums and multiplies |
-| "resting and animated depth are independent" | `emerge` anchors to `ctx.layerDepth` deliberately |
-| "cardboarding needs a rasteriser change" | `heightmap` mode and `depthBlur` already ship |
-| "fusion cliff is `sepNear` 78" | it is a **budget** of ~32px; 78 is its value only at `sepFar` 110 |
-| "every layer has one depth" | heightmaps carry a range; animated depth sweeps one |
-| "one `AssertNever` can span `Scene`" | it cannot — union keyof, lost provenance, index signature |
-| "`sans-serif` resolves everywhere" | it resolved to dingbats in `@napi-rs/canvas` for a day |
-| "the plate can be cropped to the stage" | margins are the fusion partners of the stage's edge columns |
+| `npm run typecheck \| tail` exited 0, so it is clean | `$?` after a pipeline is **`tail`'s** status. Redirect to a file and echo `$?`. |
+| the suite is 862 tests | 855 on `main`; 862 with `400ba98`; ±8 move with ffmpeg/tsc availability, and `dist.test.ts` freshness is **mtime**-based. Build first or two suites skip silently. |
+| `purity.test.ts` guards `site/` | It parses `dist/core` only. Nothing in `site/` can turn it red. |
+| the channel list is guarded | Guarded in `track.ts` only; duplicated unguarded in `src/cli/scene.ts` and `site/scene.ts`. |
+| the two validators behave alike | The CLI **errors** on unknown keys; the site **silently drops** them via a field-by-field rebuild. |
+| layer order is paint order | `max` is commutative — order is inert, and drag-reorder would be a no-op gesture. |
+| later animator wins | `composeAnim` **sums** every channel and **multiplies** `scale`. |
+| resting and animated depth are independent | `emerge` anchors to `ctx.layerDepth` deliberately. D4 is withdrawn; do not "fix" it. |
+| cardboarding needs a rasteriser change | `heightmap` mode and `depthBlur` already ship. The gap is `text` and `shape` only. |
+| the fusion cliff is `sepNear` 78 | It is a **budget** of ~32px. 78 is its value only at `sepFar` 110. |
+| every layer has one depth | Heightmaps carry a range; animated depth sweeps one. |
+| one `AssertNever` can span `Scene` | It cannot — union `keyof`, lost provenance, `Preset`'s index signature. |
+| a bundle can be a `PresetFn` | `PresetFn` returns one `Track`, which has one `ease` and one `repeat`. |
+| scenes can be serialised | **There is no scene writer.** Only a parser. |
+| `rotate` is in degrees | `Transform.rotate` is **radians** (`ctx.rotate` takes radians); `shape.start`/`end` are **degrees**. Design §9.1 cites this exact collision. |
+| the canvas shows the stage | It shows the **plate**. Hit-testing crosses scene → plate → backing-store (×`noiseScale`) → device (×snap ÷ dpr). |
+| `sans-serif` resolves everywhere | It resolved to dingbats in `@napi-rs/canvas` for a day. |
+| the plate can be cropped to the stage | Margins are the fusion partners of the stage's edge columns. |
 
 ---
 
-## 10. Sequencing for the orchestrator
+## 10. Sequencing
 
-1. **PM-MODEL** — P0, then P1 and P7 (which are independent of each other).
-2. **PM-PLAYER** — P2, may start as soon as P0 merges.
-3. **PM-SHELL** — P3, after P2.
-4. **PM-CANVAS** and **PM-TIME** — P4 and P6, after P3. Different file sets; the first
-   genuine candidate for concurrency.
-5. **PM-ASSETS** — P5.
-6. **PM-CANVAS** — P8, or cut.
+1. **PM-MODEL** — P0.
+2. **PM-SHARED** (P1, P7) ∥ **PM-PLAYER** (P2). Genuinely disjoint.
+3. **PM-SHELL** — P3.
+4. **PM-CANVAS** — P4, alone.
+5. **PM-TIME** — P6, after P4 merges.
+6. **PM-ASSETS** — P5.
+7. P8, or cut.
 
-At most two PMs active at once. The limit is not machine capacity, it is how many
-report streams an orchestrator can hold without starting to read code to disambiguate them.
+At most two PMs active. The limit is report streams the orchestrator can hold without
+reading code to disambiguate them.
+
+**Before declaring the build done:** every R1–R22 appears in a merged phase's Closes
+column (§3).
+
+---
+
+## 11. What revision 2 changed
+
+| Revision 1 | Why it was wrong |
+|---|---|
+| PMs never inspect the repo | Viable only with §1.1's survey worker; a dry run needed 14 files to decompose two phases |
+| the branch carries the work | It had zero commits; the work was an uncommitted tree and the docs were untracked |
+| suite and typecheck never run | Suite green; typecheck exits 2 with two missing-import errors |
+| baseline 862 | 855 on `main`; ±8 environment-dependent |
+| `AssertNever` ties the channel list | Three copies, one guarded |
+| examples round-trip byte-identically | No scene writer exists |
+| P4 ∥ P6 | Mutually dependent; broken by moving transport to P3 |
+| PM-MODEL owns P0+P1+P7 | 30 tasks — split into PM-MODEL and PM-SHARED |
+| gate evidenced by a verifier | Most criteria were gestures no tier can test; §7's preamble now forces module predicates |
+| observed RED is mandatory | Unenforceable until §1.2 made the verifier re-establish it |
+| `uiVisible` on `PRESETS` | Changes the registry's value type and collides with P3's descriptors; now a UI allow-list |
+| P7 rewires `site/main.ts` | A file P3 deletes, in a phase that runs earlier |
+| six registries in P3 | Seven, and fourteen tasks with their tests |
+| R2, R8, R19 closed by nobody | Now P3, P3, P5 |
+| teardown owned by nobody | P3.10, with a per-file disposition table |
+| Svelte "in `site/` only" | It is not installed, and `purity.test.ts` cannot guard it |

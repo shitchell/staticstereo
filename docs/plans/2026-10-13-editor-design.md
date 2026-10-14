@@ -150,17 +150,42 @@ into a `Track` *is* "action + parameters". And the vocabulary is **already half 
 meaningful transparency in depth space, so fading is motion in depth. R10's "ease-in
 fade-in 250ms" is a `push` with an ease.
 
-**Bundles** (R10) are saved verb compositions. Two are offered in the UI:
+### 4.2a Bundles are UI macros, not registry entries
 
-- `entrance` — `push` from depth 0 with `easeIn` over 250ms, composed with `bounce`
-  (default height, `easeOutBounce`, `once`). This is R10's example, written out.
-- `flyIn` — `move` from off-stage with `easeOut`.
+**A bundle cannot be a `PresetFn`, and revision 2 was wrong to imply it could.** A
+`PresetFn` returns one `Track`, and a `Track` carries one `ease` and one `repeat`. R10's
+own example — ease-in fade over 250ms *plus* a bounce — needs `easeIn`/`once` on depth and
+`easeOutBounce`/looping on y. There is no single `Track` that holds both.
 
-**Decode-registered is not UI-offered.** `marquee`, `emerge`, `bob` and the existing
-`bounce`/`slide` stay in `PRESETS` so existing YAML and existing links keep working, and
-they are **not listed in the bundle picker** — R9 says of `marquee` specifically, "idk
-that it'd survive as a preset. not in the UI i'm considering." The registry gains a
-`uiVisible` flag; nothing is deleted.
+So a bundle is **a template the editor expands at attach time**, writing an ordinary
+`Anim` array:
+
+```yaml
+anim:
+  - {kind: push,   from: 0, ease: easeIn,       duration: 0.25}
+  - {kind: bounce, height: 40, ease: easeOutBounce, repeat: once}
+```
+
+Three things fall out of this, all good:
+
+1. **No model change.** `Anim` is already `Track | Preset | (Track | Preset)[]`, and
+   `bouncing-ball.yaml` already composes two animators on one layer.
+2. **The bundle→verbs rung disappears.** A bundle was never in the scene to begin with, so
+   there is nothing to expand — which collapses §7.1's ladder to the single rung the
+   research actually evidenced, and matches Lottie Creator's zero-conversion approach.
+3. **Bundles do not round-trip**, and that is correct. A saved scene contains verbs; the
+   editor cannot tell "entrance" from the two verbs it wrote, and has no reason to.
+
+Two bundles ship (R10): **`entrance`** as above, and **`flyIn`** — `move` from off-stage
+with `easeOut`. Durations are seconds; R10's "250ms" is `0.25`.
+
+**Decode-registered is not UI-offered.** `marquee`, `emerge`, `bob`, `bounce` and `slide`
+stay in `PRESETS` so existing YAML and existing links keep working, and they are **not
+listed in the verb picker** — R9 says of `marquee`, "idk that it'd survive as a preset. not
+in the UI i'm considering." This is a **UI-side allow-list**, not a flag on the registry:
+revision 2 proposed `uiVisible` on `PRESETS`, which changes `Record<string, PresetFn>`'s
+value type and collides with P3's per-verb parameter descriptors in the same field, owned
+by a different phase. The allow-list lives with the picker.
 
 ### 4.3 D1 — `flip` has nowhere to write, because `Transform` is a fixed five-slot bus
 
@@ -190,15 +215,34 @@ Per axis:
   — depth composes as an additive offset, not a multiplier. (`cross` inverts depth, but
   globally, for the whole scene.)
 
-**Recommendation: defer.** Nothing in R1–R22 needs mirroring; "flip" was offered as an
-example of the vocabulary's *shape*, not as a feature request. `Transform` is the single
-most load-bearing type in the animation system, and widening it is cheap to do later
-precisely because the widening is backwards-compatible. **Open — needs one yes/no on
-whether mirroring is wanted.**
+**Resolved: three rotations, landed in `400ba98`.** Neither of the two options above was
+taken. `Transform` gains `rotateX` and `rotateY` beside the existing `rotate`, which is —
+and always was — rotation about **z**. Under an orthographic projection the other two
+reduce exactly to a cosine scale on the opposite axis:
 
-Note for whenever it lands: under the shipped multiply rule (§7.2),
-`flip(-1) × scale(2) = -2` composes correctly, so the semantics are free once the slot
-exists.
+    rotateX(θ) → scale y by cos θ        rotateY(θ) → scale x by cos θ
+
+So `rotateY = π` gives `sx = −1` and mirroring needs no `flip` channel and no non-uniform
+`scale`. This is better than widening `scale` to a pair on three counts: it names what it
+means, the in-between values stay meaningful (±π/2 is a card edge-on), and rotations
+compose *additively*, so two quarter turns are a mirror — which falls out of `composeAnim`
+summing every channel but `scale`.
+
+`flip` therefore becomes sugar: `flip` with no axis is `rotateY: π`; `{axis: 'x'}` is
+`rotateX: π`.
+
+**The designed-in flex point** is the reason to do it now rather than later. With a flat
+layer `rotateY` is indistinguishable from a horizontal squash, because an orthographic
+projection carries no perspective cue. It becomes a *real* turn when the rasteriser
+transforms depth alongside position — rotate a heightmap about y and each column's depth
+shifts. That is a rasteriser change and not a model change: `Transform` is identical in
+both worlds, and so is every scene written against it. Full 3D models later are a new
+layer type writing into the depth buffer and need nothing from this type at all.
+
+Two defects shipped with it and are named in the commit message rather than hidden: a
+missing type import breaks `typecheck`, and the animatable-channel list turns out to be
+duplicated in `src/cli/scene.ts` and `site/scene.ts` with neither guarded, so both
+validators still drop the new channels. See the execution plan's P0.
 
 ### 4.4 Easing
 
@@ -278,6 +322,41 @@ is that relief should be default; **R12 wins, and the conflict is recorded rathe
 silently resolved.** Relief is one keystroke away and `SHADINGS` makes the default a
 config value, so this is reversible by preference rather than by code.
 
+**This also overturns a recorded decision in `site/depthmap.ts`**, which argues that "a
+false-colour ramp would read nicer and would hide exactly the thing the panel exists to
+reveal." That worry is real and is answered rather than dismissed: `grey` remains export
+truth, the legend states a non-default domain, and hold-to-reveal puts the raw map one key
+away without changing a setting. The original rationale must be amended in place, not
+deleted — a future reader needs to know the trade was re-decided and why, which is this
+repo's own convention.
+
+### 5.2a Depth lives on luminance, never on alpha
+
+A PNG imported as a heightmap carries depth in **luminance**, with **alpha reserved for
+the mask**. This was considered afresh and kept, because the alternative is more appealing
+than it is workable.
+
+The decisive reason is already recorded in `raster.ts`: heightmap mode keeps alpha as the
+mask "so a transparent PNG's background does not become a depth-0 slab that hides
+nothing." *Is this pixel part of the layer* and *how near is it* are two different
+questions, and one channel cannot answer both — put depth on alpha and a half-alpha pixel
+asserts "half outside the layer" and "mid-depth" at once, with no way left to say "part of
+this layer, at the far plane."
+
+Two practical reasons besides. **Alpha is the one channel no tool displays**: open an
+alpha-encoded depth map in a browser, an editor or an image viewer and you see RGB over a
+checkerboard. In a medium where the author already cannot read the output, an unreadable
+*source* is the wrong trade. And alpha is lossy in transit — premultiplication, screenshot
+flattening, copy-paste.
+
+Greyscale, by contrast, is the identity mapping of a scalar field onto a visual, which is
+why every depth pass in every DCC tool is greyscale, and it stays readable in a diff — the
+value that keeps all three examples in plain text.
+
+**The separation that makes this safe is §5.2's:** the model stores a scalar, the view
+renders it however reads best. False colour is a reversible view transform over unchanged
+data, not a change to what is stored.
+
 **The ramp has a configurable domain, which is R12's "near ceiling".** `[near, far]`
 display clamps defaulting to `[1, 0]`. Revision 1 refused this as definitionally
 impossible; that was wrong — it is a display mapping, and revision 1 shipped two automatic
@@ -306,7 +385,10 @@ A horizontal elevation beneath the canvas: far left, near right.
 | any layer with a depth verb | the resting mark plus a **swept range**, animating as the playhead moves |
 
 Dragging writes to the resting depth. Where a `PresetCtx`-anchored action is attached
-(§4.5), dragging triggers D4's expansion rather than silently reshaping the track.
+(§4.5), the swept range **moves with the tick** and the inspector labels its endpoint
+"layer depth" — because that coupling is deliberate, not a defect. (An earlier revision
+said dragging should trigger "D4's expansion"; D4 is withdrawn and that instruction is
+void. Expanding `emerge` to absolute keys would reintroduce a documented bug.)
 
 Also on the strip: **two scales at once** — depth 0..1 and the separation it maps to, in
 **scene px, explicitly labelled** (see §10.5 on units); and the **depth stops** as detents
@@ -419,11 +501,20 @@ unshareable while authoring, not discover it in Slack. Load-bearing for heightma
 
 ## 7. Animation and the timeline
 
-### 7.1 Two rungs, not three
+### 7.1 One rung
 
-**verbs → keyframes**, an explicit, per-item, one-way expand. A bundle is a verb
-composition and expanding it yields its verbs; that is not a separate rung, it is the same
-operation applied to a composite.
+**verbs → keyframes**, an explicit, per-item, one-way expand. That is the whole ladder.
+
+Revision 2 said two rungs and revision 1 said three. Both were wrong, for different
+reasons. Three was an overclaim — research §1.3 shows three *one*-hop conversions, two of
+which skip the proposed middle. Two was an impossibility: §4.2a establishes that a bundle
+cannot be a registry entry at all, so it is a template the editor expands at *attach*
+time and never reaches the scene. There is nothing left to convert it from.
+
+Which lands exactly where the strongest evidence pointed. Lottie Creator applies a preset
+by baking its real content immediately, "so there is no conversion event at all", and
+Principle's escalation failure is the standing warning against carrying extra
+representations.
 
 Revision 1 claimed a three-rung ladder "validated three times independently". It was not:
 research §1.3 shows three *one*-hop conversions, and they are not the same hop — Jitter
@@ -829,11 +920,17 @@ any editor exists, and it is the half with users who are not Shaun.
 
 ## 14. Risks and open decisions
 
-**D1 — `flip` has no slot in `Transform`** (§4.3). **Open.** Recommend deferring until
-mirroring is actually wanted; the widening is backwards-compatible, so waiting costs
-nothing.
+**D1 — `flip` has no slot in `Transform`** (§4.3). **Resolved: three rotations**, landed in
+`400ba98`. `flip` is sugar over `rotateY: π`. Two known defects shipped with it; see the
+execution plan's P0.
 
 **D2 — build vs vendor the timeline** (§7.5). **Resolved: build.**
+
+**D5 — depth on luminance, not alpha** (§5.2a). **Resolved: luminance**, alpha stays the
+mask. Reconsidered on request; kept, with the reasoning recorded rather than assumed.
+
+**D6 — bundles are UI macros** (§4.2a). **Resolved.** Forced by `PresetFn` returning a
+single `Track`; collapses §7.1's ladder to one rung.
 
 **D4 — withdrawn.** It rested on reading `emerge`'s depth anchoring as a defect; it is
 deliberate, and the proposed fix would have reintroduced a documented bug (§4.5).
