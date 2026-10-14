@@ -273,8 +273,11 @@ describe('rasterDepth layer transform', () => {
  * of `contentW`/`contentH`/`marginLeft`/`marginRight`, and the animator below
  * became a `move` with the endpoints written out as constants. The assertions
  * did not change and neither did the test count, so nothing marked the loss:
- * **measured, forcing `contentW` to 0 in `raster.ts` leaves the whole suite
- * green.**
+ * **measured at the time, forcing `contentW` to 0 in `raster.ts` left the
+ * whole suite green. It no longer does.** The `rasterDepth preset context`
+ * suite below closed that hole, and the same mutation now exits 1 — two
+ * failures for `contentW = 0 * measureText(...)`, three if the `measureText`
+ * call itself is dropped, all of them in that suite and none of them here.
  *
  * It is kept rather than rewritten because what it still asserts is real and
  * otherwise uncovered — glyphs drawn across a travel that starts and ends off
@@ -342,9 +345,21 @@ describe('rasterDepth over-wide text geometry', () => {
   // Deliberately NOT tested here: that the travel ends off the *plate*.
   // `rasterDepth` returns a stage-sized depth map, so no assertion on its
   // output can distinguish "parked in the left margin" from "gone" — the
-  // margin columns do not exist yet at this stage of the pipeline. That
-  // endpoint is pinned exactly in `anim/presets.test.ts` and on rendered
-  // output in `render.test.ts`.
+  // margin columns do not exist yet at this stage of the pipeline.
+  //
+  // It is not tested anywhere else either. **The endpoint formula
+  // `−(contentW + marginLeft)` has no assertion left in the repo.** It
+  // survives only as a constant — `TO` above, and `to` in `render.test.ts`'s
+  // `a still of a scrolling scene` — and either would stay green if the
+  // formula changed: `render.test.ts` says of its own t=0 assertion, in its
+  // own comment, that it is **insensitive to the margin terms**, because a
+  // layer positioned outside the stage is not rasterised at all. Measured:
+  // `anim/presets.test.ts` mentions none of `contentW`/`marginLeft`/
+  // `marginRight`/`sceneW`; it held those endpoints until `b727dfa` deleted
+  // the verb that computed them. Consistent with the next suite's header —
+  // no registered verb computes an off-frame endpoint. P6 rebuilds `marquee`
+  // and `slide-in` as UI templates and owns such a verb again; the assertion
+  // belongs with it, and until then this gap is real and uncovered.
 })
 
 /* ================================================== the compile context */
@@ -420,13 +435,9 @@ describe('rasterDepth preset context', () => {
     font?: string
   }
 
-  function probeScene(
-    spec: TextSpec,
-    stereo?: Scene['stereo'],
-    size: [number, number] = STAGE,
-  ): Scene {
+  function probeScene(spec: TextSpec, stereo?: Scene['stereo']): Scene {
     return {
-      size,
+      size: STAGE,
       duration: 1,
       ...(stereo === undefined ? {} : { stereo }),
       layers: [{ type: 'text', ...spec, at: [0, 0], depth: 1, anim: { kind: PROBE } }],
