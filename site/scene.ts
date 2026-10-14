@@ -215,6 +215,15 @@ function validateLayer(v: unknown, path: string): Layer {
   const kind = requireOneOf(type, LAYER_TYPES, `${path}.type`)
 
   const base: Record<string, unknown> = { type: kind }
+  // Identity first, and copied rather than invented (design §4.1). On this
+  // side the hash *is* the scene: a field this rebuild forgets is not ignored,
+  // it is destroyed on every round trip through the URL, and a lost `id`
+  // orphans every reference to the layer with no other copy to restore from.
+  // Minting one here would be the opposite failure — a legacy link would come
+  // back with an id it never had, so assignment stays with the editor's
+  // mutation path.
+  if (v['id'] !== undefined) base['id'] = requireString(v['id'], `${path}.id`)
+  if (v['name'] !== undefined) base['name'] = requireString(v['name'], `${path}.name`)
   if (v['depth'] !== undefined) base['depth'] = requireFinite(v['depth'], `${path}.depth`)
   if (v['at'] !== undefined) base['at'] = requirePair(v['at'], `${path}.at`)
   if (v['anim'] !== undefined) base['anim'] = validateAnim(v['anim'], `${path}.anim`)

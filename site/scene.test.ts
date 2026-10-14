@@ -211,6 +211,29 @@ describe('validateScene', () => {
       .toThrowError(/layers\[0\]\.depth/)
   })
 
+  // Not a validation nicety: the hash *is* the scene here, so a field this
+  // rebuild forgets to copy is destroyed on every round trip through the URL,
+  // not merely ignored. A dropped `id` takes every reference to that layer
+  // with it, and there is no other copy to restore it from.
+  it('carries a layer id and name through the rebuild, and mints neither', () => {
+    const out = validateScene({
+      size: [8, 8],
+      layers: [{ type: 'text', text: 'A', id: 'k3Qp', name: 'greeting' }],
+    })
+    expect(out.layers[0]).toMatchObject({ id: 'k3Qp', name: 'greeting' })
+
+    const bare = validateScene({ size: [8, 8], layers: [{ type: 'text', text: 'A' }] })
+    expect(bare.layers[0]).not.toHaveProperty('id')
+    expect(bare.layers[0]).not.toHaveProperty('name')
+
+    expect(() => validateScene({
+      size: [8, 8], layers: [{ type: 'text', text: 'A', id: 5 }],
+    })).toThrowError(/layers\[0\]\.id/)
+    expect(() => validateScene({
+      size: [8, 8], layers: [{ type: 'text', text: 'A', name: [] }],
+    })).toThrowError(/layers\[0\]\.name/)
+  })
+
   it('rejects an unknown gif loop mode and an unknown image mode', () => {
     expect(() => validateScene({ size: [8, 8], layers: [{ type: 'gif', src: 'a.gif', loop: 'reverse' }] }))
       .toThrowError(/layers\[0\]\.loop/)
