@@ -735,6 +735,20 @@ const PAGES_BASE_PATH = '/staticstereo'
  * checked, and the slash-terminated form is the one an embed should carry
  * anyway. An embedder who writes the slashless form gets the host's redirect,
  * which is not ours to assert.
+ *
+ * **That clause was false until now, at the mount root.** `rest === ''` was
+ * treated as `'/'`, so a request for `/staticstereo` with no trailing slash was
+ * answered with the upload root's `index.html` — a 200, probed — which is the
+ * `/dir` → `/dir/` convenience the paragraph above denies modelling, applied at
+ * one depth. Nothing asserted depended on it and the sub-directory case
+ * correctly 404s, so it was harmless; it was also the one place a reader
+ * checking the claim would have found it untrue.
+ *
+ * The branch is gone rather than the sentence rewritten, because the sentence
+ * states the right policy: a host that answers a slashless directory URL makes
+ * this suite unable to tell a correctly-named entry from a wrongly-named one at
+ * exactly the depth R14 cares about. The 404 is now asserted, so the policy is
+ * a measurement rather than a claim about code nobody re-reads.
  */
 interface StaticHost {
   readonly origin: string
@@ -751,7 +765,9 @@ async function serveUploadRoot(root: string, mountedAt: string): Promise<StaticH
     if (!inMount) return void res.writeHead(404).end()
 
     const rest = path.slice(mountedAt.length)
-    const file = resolve(root, `.${rest.endsWith('/') || rest === '' ? `${rest}/index.html` : rest}`)
+    // Only a trailing slash gets the directory index. `rest === ''` — the bare
+    // mount point — used to be folded in here and is not: see the docblock.
+    const file = resolve(root, `.${rest.endsWith('/') ? `${rest}index.html` : rest}`)
     if (!file.startsWith(resolve(root))) return void res.writeHead(403).end()
     if (!existsSync(file) || statSync(file).isDirectory()) return void res.writeHead(404).end()
     res.writeHead(200).end(readFileSync(file))
@@ -788,6 +804,15 @@ describe.skipIf(!freshPlayer)('the player answers at the bare directory URL (R14
       mkdirSync(uploadRoot, { recursive: true })
       // The deploy, as `.github/workflows/pages.yml` performs it.
       cpSync(DIST_PLAYER, join(uploadRoot, PLAYER_DEPLOY_DIR), { recursive: true })
+      // An index at the upload root, because the real one has one — the
+      // editor's page — and its absence made the slashless-URL control below
+      // vacuous: the bare mount point 404'd for want of a file rather than
+      // because the host declines to redirect, so the control passed whether
+      // the rule was modelled or not. A placeholder rather than the real
+      // `dist-site/index.html` so this block does not acquire a dependency on
+      // the editor build being fresh; nothing here reads its contents except
+      // to prove it is not the player's document.
+      writeFileSync(join(uploadRoot, 'index.html'), '<!-- stands in for the editor page -->')
 
       const host = await serveUploadRoot(uploadRoot, PAGES_BASE_PATH)
       try {
@@ -870,6 +895,31 @@ describe.skipIf(!freshPlayer)('the player answers at the bare directory URL (R14
         // ...and a name that was never emitted, so a host answering 200 to
         // everything cannot pass either.
         expect((await fetch(new URL('definitely-not-emitted.js', dirUrl))).status).toBe(404)
+
+        // The slashless directory URL, now asserted rather than described. The
+        // host's docblock says the trailing-slash rule is the only convenience
+        // modelled and that there is deliberately no `/dir` → `/dir/` redirect;
+        // until now `rest === ''` was folded into the directory case, so the
+        // bare mount point answered 200 and the claim was false at that one
+        // depth. A host that answers a slashless directory URL cannot tell a
+        // correctly-named entry from a wrongly-named one, which is the whole
+        // question this block exists to ask.
+        //
+        // Both depths are checked, and they are not equally strong: the mount
+        // root is the discriminating one — restore the `rest === ''` branch and
+        // it answers 200 — while `/staticstereo/player` resolves to a directory
+        // and 404s either way. The second is kept as the weaker belt, because
+        // the branch that would serve it is the one somebody would add next.
+        for (const slashless of [
+          `${host.origin}${PAGES_BASE_PATH}`,
+          `${host.origin}${PAGES_BASE_PATH}/${PLAYER_DEPLOY_DIR}`,
+        ]) {
+          expect(
+            (await fetch(slashless)).status,
+            `${slashless} was served, so this host is modelling a /dir → /dir/ redirect that ` +
+            'a real host performs and this suite must not rely on',
+          ).toBe(404)
+        }
       } finally {
         await host.close()
       }
