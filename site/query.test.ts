@@ -43,6 +43,22 @@ function siteModules(): readonly string[] {
 }
 
 describe('searchParams', () => {
+  /**
+   * These pin the function's **contract** — what a caller may hand it — and not
+   * the body that upholds it. That distinction was earned: the body used to
+   * strip a leading `?` by hand, justified by a false claim that
+   * `URLSearchParams` would otherwise read `?present=1` as a parameter named
+   * `?present`. It would not; the WHATWG string constructor strips one leading
+   * `?` itself. All three assertions below stayed green when the strip was
+   * deleted, because all three were always true of `URLSearchParams` alone.
+   *
+   * They are kept rather than deleted with the strip, because the tolerance is
+   * a promise this module makes to `present.ts`, `fit.ts` and `smooth.ts`
+   * regardless of who implements it — a hand-rolled reader, a `.replace(/^\?/,
+   * '')`, a split on `&` — and any of those spellings getting it wrong fails
+   * here. What they cannot do is detect a redundant line, which is exactly what
+   * that line was.
+   */
   it('reads a location.search with or without its leading ?', () => {
     expect(searchParams('?a=1').get('a')).toBe('1')
     expect(searchParams('a=1').get('a')).toBe('1')
@@ -55,7 +71,7 @@ describe('searchParams', () => {
     expect([...searchParams('?')]).toEqual([])
   })
 
-  it('strips only the first ?, so a ? inside a value survives', () => {
+  it('consumes only the first ?, so a ? inside a value survives', () => {
     expect(searchParams('?a=?').get('a')).toBe('?')
   })
 })
@@ -195,8 +211,16 @@ describe('exactly one copy of the parse policy', () => {
    * literally writes `new URLSearchParams(`, which would be a false positive;
    * it would be legible as one.
    */
+  /**
+   * **Three patterns and not four.** `startsWith('?')` was the fourth, and it
+   * is gone because the thing it pinned was not a decision: `URLSearchParams`
+   * strips one leading `?` itself, so all three parsers' copies of the strip —
+   * and the copy this module inherited from them — were no-ops. Deleting the
+   * strip left every behaviour test in this file green and reddened only this
+   * sweep, which is the precise signature of a line that exists because a sweep
+   * asserts someone wrote it. Argued at `query.ts`'s `searchParams`.
+   */
   const POLICY: readonly { readonly what: string; readonly pattern: RegExp }[] = [
-    { what: 'the optional leading ?', pattern: /startsWith\('\?'\)/ },
     { what: 'constructing the parser', pattern: /new URLSearchParams\(/ },
     { what: 'last-of-repeated-wins', pattern: /\.getAll\(/ },
     { what: 'trim-and-lowercase', pattern: /\.trim\(\)\.toLowerCase\(\)/ },

@@ -9,6 +9,13 @@
  * and a boolean may be spelled any of about eight ways. Three copies of one
  * policy, written in the order the parameters were added.
  *
+ * **Three of those four were decisions.** The optional leading `?` was not: the
+ * `URLSearchParams` string constructor strips one itself, so all three copies of
+ * `startsWith('?') ? slice(1) : …` were no-ops, and so was the copy this module
+ * inherited from them. It is argued at {@link searchParams}, which is where the
+ * false rationale for keeping it was recorded. What is shared here is the three
+ * that are real.
+ *
  * **It was not a tidiness problem.** The prototype-chain defect fixed in the
  * commit before this module was created — `'constructor' in FIT_MODES` is
  * `true`, so `?fit=constructor` parsed as a `FitMode` and the player laid out
@@ -46,17 +53,41 @@
  * `location.search`, parsed, with the leading `?` optional.
  *
  * Optional because a caller may hold a stored fragment of a query without
- * having reassembled it, and because `''` and `'?'` are both things a browser
- * really puts in `location.search` — the first on a URL with no query, the
- * second when the last parameter was removed. `URLSearchParams` treats a
- * leading `?` as part of the first parameter's *name*, so without the strip
- * `?present=1` would be a parameter called `?present`.
+ * having reassembled it, or a `search` something upstream has already stripped,
+ * and because `''` and `'?'` are both things a browser really puts in
+ * `location.search` — the first on a URL with no query, the second when the
+ * last parameter was removed.
  *
- * Only the first character is stripped: a `?` inside a value is data, and
- * `?a=?` really does mean `a` is a question mark.
+ * ## There is no strip here, and the reason there used to be one was false
+ *
+ * This body was `new URLSearchParams(search.startsWith('?') ? search.slice(1) :
+ * search)`, and the docblock justified the slice with: *"`URLSearchParams`
+ * treats a leading `?` as part of the first parameter's **name**, so without the
+ * strip `?present=1` would be a parameter called `?present`."*
+ *
+ * It does not. The WHATWG string constructor removes one leading `?` itself —
+ * "if init is a string and starts with U+003F (?), remove the first code point
+ * from init" — so `new URLSearchParams('?present=1')` has the single key
+ * `present`, and `new URLSearchParams('?a=?').get('a')` is `'?'` without any
+ * help from us. The slice changed the answer for exactly one input, `'??a=1'`,
+ * which no `location.search` can produce; every behaviour test of this function
+ * stayed green when it was deleted, and the only thing that went red was the
+ * source-text sweep in `site/query.test.ts` asserting that *somebody* wrote
+ * `startsWith('?')`.
+ *
+ * So the line is gone rather than re-justified: it was a no-op defended by a
+ * claim about a platform API that a reader would have trusted and copied, and
+ * the only test that could have pinned it would have had to pin `'??a=1'` — an
+ * input no caller can hand us, which is not a guarantee worth asserting.
+ *
+ * The tolerance itself is unchanged and still contractual: callers pass a
+ * `search` with or without its `?` and this module answers the same way. That
+ * is pinned below; it is now upheld by `URLSearchParams` rather than by us,
+ * which is a fact about where the behaviour lives and not about whether it
+ * holds.
  */
 export function searchParams(search: string): URLSearchParams {
-  return new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
+  return new URLSearchParams(search)
 }
 
 /**
