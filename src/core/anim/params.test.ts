@@ -1,7 +1,23 @@
 import { describe, it, expect } from 'vitest'
 import { PRESET_PARAMS } from './params.js'
+import type { NumericParam } from './params.js'
 import { PRESETS, compilePreset } from './presets.js'
+import type { PresetKind } from './presets.js'
 import { CTX } from '../testing/ctx.fixture.js'
+
+/**
+ * Look one parameter up by name and insist it carries a physical quantity.
+ *
+ * The lookup is by *name* rather than by index so that the assertions below
+ * pin the recorded unit and nothing about how the table is ordered or spelled
+ * — reordering `move`'s parameters is not a change to what a degree is.
+ */
+function numeric(kind: PresetKind, name: string): NumericParam {
+  const d = PRESET_PARAMS[kind].find(p => p.name === name)
+  if (d === undefined) throw new Error(`${kind} has no parameter "${name}"`)
+  if (d.unit === 'enum') throw new Error(`${kind}.${name} is an enum, not a quantity`)
+  return d
+}
 
 /**
  * The descriptor table is *tied* to the registry by its type — deleting a
@@ -54,6 +70,54 @@ describe('preset parameter descriptors', () => {
           expect(msg, `${kind}.${d.name}: reader does not name "${v}"`).toContain(v)
         }
       }
+    }
+  })
+})
+
+/**
+ * The recorded facts, one assertion per claim.
+ *
+ * These are not a restatement of the table — they are the reason the table is
+ * worth having. A wrong unit is invisible until P3 builds a control out of it
+ * and offers a degrees spinner for a depth, or until P2 scales a multiplier by
+ * the container's width. Nothing downstream can re-derive these; the function
+ * bodies are the only other witness and reading units out of implementations
+ * is exactly what §6a exists to stop.
+ */
+describe('recorded parameter units', () => {
+  it('move travels in scene pixels, on both axes', () => {
+    // `from`/`to` are `[x, y]` offsets from the layer's resting `at`, so both
+    // components are distances and both scale under `fit=render`. The pair
+    // shape is the half P2 cannot guess: `marquee.speed` is also `scenePx` and
+    // is a single number.
+    for (const name of ['from', 'to']) {
+      const d = numeric('move', name)
+      expect(d.unit, name).toBe('scenePx')
+      expect(d.shape, name).toBe('pair')
+      expect(d.per, name).toBeUndefined()
+    }
+  })
+
+  it('move\'s speed is a scene-pixel rate per second, not a unit of its own', () => {
+    // Tagged `scenePx` + `per: 'second'` on purpose. A `scenePxPerSecond` tag
+    // would hide it from "scale every scenePx parameter", which is the rule
+    // `fit=render` is going to be written as — and the geometry scaling while
+    // time does not is precisely why the same factor is correct for both.
+    const d = numeric('move', 'speed')
+    expect(d.unit).toBe('scenePx')
+    expect(d.shape).toBe('scalar')
+    expect(d.per).toBe('second')
+  })
+
+  it('push moves in depth, which is normalised and does not scale', () => {
+    // `from`/`to` are absolute depths in 0..1. Were these mistagged `scenePx`,
+    // `fit=render` would multiply a depth by the container's scale factor and
+    // drive every pushed layer straight into the near clamp.
+    for (const name of ['from', 'to']) {
+      const d = numeric('push', name)
+      expect(d.unit, name).toBe('depth')
+      expect(d.shape, name).toBe('scalar')
+      expect(d.per, name).toBeUndefined()
     }
   })
 })
