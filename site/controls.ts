@@ -116,9 +116,9 @@ export const CUSTOM_TRACK = '(custom track)'
  * The explanatory note under the preset dropdown.
  *
  * Pure and tested rather than built inline in the DOM layer, because one of the
- * three cases is load-bearing. **`slide` is the only v1 preset that does
+ * three cases is load-bearing. **`move` is the only v1 preset that does
  * nothing when chosen bare**: its `from` and `to` are `[x, y]` offsets from the
- * layer's own `at` and both default to `[0, 0]`, so `{kind: 'slide'}` compiles
+ * layer's own `at` and both default to `[0, 0]`, so `{kind: 'move'}` compiles
  * to `[{t: 0, x: 0, y: 0}, {t: 1, x: 0, y: 0}]` — a track that animates
  * precisely nothing. Verified against core with a correct `PresetCtx`; every
  * other preset has a usable bare default (`slide-in` enters from `-contentW`,
@@ -128,7 +128,7 @@ export const CUSTOM_TRACK = '(custom track)'
  * The dropdown cannot carry parameters — those live in the scene JSON — so
  * without this sentence the one user action that produces a dead animation is
  * indistinguishable from a broken renderer. Core's own parameter readers reject
- * garbage rather than defaulting, for exactly this reason; `slide`'s defaults
+ * garbage rather than defaulting, for exactly this reason; `move`'s defaults
  * are the one place that argument does not hold, and the UI pays for it here.
  */
 export function presetNote(kind: string, layerCount: number): string {
@@ -137,10 +137,10 @@ export function presetNote(kind: string, layerCount: number): string {
     return 'This layer has a hand-written keyframe track. Choosing a preset replaces it; ' +
       'edit it in the scene JSON below to keep it.'
   }
-  if (kind === 'slide') {
-    return 'slide needs from and to — they are [x, y] offsets from the layer\'s own at, ' +
-      'and both default to [0, 0], so a bare slide animates nothing at all. Give it ' +
-      '{"kind": "slide", "from": [-60, 0], "to": [700, 0]} in the scene JSON below. ' +
+  if (kind === 'move') {
+    return 'move needs from and to — they are [x, y] offsets from the layer\'s own at, ' +
+      'and both default to [0, 0], so a bare move animates nothing at all. Give it ' +
+      '{"kind": "move", "from": [-60, 0], "to": [700, 0]} in the scene JSON below. ' +
       'Every other preset has a usable default.'
   }
   return 'Presets compile to keyframe tracks, so anything here can also be written out ' +

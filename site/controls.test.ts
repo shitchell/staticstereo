@@ -292,12 +292,11 @@ describe('reduce', () => {
 
 describe('presetNote', () => {
   /**
-   * The claim the note makes about `slide` is checked against core rather than
+   * The claim the note makes about `move` is checked against core rather than
    * asserted in prose, and the check is written so that it fails **either** way
-   * round: if `slide` ever gains a non-zero default the note becomes a lie, and
+   * round: if `move` ever gains a non-zero default the note becomes a lie, and
    * if another preset ever loses its default the note stops warning about it.
-   */
-  /**
+   *
    * Over `CHANNELS`, never a list written out here. A fourth hand-copy of the
    * channel list lived at this spot and was missing `rotateX`/`rotateY`, so a
    * preset that animated only an axis rotation was reported as motionless —
@@ -323,17 +322,17 @@ describe('presetNote', () => {
     })).toBe(false)
   })
 
-  it('slide is the only bare preset that animates nothing', () => {
+  it('move is the only bare preset that animates nothing', () => {
     const dead = Object.keys(PRESETS).filter(movesNothing)
-    expect(dead).toEqual(['slide'])
+    expect(dead).toEqual(['move'])
   })
 
   it('says so, naming from and to, so a dead animation is not read as a bug', () => {
-    const note = presetNote('slide', 1)
+    const note = presetNote('move', 1)
     expect(note).toContain('from')
     expect(note).toContain('to')
     expect(note).toMatch(/nothing/)
-    // The generic note must not be what a `slide` user sees.
+    // The generic note must not be what a `move` user sees.
     expect(note).not.toBe(presetNote('bob', 1))
   })
 
@@ -343,12 +342,12 @@ describe('presetNote', () => {
   })
 
   it('reports an empty scene ahead of any preset advice', () => {
-    expect(presetNote('slide', 0)).toBe('This scene has no layers.')
+    expect(presetNote('move', 0)).toBe('This scene has no layers.')
     expect(presetNote(CUSTOM_TRACK, 0)).toBe('This scene has no layers.')
   })
 
   it('gives every other preset the generic note', () => {
-    for (const kind of Object.keys(PRESETS).filter(k => k !== 'slide')) {
+    for (const kind of Object.keys(PRESETS).filter(k => k !== 'move')) {
       expect(presetNote(kind, 1), kind).toMatch(/compile to keyframe tracks/)
     }
   })

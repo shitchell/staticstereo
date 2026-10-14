@@ -50,7 +50,7 @@ describe('public surface', () => {
     expect(core.IDENTITY.scale).toBe(1)
     expect(core.MIN_OVERLAP).toBe(16)
     expect(Object.keys(core.PRESETS).sort()).toEqual([
-      'bob', 'bounce', 'emerge', 'marquee', 'slide', 'slide-in',
+      'bob', 'bounce', 'emerge', 'marquee', 'move', 'slide-in',
     ])
     expect(Object.keys(core.EASINGS).length).toBeGreaterThan(0)
   })

@@ -20,7 +20,7 @@ function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: nu
 describe('presets', () => {
   it('registers the v1 set', () => {
     expect(Object.keys(PRESETS).sort()).toEqual(
-      ['bob', 'bounce', 'emerge', 'marquee', 'slide', 'slide-in'],
+      ['bob', 'bounce', 'emerge', 'marquee', 'move', 'slide-in'],
     )
   })
 
@@ -105,15 +105,15 @@ describe('presets', () => {
   })
 })
 
-// Not in the implementation plan: `slide`, `slide-in` and `bob` were specified
+// Not in the implementation plan: `move`, `slide-in` and `bob` were specified
 // in prose with no test behind them, so these pin the spec's wording.
 describe('presets implemented from prose spec', () => {
   it('unknown-preset error lists the valid kinds', () => {
     expect(() => compilePreset({ kind: 'nope' }, ctx)).toThrow(/slide-in/)
   })
 
-  it('slide runs from its from pair to its to pair, once', () => {
-    const tr = compilePreset({ kind: 'slide', from: [0, 0], to: [100, 50] }, ctx)
+  it('move runs from its from pair to its to pair, once', () => {
+    const tr = compilePreset({ kind: 'move', from: [0, 0], to: [100, 50] }, ctx)
     expect(tr.repeat).toBe('once')
     expect(evalTrack(tr, 0, 1)).toMatchObject({ x: 0, y: 0 })
     const end = evalTrack(tr, 1, 1)
@@ -169,7 +169,7 @@ describe('presets implemented from prose spec', () => {
   })
 
   it('rejects malformed params instead of quietly using the default', () => {
-    expect(() => compilePreset({ kind: 'slide', to: 'nope' }, ctx)).toThrow(/\[x, y\] number pair/)
+    expect(() => compilePreset({ kind: 'move', to: 'nope' }, ctx)).toThrow(/\[x, y\] number pair/)
     expect(() => compilePreset({ kind: 'slide-in', from: 'sideways' }, ctx)).toThrow(/must be one of/)
     expect(() => compilePreset({ kind: 'marquee', speed: 0 }, ctx)).toThrow(/> 0 px\/sec/)
     expect(() => compilePreset({ kind: 'bob', ease: 'elastic' }, ctx)).toThrow(/unknown easing/)

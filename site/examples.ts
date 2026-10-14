@@ -76,7 +76,7 @@ export const EXAMPLES: Example[] = [
     id: 'bounce',
     label: 'BOUNCE — a ball crossing the frame',
     note:
-      'Two animators on one layer: slide and bounce compose, so the translations ' +
+      'Two animators on one layer: move and bounce compose, so the translations ' +
       'sum. Easing is per-segment in v1, which is why the rise bounces as well as ' +
       'the fall (design §4.1).',
     scene: {
@@ -91,7 +91,7 @@ export const EXAMPLES: Example[] = [
           at: [0, 280],
           depth: 1,
           anim: [
-            { kind: 'slide', from: [-60, 0], to: [700, 0], repeat: 'loop' },
+            { kind: 'move', from: [-60, 0], to: [700, 0], repeat: 'loop' },
             { kind: 'bounce', height: 180, duration: 1 },
           ],
         },
@@ -120,7 +120,7 @@ export const EXAMPLES: Example[] = [
           r: 44,
           at: [0, 180],
           depth: 1,
-          anim: { kind: 'slide', from: [-60, 0], to: [700, 0], repeat: 'loop' },
+          anim: { kind: 'move', from: [-60, 0], to: [700, 0], repeat: 'loop' },
         },
       ],
     },

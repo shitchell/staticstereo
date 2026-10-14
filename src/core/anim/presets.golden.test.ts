@@ -2,7 +2,7 @@
  * The preset golden corpus — a **temporary refactor instrument**, not a
  * permanent pin.
  *
- * `PRESETS` is about to be rewritten: `slide` becomes `move`, `emerge` becomes
+ * `PRESETS` is being rewritten: `slide` has become `move`, `emerge` becomes
  * `push`, and `marquee`/`bounce`/`bob`/`slide-in` are deleted (design §4.2b).
  * The first two are specified as *renames*, and nothing else in the suite can
  * tell a rename from a rewrite — `presets.test.ts` asserts behaviour in the
@@ -57,7 +57,7 @@ const FULL: Record<string, Record<string, unknown>> = {
   bounce: { height: 42 },                     // default 100
   emerge: { from: 0.2, to: 0.85 },            // defaults 0 and ctx.layerDepth
   marquee: { speed: 137 },                    // default 60
-  slide: { from: [-13, 7], to: [250, -40] },  // defaults [0,0], [0,0]
+  move: { from: [-13, 7], to: [250, -40] },   // defaults [0,0], [0,0]
   'slide-in': { from: 'bottom' },             // default 'left'
 }
 

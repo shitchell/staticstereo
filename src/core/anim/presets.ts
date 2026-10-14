@@ -160,14 +160,14 @@ function overrides(tr: Track, p: Preset): Track {
  *
  * Note what is *not* here: default durations. A track with no `duration` runs
  * for the remainder of the scene, which is the right default for one-shot
- * motion (`slide`, `emerge`) and the reason `bounce`/`bob` take a `duration`
+ * motion (`move`, `emerge`) and the reason `bounce`/`bob` take a `duration`
  * when you want a faster cycle than once-per-scene. `marquee` is the one
  * exception: its duration is derived from `speed`, because a scroll rate in
  * px/sec is the thing an author actually wants to control.
  */
 export const PRESETS: Record<string, PresetFn> = {
   /** Straight A→B move. `from`/`to` are `[x, y]` offsets from the layer's `at`. */
-  slide: p => {
+  move: p => {
     const from = pair(p, 'from', [0, 0])
     const to = pair(p, 'to', [0, 0])
     return overrides({

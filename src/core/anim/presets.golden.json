@@ -348,10 +348,10 @@
       }
     },
     {
-      "kind": "slide",
+      "kind": "move",
       "label": "bare",
       "input": {
-        "kind": "slide"
+        "kind": "move"
       },
       "output": {
         "keys": [
@@ -371,10 +371,10 @@
       }
     },
     {
-      "kind": "slide",
+      "kind": "move",
       "label": "params",
       "input": {
-        "kind": "slide",
+        "kind": "move",
         "from": [
           -13,
           7
@@ -402,10 +402,10 @@
       }
     },
     {
-      "kind": "slide",
+      "kind": "move",
       "label": "params+overrides",
       "input": {
-        "kind": "slide",
+        "kind": "move",
         "from": [
           -13,
           7

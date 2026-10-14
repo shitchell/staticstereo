@@ -322,14 +322,14 @@ describe('rasterDepth text measurement', () => {
 })
 
 describe('rasterDepth scene duration', () => {
-  function slideScene(duration?: number): Scene {
+  function moveScene(duration?: number): Scene {
     return {
       size: [80, 2],
       ...(duration === undefined ? {} : { duration }),
       layers: [
         {
           type: 'shape', shape: 'rect', at: [0, 0], w: 4, h: 2, depth: 1,
-          anim: { kind: 'slide', from: [0, 0], to: [40, 0] },
+          anim: { kind: 'move', from: [0, 0], to: [40, 0] },
         },
       ],
     }
@@ -339,14 +339,14 @@ describe('rasterDepth scene duration', () => {
   // `repeat: 'once'`, at its end pose) — which for `marquee` renders nothing at
   // all. An absent duration therefore means 1 second, never 0.
   it('treats an absent duration as 1 second', async () => {
-    const d = await rasterDepth(slideScene(), 0.5, fakeCanvas())
-    expect(at(d, 80, 20, 0)).toBeCloseTo(1, 6) // halfway through a 1s slide
+    const d = await rasterDepth(moveScene(), 0.5, fakeCanvas())
+    expect(at(d, 80, 20, 0)).toBeCloseTo(1, 6) // halfway through a 1s move
     expect(at(d, 80, 0, 0)).toBe(0)
     expect(at(d, 80, 40, 0)).toBe(0) // where a zero-duration scene would pin it
   })
 
   it('treats an explicit duration of 0 as 1 second too', async () => {
-    const d = await rasterDepth(slideScene(0), 0.5, fakeCanvas())
+    const d = await rasterDepth(moveScene(0), 0.5, fakeCanvas())
     expect(at(d, 80, 20, 0)).toBeCloseTo(1, 6)
     expect(at(d, 80, 40, 0)).toBe(0)
   })
