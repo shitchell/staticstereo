@@ -343,23 +343,30 @@ describe('rasterDepth over-wide text geometry', () => {
   })
 
   // Deliberately NOT tested here: that the travel ends off the *plate*.
-  // `rasterDepth` returns a stage-sized depth map, so no assertion on its
-  // output can distinguish "parked in the left margin" from "gone" — the
-  // margin columns do not exist yet at this stage of the pipeline.
+  // `rasterDepth` returns a stage-sized depth map, so no assertion on an
+  // untranslated frame can distinguish "parked in the left margin" from
+  // "gone" — the margin columns do not exist yet at this stage of the
+  // pipeline. `TO` above could not have carried it in any case: it is
+  // recomputed from `CHARS` rather than measured, so pinning it would pin
+  // this file's own arithmetic.
   //
-  // It is not tested anywhere else either. **The endpoint formula
-  // `−(contentW + marginLeft)` has no assertion left in the repo.** It
-  // survives only as a constant — `TO` above, and `to` in `render.test.ts`'s
-  // `a still of a scrolling scene` — and either would stay green if the
-  // formula changed: `render.test.ts` says of its own t=0 assertion, in its
-  // own comment, that it is **insensitive to the margin terms**, because a
-  // layer positioned outside the stage is not rasterised at all. Measured:
-  // `anim/presets.test.ts` mentions none of `contentW`/`marginLeft`/
-  // `marginRight`/`sceneW`; it held those endpoints until `b727dfa` deleted
-  // the verb that computed them. Consistent with the next suite's header —
-  // no registered verb computes an off-frame endpoint. P6 rebuilds `marquee`
-  // and `slide-in` as UI templates and owns such a verb again; the assertion
-  // belongs with it, and until then this gap is real and uncovered.
+  // **It is tested now, and not here.** `move's off-frame endpoints against
+  // the plate`, below, asserts it against `PRESETS.move` with an `offLeft`
+  // token — a registered verb computing the endpoint from the rasteriser's
+  // own `measureText` result, which is what makes the assertion about shipped
+  // behaviour rather than about a formula written in a test. That carrier did
+  // not exist while `marquee` and `slide-in` were the only consumers, and its
+  // absence is the whole reason this gap stood. It escapes the stage-sized-map
+  // limitation by sliding the layer's resting origin right by a derived amount
+  // and reading *where* the trailing edge lands, rather than by asserting that
+  // a frame is empty — emptiness is also what a gross over-measurement
+  // produces, and that is exactly how the old witness passed while measuring
+  // nothing.
+  //
+  // (The verb was deleted by `9c2e924`. An earlier note here cited `b727dfa`,
+  // which carries the same message and stat but is a pre-rebase twin and is
+  // **not** an ancestor of `main` — settled with `git merge-base
+  // --is-ancestor`, both ways, rather than by reading the message.)
 })
 
 /* ================================================== the compile context */
@@ -372,11 +379,18 @@ describe('rasterDepth over-wide text geometry', () => {
  * it derives `marginLeft`/`marginRight` from the scene's own stereo settings
  * via `sceneMargins`. Both are live code on every frame of every scene.
  *
- * **What is gone is the consumer, not the producer.** `marquee` and `slide-in`
- * read all four fields and §4.2b deleted them, so `push`'s `layerDepth` is the
- * only field any registered verb still reads — measured, forcing `contentW` to
- * 0 or swapping the two margins left all 51 files green. These tests supply
- * the missing consumer so the producer is witnessed again.
+ * **The consumer came back, and these tests are still the producer's.**
+ * `marquee` and `slide-in` read four of these fields and §4.2b deleted them,
+ * which left `push`'s `layerDepth` as the only field any registered verb read
+ * — measured at the time, forcing `contentW` to 0 or swapping the two margins
+ * left all 51 files green. `move`'s symbolic endpoints read the other six, so
+ * the production path has a consumer again and the suite that exercises it is
+ * `move's off-frame endpoints against the plate`. These tests stay, and stay
+ * probe-based, because they pin the producer *independently* of whatever the
+ * registry happens to contain: a verb-side assertion can only ever say that
+ * the endpoint and the glyphs agree, and that is a weaker claim than this
+ * one's "the number handed over is the canvas's own answer for this string
+ * under this font".
  *
  * **Why a test-local preset is the right seam.** `PRESETS` is the registry
  * `compilePreset` looks up by name at call time, so registering an entry is
@@ -386,13 +400,15 @@ describe('rasterDepth over-wide text geometry', () => {
  * caller sees anything — and a new seam into the rasteriser is a core API
  * decision that is not this task's to take.
  *
- * **Deliberately not asserted: that an off-frame endpoint lands off the
- * plate.** No registered verb computes one. The old `marquee` tests pinned
- * `sceneW + marginRight` and `−(contentW + marginLeft)`; restoring those
- * literals against a preset written inside this file would pin the test's own
- * arithmetic, not shipped behaviour. What is asserted instead is the input
- * side: the measurement, the margins, and that the three add up to the plate
- * the renderer pads to.
+ * **Still not asserted *here*: that an off-frame endpoint lands off the
+ * plate.** The reason is unchanged — the probe's endpoint would be arithmetic
+ * written in this file, so pinning it would witness the test rather than the
+ * rasteriser. What changed is that a registered verb computes one: `move`
+ * resolves `offLeft`/`offRight` out of this very context, so the assertion
+ * finally has a shipped carrier and lives in `move's off-frame endpoints
+ * against the plate` below. What is asserted here remains the input side: the
+ * measurement, the margins, and that the three add up to the plate the
+ * renderer pads to.
  */
 describe('rasterDepth preset context', () => {
   /**
@@ -658,6 +674,182 @@ function firstPaintedColumn(d: Float32Array, w: number): number {
   }
   return -1
 }
+
+/** Rightmost column of the depth map with anything drawn in it, or -1. */
+function lastPaintedColumn(d: Float32Array, w: number): number {
+  const h = d.length / w
+  for (let x = w - 1; x >= 0; x--) {
+    for (let y = 0; y < h; y++) if (d[y * w + x]! > 0) return x
+  }
+  return -1
+}
+
+/* ========================= off-frame endpoints, on the shipped path */
+
+/**
+ * `move`'s symbolic endpoints, against the plate they are supposed to clear.
+ *
+ * **Which half of the chain this is.** `rasterDepth preset context > text
+ * measurement` above witnesses `measureText → contentW → drawn position`. It
+ * does so through a probe preset, which is the right seam for that question
+ * because the question is about the *producer*. The half it cannot reach is the
+ * consumer: that an **off-frame endpoint** is computed from that same
+ * measurement. That suite's own header records why it could not make the
+ * claim — no registered verb computed such an endpoint, so the only way to
+ * write the assertion was against a preset defined in this file, which would
+ * have pinned the test's own arithmetic. `move` computes one now, from
+ * `PresetCtx`,
+ * so these tests go through `PRESETS.move` with a token and **nothing in this
+ * describe knows the formula** — not the margin term, not the sign, not which
+ * of the seven context fields are summed.
+ *
+ * **Why an empty frame cannot be the whole witness, and why `at` is the
+ * instrument.** The depth map is stage-sized (`raster.ts` composites
+ * `scene.size`; `render.ts` pads afterwards by edge-extending it), so "parked
+ * in the left margin" and "gone entirely" are the same picture: nothing
+ * painted. Emptiness is therefore satisfied by *any* over-measurement, however
+ * gross — which is exactly how the deleted `marquee` witness stayed green with
+ * `contentW` forced to 12345.678, and the trap `text measurement`'s own
+ * comment describes. So the layer's resting origin is slid right by a derived
+ * amount and the assertion reads *where* the trailing edge lands:
+ * `at[0] = marginLeft + overlap` puts the string's trailing edge `overlap`
+ * columns inside the stage **iff** the endpoint was computed from the width the
+ * glyphs are actually drawn at. Under-measure and the whole string slides right
+ * so its leading edge enters the stage; over-measure and it leaves the map
+ * entirely. Both fail, and neither can be absorbed by sampling either side of a
+ * boundary, because the boundary's position is the reading.
+ */
+describe('move\'s off-frame endpoints against the plate', () => {
+  /**
+   * Odd `sepFar`, so `shift` gives `{left: 13, right: 7}`: coprime, and
+   * deliberately **not** a 2:1 pair. The shipped default is `{110, 55}`, where
+   * `left === 2 × right`, and a sibling task found a live assertion that passed
+   * only because that made two different sums equal. Here, reading either
+   * margin where the other belongs moves every number below.
+   */
+  const SEP_FAR = 13
+  const STEREO: Scene['stereo'] = { sepFar: SEP_FAR, sepNear: 5, algorithm: 'shift' }
+
+  /**
+   * 6 characters at 11px measures 39.6 stage px on the fake's metrics. Chosen
+   * so that no two quantities in the context can be swapped for each other
+   * without a number here moving: it is non-integral, it is not a multiple of
+   * either margin, and it differs from `sceneW` (50), `sceneH` (12) and
+   * `contentH` (11). The four candidate sums a wrong formula would produce —
+   * `contentW + marginLeft` 52.6, `contentW + marginRight` 46.6,
+   * `sceneW + marginLeft` 63, `sceneW + marginRight` 57 — are all distinct, and
+   * none is the negation of another, so a sign error is visible too.
+   */
+  const TEXT = 'STATIC'
+  const SIZE = 11
+  const STAGE: [number, number] = [50, 12]
+
+  interface Frame {
+    readonly depth: Float32Array
+    /** What the rasteriser's own `measureText` returned for this layer. */
+    readonly measured: number
+  }
+
+  /**
+   * One frame, plus the width the rasteriser measured while producing it.
+   *
+   * The width is taken from the **canvas**, not from `PresetCtx.contentW`, and
+   * that is load-bearing rather than incidental. The expectations below are
+   * derived from this number, so reading it out of the context would make a
+   * mutated `contentW` move the test's own target along with the behaviour
+   * under test, and the mutation would cancel instead of failing. The canvas is
+   * the one source a bad `contentW` cannot reach. That the two agree is
+   * `text measurement`'s assertion, not this one's.
+   */
+  async function frameOf(scene: Scene, seconds: number): Promise<Frame> {
+    const widths: number[] = []
+    const inner = fakeCanvas()
+    const canvas: FakeCanvas = {
+      ...inner,
+      make(w, h) {
+        const ctx = inner.make(w, h)
+        const measure = ctx.measureText.bind(ctx)
+        ctx.measureText = text => {
+          const m = measure(text)
+          widths.push(m.width)
+          return m
+        }
+        return ctx
+      },
+    }
+    const depth = await rasterDepth(scene, seconds, canvas)
+    // One text layer, so exactly one measurement. A second would mean the
+    // expectations below are derived from some other layer's width, and a
+    // zeroth would mean they are derived from nothing.
+    expect(widths).toHaveLength(1)
+    expect(widths[0]).toBeGreaterThan(0)
+    return { depth, measured: widths[0]! }
+  }
+
+  /**
+   * The string held at its far endpoint, with its resting origin slid right by
+   * `shift` stage px.
+   *
+   * `to` is left at its default and the frame is taken at t = 0, so the pose is
+   * `from` exactly — there is no interpolation, easing or clamping between the
+   * token and the drawn position for a failure to hide in.
+   */
+  function parked(shift: number): Scene {
+    return {
+      size: STAGE,
+      duration: 1,
+      stereo: STEREO,
+      layers: [{
+        type: 'text', text: TEXT, size: SIZE, at: [shift, 0], depth: 1,
+        anim: { kind: 'move', from: ['offLeft', 0] },
+      }],
+    }
+  }
+
+  it('puts the string off the plate, not merely off the stage', async () => {
+    const layout = plateLayoutOf(parked(0))
+    // Two poses, and the second is the one with content. Clearing the *stage*
+    // would only require the endpoint to be `−contentW`; what `offLeft` claims
+    // is a further `marginLeft` px of clearance, so sliding the entire layer
+    // right by exactly the left margin must still paint nothing. An endpoint
+    // that had dropped the margin term fails on `shift = marginLeft` while
+    // passing on `shift = 0`, which is the error this second sample exists for.
+    // `plateLayoutOf` supplies the margin, so the pair is the shipped geometry
+    // rather than a number written here.
+    for (const shift of [0, layout.margins.left]) {
+      const { depth } = await frameOf(parked(shift), 0)
+      expect(firstPaintedColumn(depth, STAGE[0]), `slid right by ${shift}`).toBe(-1)
+    }
+  })
+
+  it('computes that endpoint from the measured width, in both directions', async () => {
+    const layout = plateLayoutOf(parked(0))
+    const probe = await frameOf(parked(0), 0)
+    // Derived from the measurement rather than chosen: a quarter and a half of
+    // the string are each strictly inside it, so the leading edge stays off the
+    // left of the stage and the first painted column is 0, and each is strictly
+    // inside the stage, so the trailing edge is a column that exists. Two
+    // values rather than one because a single sample is exact but vacuous — the
+    // two name different trailing columns, so no constant pose satisfies both.
+    const overlaps = [Math.floor(probe.measured / 4), Math.floor(probe.measured / 2)]
+    const trailing: number[] = []
+    for (const overlap of overlaps) {
+      const where = `overlap ${overlap}`
+      expect(overlap, where).toBeGreaterThan(0)
+      expect(overlap, where).toBeLessThan(probe.measured)
+      expect(overlap, where).toBeLessThan(STAGE[0])
+      const { depth } = await frameOf(parked(layout.margins.left + overlap), 0)
+      // The two sides. `toBe(0)` fails when the endpoint is too far right,
+      // because the string's leading edge then sits inside the stage; the
+      // trailing column fails when it is too far right *or* too far left, and
+      // reads -1 when the string has left the map altogether.
+      expect(firstPaintedColumn(depth, STAGE[0]), where).toBe(0)
+      expect(lastPaintedColumn(depth, STAGE[0]), where).toBe(overlap - 1)
+      trailing.push(lastPaintedColumn(depth, STAGE[0]))
+    }
+    expect(new Set(trailing).size).toBe(overlaps.length)
+  })
+})
 
 describe('rasterDepth scene duration', () => {
   function moveScene(duration?: number): Scene {

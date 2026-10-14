@@ -213,11 +213,12 @@ type _CompositionDisjoint = AssertNever<Extract<SummedChannel, MultipliedChannel
  * without a move-with-bounce preset — and it is why §4.2b could narrow the
  * registry to five verbs: a composition does not need a name.
  *
- * `ctx` carries the scene/content measurements a preset may need. Only
- * `layerDepth` is read today (by `push`); the measurements and margins are
- * there for the UI templates P6 restores. It is optional only because an anim
- * built entirely from raw tracks does not need it; a preset without it throws
- * rather than guessing a size.
+ * `ctx` carries the scene/content measurements a preset may need, and every
+ * field of it now has a reader: `push` reads `layerDepth`, and `move`'s
+ * symbolic off-stage endpoints read the other six to turn `offLeft`,
+ * `offRight`, `offTop` and `offBottom` into stage px. It is optional only
+ * because an anim built entirely from raw tracks does not need it; a preset
+ * without it throws rather than guessing a size.
  */
 export function composeAnim(
   anim: Anim | undefined, seconds: number, sceneDuration: number,
