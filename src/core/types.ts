@@ -463,3 +463,46 @@ export interface Scene {
   freezeNoise?: boolean
   layers: Layer[]
 }
+
+/**
+ * Every key `Scene` itself has, as runtime data.
+ *
+ * **Why this exists when the type already says it.** It does not say it to
+ * anything that runs: TypeScript erases types, so there is no `keyof` at
+ * runtime, and an editor that generates a control per field (R6, design §9.1)
+ * needs the names as *values*. The validators learned the same thing the
+ * expensive way — `src/cli/scene.ts:103` carries its own hand-written
+ * `SCENE_KEYS` with no guard on it, and `site/scene.ts:361` carries no list at
+ * all, rebuilding the six fields inline. A seventh key is therefore three
+ * coordinated edits today, and missing one is silent in both directions: the
+ * CLI rejects by name a field the browser accepts, or the browser quietly
+ * drops one the CLI requires.
+ *
+ * **What makes this copy different** is the two `AssertNever` lines below: a
+ * key added to `Scene` without being listed here, or listed here without
+ * existing on the type, is a COMPILE error. Same mechanism and same reason as
+ * {@link STEREO_KEYS}, which this deliberately mirrors rather than joins — the
+ * two cover different types and folding them together would lose the thing
+ * each error message names.
+ *
+ * **This is a guard over `Scene`'s own keys, not over `Scene`.** Design §9.1
+ * adopts the first and rules out the second, and the distinction is load-
+ * bearing: these six are a flat interface, so `keyof Scene` is simply correct,
+ * whereas the tree below them is a union (`Layer`), an index signature
+ * (`Preset`) and three incompatible angle units, which is why no single guard
+ * can span it. See {@link LAYER_KEYS} for the per-variant form the next level
+ * down has to take instead.
+ *
+ * Exported rather than module-private for the same reason as `LAYER_KEYS` and
+ * `anim/track.ts`'s `SUMMED_CHANNELS`: `AssertNever` is enforced by
+ * `npm run typecheck` alone, so without a runtime witness the guards below are
+ * invisible to `npm test`. `scenekeys.test.ts` is that witness.
+ */
+export const SCENE_KEYS = [
+  'size', 'fps', 'duration', 'stereo', 'freezeNoise', 'layers',
+] as const
+
+export type SceneKey = typeof SCENE_KEYS[number]
+
+type _NoSceneKeyMissing = AssertNever<Exclude<keyof Scene, SceneKey>>
+type _NoSceneKeyExtra = AssertNever<Exclude<SceneKey, keyof Scene>>
