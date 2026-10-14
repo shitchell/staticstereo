@@ -287,7 +287,19 @@ export function resolveFontGenerics(
   font: string, installed: InstalledPredicate = fontIsInstalled,
 ): string {
   return rewriteFontFamilies(font, key => {
-    const candidates = GENERIC_FAMILIES[key]
+    // `Object.hasOwn`, not a bare read: `GENERIC_FAMILIES` is an object literal,
+    // so `GENERIC_FAMILIES['constructor']` is a *function* and `['__proto__']`
+    // is `Object.prototype` — neither is `undefined`, so the guard below never
+    // fired and both reached `resolveGeneric`, which threw `TypeError:
+    // candidates is not iterable` four frames down. `key` is a family name out
+    // of a scene's `font:` string, so that was a one-token typo producing the
+    // exact failure `src/cli/scene.ts`' docblock rules out.
+    //
+    // `undefined` is the pass-through signal (`rewriteFontFamilies` keeps the
+    // author's entry verbatim), which is the semantic every other non-generic
+    // family already gets, installed or not. So these two now behave like
+    // `Helvetica`, and no real generic's resolution changes.
+    const candidates = Object.hasOwn(GENERIC_FAMILIES, key) ? GENERIC_FAMILIES[key] : undefined
     return candidates === undefined ? undefined : resolveGeneric(key, candidates, installed)
   })
 }
