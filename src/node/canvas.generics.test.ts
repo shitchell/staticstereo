@@ -238,8 +238,27 @@ describe('resolveFontGenerics', () => {
       // plausible wrong fix of returning the (lowercased) lookup key.
       const titled = key[0]!.toUpperCase() + key.slice(1)
       expect(resolveFontGenerics(`bold 48px ${titled}`)).toBe(`bold 48px ${titled}`)
-      // Beside a real generic, so the fix cannot work by disabling rewriting.
-      expect(resolveFontGenerics(`48px ${key}, sans-serif`)).toBe(`48px ${key}, ${sans}`)
+      // Beside a real generic: the prototype key passes through *while* the
+      // generic next to it is still rewritten.
+      //
+      // The `toBe` alone cannot say that, and the comment here used to claim
+      // it could. `sans` is computed by the function under test at the top of
+      // this `describe`, so with rewriting disabled wholesale — the resolver's
+      // per-key callback returning `undefined` for everything — both sides
+      // collapse to `48px <key>, sans-serif` and the line stays green.
+      // Measured: that mutation turns 6 other tests in this file red (among
+      // them `resolves to a family this machine actually has`, whose
+      // `expect(sans).not.toBe('sans-serif')` is what actually guards the
+      // file) and left this assertion passing.
+      //
+      // So the `not.toBe` below is the independent half: it spells the generic
+      // literally instead of via `sans`, and reddens the moment rewriting
+      // stops. It is machine-independent for the same reason `sans` is — the
+      // environment test above pins that no installed family is named after
+      // any CSS generic, so a correct resolution can never *be* `sans-serif`.
+      const beside = resolveFontGenerics(`48px ${key}, sans-serif`)
+      expect(beside).toBe(`48px ${key}, ${sans}`)
+      expect(beside).not.toBe(`48px ${key}, sans-serif`)
     }
   })
 
