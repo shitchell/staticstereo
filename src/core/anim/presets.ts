@@ -247,7 +247,12 @@ function endpoint(
   if (token.slot !== slot) {
     throw new Error(
       `preset "${p.kind}": "${key}"[${slot}] is the ${SLOT_AXIS[slot]} axis, and ` +
-      `${JSON.stringify(v)} is a ${SLOT_AXIS[token.slot]}-axis endpoint — write it as ` +
+      // "an x-axis", "a y-axis". The article is read off `SLOT_AXIS` rather
+      // than written as a literal `a`, which is what printed "is a x-axis
+      // endpoint" at an author. Derived from the same table the axis name is,
+      // so the two cannot disagree if the names ever change.
+      `${JSON.stringify(v)} is ${SLOT_AXIS[token.slot] === 'x' ? 'an' : 'a'} ` +
+      `${SLOT_AXIS[token.slot]}-axis endpoint — write it as ` +
       `"${key}"[${token.slot}]. Valid in "${key}"[${slot}]: ${tokensIn(slot)}.`,
     )
   }
