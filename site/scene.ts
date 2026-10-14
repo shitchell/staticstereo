@@ -243,6 +243,17 @@ function validateLayer(v: unknown, path: string): Layer {
   }
   const kind = requireOneOf(type, LAYER_TYPES, `${path}.type`)
 
+  // **This is the silent drop.** Everything below copies field by field, so a
+  // key this function does not name — `rotatX`, `apacity`, a field from a
+  // newer scene format — is not rejected, it simply does not survive the
+  // rebuild, and the scene loads looking almost right. The CLI refuses the
+  // same file by name (`unknownKeys()` in `src/cli/scene.ts`).
+  //
+  // That asymmetry is deliberate and the reasoning is recorded in full on the
+  // unknown-channel check in `validateKey` above: unknown-key parity was
+  // delivered for **keyframe channels only**, because half of it delivered
+  // quietly would teach authors that the site catches typos and leave them
+  // wrong about where. Read that note before widening or narrowing this.
   const base: Record<string, unknown> = { type: kind }
   // Identity first, and copied rather than invented (design §4.1). On this
   // side the hash *is* the scene: a field this rebuild forgets is not ignored,
