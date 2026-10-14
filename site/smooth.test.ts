@@ -169,10 +169,21 @@ describe('parseSmooth and the names Object.prototype already answers to', () => 
     // The symptom-free half: a `Function` flows on as a `SmoothMode` and the
     // only visible effect is that the parameter stopped working. Assert
     // membership rather than type, so a string that is not a mode fails too.
+    //
+    // A second line stood here — `expect(['auto', 'pixelated'],
+    // name).toContain(imageRenderingFor(got, 0.5))` — and it could not fail for
+    // any input: that two-element union IS `imageRenderingFor`'s declared
+    // return type, so the assertion was `typeof x === typeof x`. Measured, with
+    // the prototype defect reintroduced (`key in SMOOTH_MODES`) and the
+    // membership check above temporarily removed so the line could be reached
+    // on its own: `1 passed`, with `parseSmooth('?smooth=constructor')`
+    // returning the `Object` function. It was also in the wrong block — a
+    // statement about `imageRenderingFor`'s codomain, which that function's own
+    // describe sweeps over every mode and every scale, and nothing about
+    // `parseSmooth`.
     for (const name of INHERITED) {
       const got = parseSmooth(`?smooth=${name}`)
       expect(Object.hasOwn(SMOOTH_MODES, got as string), name).toBe(true)
-      expect(['auto', 'pixelated'], name).toContain(imageRenderingFor(got, 0.5))
     }
   })
 })
