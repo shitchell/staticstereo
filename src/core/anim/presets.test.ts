@@ -205,6 +205,223 @@ describe('presets implemented from prose spec', () => {
 })
 
 /**
+ * `move`'s symbolic off-stage endpoints — `offLeft`, `offRight`, `offTop`,
+ * `offBottom` (design §4.2).
+ *
+ * This is the arithmetic the deleted `marquee` and `slide-in` did, back on the
+ * production path. §4.2b's table says what `marquee` becomes: "`move` with
+ * off-stage endpoints".
+ *
+ * **Nothing here asserts a literal.** Every expectation is spelled from the
+ * fixture's own fields, because the claim is a *relationship* between the
+ * stage, the plate's margins and the measured content — not today's numbers.
+ * `CTX`'s margins are the `shift` pair, `{110, 55}`, chosen in
+ * `ctx.fixture.ts` precisely because they are unequal: a resolution that added
+ * the wrong margin, or the same one twice, would pass against a symmetric
+ * fixture. Note while reading that `110 = 2 × 55`, so an assertion that would
+ * also hold with the margins swapped, doubled or halved is not pinning what it
+ * claims; each one below is checked against that.
+ */
+describe('move off-stage endpoints', () => {
+  /**
+   * The two channel values a `move` compiles to, read off the keys rather than
+   * through `evalTrack`, because the keys *are* the channel values and the
+   * guarantees here are exact. `evalTrack` at `t = 1` goes through the easing
+   * and a division, and a tolerance there would accept a resolution that was
+   * wrong in the last few bits.
+   */
+  const poses = (p: Record<string, unknown>, c: typeof ctx = ctx) => {
+    const tr = compilePreset({ kind: 'move', ...p }, c)
+    const start = tr.keys[0]!
+    const end = tr.keys[tr.keys.length - 1]!
+    return { start: { x: start.x, y: start.y }, end: { x: end.x, y: end.y }, track: tr }
+  }
+
+  it('resolves each token from the stage and the plate, in the slot its axis owns', () => {
+    // The four resolutions, against the ctx's own fields. `offLeft`/`offRight`
+    // are the deleted `OFF_LEFT`/`OFF_RIGHT` constants; `offTop`/`offBottom`
+    // are what `slide-in` used for its two vertical directions.
+    const horizontal = poses({ from: ['offRight', 0], to: ['offLeft', 0] })
+    expect(horizontal.start.x).toBe(ctx.sceneW + ctx.marginRight)
+    expect(horizontal.end.x).toBe(-(ctx.contentW + ctx.marginLeft))
+    const vertical = poses({ from: [0, 'offBottom'], to: [0, 'offTop'] })
+    expect(vertical.start.y).toBe(ctx.sceneH)
+    expect(vertical.end.y).toBe(-ctx.contentH)
+    // Cross-axis confusion is caught by the fixture, not by inspection:
+    // `sceneW ≠ sceneH` and `contentW ≠ contentH`, so a resolution reading the
+    // other axis's measurement is red above rather than coincidentally equal.
+    expect(ctx.sceneW).not.toBe(ctx.sceneH)
+    expect(ctx.contentW).not.toBe(ctx.contentH)
+  })
+
+  it('carries the plate margin on the horizontal pair and none on the vertical', () => {
+    // The asymmetry is the behaviour, not an oversight: `Margins` is
+    // `{left, right}` only and `plateLayoutOf` applies no vertical padding, so
+    // there is no top/bottom margin to add (design §10.2). `slide-in`'s own
+    // deleted test spelled out both halves — "a blanket 'add the margin' would
+    // push a `from: 'top'` entry a plate-margin's worth above the frame for no
+    // reason".
+    const flat = { ...ctx, marginLeft: 0, marginRight: 0 }
+    const unpadded = poses({ from: ['offRight', 0], to: ['offLeft', 0] }, flat)
+    expect(unpadded.start.x).toBe(flat.sceneW)
+    expect(unpadded.end.x).toBe(-flat.contentW)
+
+    // With margins, each horizontal endpoint gains *its own side's* margin and
+    // only that one. Stated as a difference from the unpadded pose so that the
+    // margin term is isolated: dropping it, or substituting the other side's,
+    // moves this and nothing else.
+    const padded = poses({ from: ['offRight', 0], to: ['offLeft', 0] })
+    expect(padded.start.x! - unpadded.start.x!).toBe(ctx.marginRight)
+    expect(unpadded.end.x! - padded.end.x!).toBe(ctx.marginLeft)
+
+    // And neither margin reaches the vertical pair at all — asserted as
+    // *invariance under a margin change*, which is stronger than restating the
+    // formula and is what turns a blanket "add the margin" red.
+    const verticalArgs = { from: [0, 'offBottom'], to: [0, 'offTop'] }
+    expect(poses(verticalArgs).start).toEqual(poses(verticalArgs, flat).start)
+    expect(poses(verticalArgs).end).toEqual(poses(verticalArgs, flat).end)
+  })
+
+  it('spans the whole plate plus the content, which is the point of the margin terms', () => {
+    // The assertion deleted with `marquee` — `OFF_RIGHT - OFF_LEFT` — restored
+    // structurally rather than as its old `2165`. It is the one statement that
+    // ties both margins, the stage and the measurement together in a single
+    // number, so a resolution that got two terms wrong in compensating
+    // directions still fails it.
+    const { start, end } = poses({ from: ['offRight', 0], to: ['offLeft', 0] })
+    const plateWidth = ctx.marginLeft + ctx.sceneW + ctx.marginRight
+    expect(start.x! - end.x!).toBe(plateWidth + ctx.contentW)
+  })
+
+  it('takes a token in one slot and a number in the other', () => {
+    // The per-slot spelling's whole premise: a token stands where a number
+    // stands. A resolver that replaced the pair wholesale would lose the 7.
+    const { start } = poses({ from: ['offRight', 7] })
+    expect(start.x).toBe(ctx.sceneW + ctx.marginRight)
+    expect(start.y).toBe(7)
+    const other = poses({ from: [-3, 'offTop'] })
+    expect(other.start.x).toBe(-3)
+    expect(other.start.y).toBe(-ctx.contentH)
+  })
+
+  it('resolves before speed, so a token scroll derives its own duration', () => {
+    // `marquee`, reconstructed from the five verbs — the thing §4.2b claims is
+    // possible. It also pins the *order*: `speed` divides the distance between
+    // the resolved endpoints, so a resolution that happened after the duration
+    // was derived would leave `duration` computed over a zero-length move and
+    // throw instead.
+    const speed = 100
+    const tr = poses(
+      { from: ['offRight', 0], to: ['offLeft', 0], speed, repeat: 'loop' },
+    ).track
+    const travel = (ctx.sceneW + ctx.marginRight) + (ctx.contentW + ctx.marginLeft)
+    expect(tr.duration).toBeCloseTo(travel / speed, 10)
+    expect(tr.repeat).toBe('loop')
+  })
+
+  it('rejects a token in the other axis\'s slot, naming the axis and the slot', () => {
+    // An authoring error on a URL-is-the-scene design must be loud: design
+    // §4.1 prefers a rejection to a silent drop precisely because a link
+    // someone else wrote cannot be debugged from the render. `from: [offTop,
+    // 0]` is a plausible typo and would otherwise resolve to a y-axis distance
+    // written into x.
+    const wrong = [
+      { slot: 0, token: 'offTop', axis: 'x' },
+      { slot: 0, token: 'offBottom', axis: 'x' },
+      { slot: 1, token: 'offLeft', axis: 'y' },
+      { slot: 1, token: 'offRight', axis: 'y' },
+    ] as const
+    for (const key of ['from', 'to']) {
+      for (const { slot, token, axis } of wrong) {
+        const value = slot === 0 ? [token, 0] : [0, token]
+        const p = { kind: 'move', [key]: value }
+        const where = JSON.stringify(p)
+        // the axis the slot is …
+        expect(() => compilePreset(p, ctx), where).toThrow(new RegExp(`${axis} axis`))
+        // … the slot it was written in, and the parameter it was written on …
+        expect(() => compilePreset(p, ctx), where).toThrow(new RegExp(`"${key}"\\[${slot}\\]`))
+        // … and the token itself, so the message is actionable without the docs
+        expect(() => compilePreset(p, ctx), where).toThrow(new RegExp(token))
+      }
+    }
+  })
+
+  it('still rejects garbage, so widening the pair reader swallowed nothing', () => {
+    // The existing malformed-params assertion restated here, because widening
+    // the reader to accept strings is exactly the change that could have made a
+    // typo compile to a default. A *whole-vector* token is rejected too: the
+    // spelling is per-slot, and `to: "offLeft"` silently meaning `[offLeft, 0]`
+    // would be a second spelling of the same parameter.
+    expect(() => compilePreset({ kind: 'move', to: 'nope' }, ctx))
+      .toThrow(/\[x, y\] number pair/)
+    expect(() => compilePreset({ kind: 'move', to: 'offLeft' }, ctx))
+      .toThrow(/\[x, y\] number pair/)
+    expect(() => compilePreset({ kind: 'move', to: ['offLeft'] }, ctx))
+      .toThrow(/\[x, y\] number pair/)
+    expect(() => compilePreset({ kind: 'move', to: [Number.NaN, 0] }, ctx))
+      .toThrow(/\[x, y\] number pair/)
+    expect(() => compilePreset({ kind: 'move', to: [0, {}] }, ctx))
+      .toThrow(/\[x, y\] number pair/)
+    // An unknown name in a slot is rejected by the slot reader instead, which
+    // names what *is* accepted there — the list is derived from the token
+    // table, so it cannot go stale.
+    expect(() => compilePreset({ kind: 'move', to: ['nope', 0] }, ctx)).toThrow(/offLeft/)
+    expect(() => compilePreset({ kind: 'move', to: ['nope', 0] }, ctx)).toThrow(/nope/)
+    expect(() => compilePreset({ kind: 'move', to: [0, 'nope'] }, ctx)).toThrow(/offTop/)
+  })
+
+  it('is a move parameter only — no sixth verb, and no token on a scalar param', () => {
+    // Two independent assertions already pin the five-verb registry
+    // (`presets.test.ts`'s first test and `presets.golden.test.ts`), and this
+    // task adds parameter *values*, never a kind. The second half is the one
+    // those do not cover: the scalar readers stay strict, so a token leaking
+    // into `push`/`scale`/`rotate` is an error rather than a `NaN` depth.
+    expect(Object.keys(PRESETS).sort()).toEqual(['flip', 'move', 'push', 'rotate', 'scale'])
+    for (const kind of ['push', 'scale', 'rotate']) {
+      expect(() => compilePreset({ kind, to: 'offLeft' }, ctx), kind)
+        .toThrow(/must be a finite number/)
+    }
+  })
+
+  it('survives both scene validators, so a token round-trips through a link', async () => {
+    // Both validators are documented as passing preset params through — the CLI
+    // returns early ("Preset parameters are open-ended by design") and the site
+    // rebuilds the bag with `{ ...v }`. That is a claim about two files this
+    // task may not edit, and the site validator's standing behaviour on
+    // anything it does not name is to drop it *silently* (design §4.1), so it
+    // is asserted rather than read: a dropped token would leave the feature
+    // unreachable from the editor, which is its only consumer.
+    //
+    // Imported dynamically, and only here: `src/core` must not depend on the
+    // CLI or the site, and a test that reaches across the layers to check a
+    // boundary should not put that specifier at the top of a core module.
+    const scene = {
+      size: [800, 450],
+      layers: [{
+        type: 'text',
+        text: 'ABC',
+        anim: { kind: 'move', from: ['offRight', 0], to: ['offLeft', 0], speed: 100 },
+      }],
+    }
+    const cli = await import('../../cli/scene.js')
+    const site = await import('../../../site/scene.js')
+    const validated = [
+      ['cli', cli.validateScene(structuredClone(scene), 'round-trip')],
+      ['site', site.validateScene(structuredClone(scene))],
+    ] as const
+    for (const [which, out] of validated) {
+      const anim = out.layers[0]!.anim as Record<string, unknown>
+      expect(anim['from'], which).toEqual(['offRight', 0])
+      expect(anim['to'], which).toEqual(['offLeft', 0])
+      // and it still compiles to the resolved endpoints after the trip
+      const tr = compilePreset(anim as { kind: string }, ctx)
+      expect(tr.keys[0]!.x, which).toBe(ctx.sceneW + ctx.marginRight)
+      expect(tr.keys[1]!.x, which).toBe(-(ctx.contentW + ctx.marginLeft))
+    }
+  })
+})
+
+/**
  * `rotate` — the unit trap, named in the execution plan's trap table.
  *
  * The verb's parameters are **degrees** by design decision (§4.2), while
