@@ -163,7 +163,7 @@ interface OffStageEndpoint {
  * token resolves to a value for the `x`/`y` *channel*, and `raster.ts` applies
  * that channel as `at[0] + t.x` — so a layer with `at[0] ≠ 0` ends up `at[0]`px
  * away from off-frame rather than at it. That is not a defect in the
- * resolution; it is the same convention every hand-written scroll in this repo
+ * resolution; it is the same convention every scroll in this repo
  * relies on, and `src/cli/scene.ts`'s `textScene` records why it is
  * load-bearing and what it costs. (`PresetCtx` carries no `at` deliberately:
  * adding one would make the resolution depend on a quantity the compile context
