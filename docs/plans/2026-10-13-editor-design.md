@@ -365,8 +365,20 @@ maintained the distinction. It is strictly less machinery than preserving them.
 remains worth doing, with a changed purpose: it proves the renames are *renames*. `move`
 must compile to precisely what `slide` did, and `push` to what `emerge` did, or the
 rename quietly became a rewrite and nothing else in the suite would notice. Deletions
-show up as removed fixture entries in a commit that says so. The golden is a one-shot
-refactor instrument, not a permanent pin.
+show up as removed fixture entries in a commit that says so.
+
+**The golden stays.** This paragraph called it "a one-shot refactor instrument, not a
+permanent pin", and that sentence was wrong twice over: the orchestrator ruled at P0's
+merge that the fixture is kept, and a value-pinning fixture that survives its refactor
+stops being an exception and becomes **precedent** — the next phase wanting to pin values
+will simply cite it. So the boundary is stated rather than the lifetime: execution plan
+§2.4 now admits a value-pinning fixture only where all three of **pure deterministic
+compiler**, **inputs enumerable from a registry**, and **exists to prove a refactor
+preserved behaviour** hold. The golden clears all three; a golden over a rasteriser or a
+renderer fails the first, which is why this one had to be kept strictly upstream of
+`raster.ts` — `Math.cos` and `@napi-rs/canvas` make everything below it machine-dependent.
+Its job is now continuous rather than one-shot: it is what makes a later rewrite of a
+`PresetFn` show up as a diff.
 
 **The cost is the examples, and it is not trivial.** All three `examples/*.yaml` use the
 old names, and `metamorphic.real.test.ts` reads them with *measured* assertions — row
