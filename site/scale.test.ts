@@ -37,6 +37,49 @@ import type { Scene, SirdsOpts, StereoOpts } from '../src/core/types.js'
  * does not have to rediscover it.
  */
 
+/**
+ * Available box dimensions that are **not whole CSS px**, for every sweep that
+ * sweeps a box.
+ *
+ * ## Why they are here at all
+ *
+ * Every box dimension in every sweep in this file used to be an integer, which
+ * left the one case the live defect needed uncovered: a container whose
+ * measured size has a fraction. The fit arithmetic does not care — it is
+ * real-valued throughout and `cssWidth <= availableWidth` is a claim about
+ * reals — but "does not care" was an inference from reading it, never a
+ * measurement, and the module that *consumes* the fit had a rounding bug for
+ * months behind that inference. A sweep that cannot tell an integer-only
+ * guarantee from a real-valued one is not evidence for the real-valued one.
+ *
+ * ## Where the numbers come from
+ *
+ * All four are **measured**, not invented, in headful Chromium 1234 on the
+ * built `dist-player/index.html`, read off the mount (`#player`) with
+ * `getBoundingClientRect()`:
+ *
+ * | measurement | `clientWidth`/`clientHeight` reports | over-report |
+ * | --- | --- | --- |
+ * | 977.6000366210938 (1001x800 window) | 978 | **+0.3999** |
+ * | 389.6000061035156 (1400x501 window) | 390 | **+0.3999** |
+ * | 1000.59375 (a 1000.6px box, on Chromium's 1/64 CSS px layout grid) | 1001 | **+0.40625** |
+ * | 580.47998046875 (1001x800 window at `--force-device-scale-factor=1.25`) | 580 | −0.47998 |
+ *
+ * The first three are the fractions that round **up**, and a plate sized to the
+ * rounded figure then overflowed the real box by that fraction and the mount
+ * grew a scrollbar. The fourth rounds **down** and is the paired control: same
+ * code path, same kind of fraction, no overflow. Both directions are in the
+ * sweep because a test that only carried the broken direction could be
+ * satisfied by arithmetic that simply shrinks every box.
+ *
+ * The exact doubles are kept rather than tidied to `977.6` and `389.6`: they
+ * are what a browser actually hands a resize handler, and the fourth is on the
+ * 1/64 grid only because a dpr of 1.25 put it there. Rounding them here would
+ * be inventing the measurement they exist to carry.
+ */
+const FRACTIONAL_WIDTHS = [977.6000366210938, 1000.59375]
+const FRACTIONAL_HEIGHTS = [389.6000061035156, 580.47998046875]
+
 /* ------------------------------------------------------------- snapScale */
 
 describe('snapScale', () => {
@@ -325,9 +368,18 @@ describe('fitScale', () => {
     // The trap, now twice over: an integer CSS scale at dpr 1.5 is a fractional
     // device scale, and a height that was fitted in CSS px would reintroduce it
     // vertically even with the width snapped correctly.
+    // The fractional boxes are in this sweep for a reason of their own, and it
+    // is the question "does fitting a fractional container cost the whole
+    // device pixel this test exists to pin?". It does not, and the mechanism
+    // is that the box never reaches the answer: `cssWidth * dpr` is
+    // `scale * plateWidth` for an integer `scale`, so the container chooses
+    // *which* integer and nothing else. The two goods never contend in this
+    // mode — which is worth a swept assertion rather than a sentence, because
+    // the obvious "fill the box exactly" fix for the scrollbar defect would
+    // have broken precisely this.
     for (const dpr of [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]) {
-      for (const availableWidth of [320, 760, 1280, 1920, 3840]) {
-        for (const availableHeight of [200, 480, 1080, 2160]) {
+      for (const availableWidth of [320, 760, 1280, 1920, 3840, ...FRACTIONAL_WIDTHS]) {
+        for (const availableHeight of [200, 480, 1080, 2160, ...FRACTIONAL_HEIGHTS]) {
           for (const plate of [PLATE, { plateWidth: 751, plateHeight: 361 }]) {
             const fit = fitScale({ ...plate, availableWidth, availableHeight, dpr })
             const where = `${plate.plateWidth}x${plate.plateHeight} in ` +
@@ -433,8 +485,8 @@ describe('containFit', () => {
     { plateWidth: 820, plateHeight: 320 },
     { plateWidth: 16, plateHeight: 16 },
   ]
-  const WIDTHS = [1, 200, 320, 760, 1280, 1920, 2560, 3840]
-  const HEIGHTS = [1, 200, 480, 720, 1080, 2160]
+  const WIDTHS = [1, 200, 320, 760, 1280, 1920, 2560, 3840, ...FRACTIONAL_WIDTHS]
+  const HEIGHTS = [1, 200, 480, 720, 1080, 2160, ...FRACTIONAL_HEIGHTS]
   const CONTAIN_DPRS = [1, 1.25, 1.5, 2, 2.5, 3, 1.7777777777]
 
   const sweep = (
@@ -631,6 +683,13 @@ const SCENES: Array<[number, number]> = [
 const BOXES: Array<[number, number]> = [
   [320, 200], [760, 480], [1280, 800], [1920, 1080], [2560, 1440], [3840, 2160],
   [1080, 1920], [400, 300], [100, 100],
+  // The measured fractional containers, paired both ways round so that each
+  // fraction is seen once on the width axis and once on the height axis. See
+  // {@link FRACTIONAL_WIDTHS} for where the four doubles come from and why a
+  // sweep of whole-px boxes was not evidence about a real-valued box.
+  [FRACTIONAL_WIDTHS[0]!, FRACTIONAL_HEIGHTS[0]!],
+  [FRACTIONAL_WIDTHS[1]!, FRACTIONAL_HEIGHTS[1]!],
+  [FRACTIONAL_HEIGHTS[0]!, FRACTIONAL_WIDTHS[1]!],
 ]
 const DPRS = [1, 1.25, 1.5, 2, 3]
 
