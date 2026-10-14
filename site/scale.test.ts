@@ -962,6 +962,72 @@ describe('renderFit', () => {
     expect(unclamped).toBe(4 * DPRS.length)
   })
 
+  /**
+   * **Which bound wins when they conflict, asserted rather than contradicted.**
+   *
+   * The contract bullet used to say flatly that "`sceneScale` never exceeds
+   * `MAX_SCENE_SCALE`". It does: `Math.max(minScale, Math.min(ideal,
+   * MAX_SCENE_SCALE))` lets the **floor** win whenever `minScale` is above the
+   * cap, which is any scene with an axis under `1/64` ≈ 0.0156 scene px. The
+   * implementation comment three lines from that `Math.max` says so and argues
+   * for it — "renderable at all" outranks "within the resource bound" — so the
+   * file contradicted itself, and the half nothing asserted was the half that
+   * is true.
+   *
+   * **Why this is a test and not a fix.** `site/scene.ts`'s `requireSize`
+   * rejects a non-integer or sub-1 `scene.size`, so no scene arriving from a
+   * link or a file can reach this path; it is live only for a `Scene` built in
+   * code, which is exactly what the two tests below do. Adding a size check to
+   * `renderFit` would be a second copy of `requireSize`, and duplicating a
+   * validator is the defect the `usableLength` change exists to undo.
+   */
+  it('lets the one-pixel floor beat the cap, which is how sceneScale exceeds it', () => {
+    const CONFLICTS: Array<[[number, number], number]> = [
+      [[0.015, 0.015], 1 / 0.015],
+      [[0.001, 0.001], 1000],
+      [[1e-6, 1e-6], 1e6],
+      // Asymmetric, so the floor is `max(1/w, 1/h)` and not either axis alone:
+      // the tighter axis is the one that has to reach a whole pixel.
+      [[640, 0.002], 500],
+    ]
+    for (const [size, floor] of CONFLICTS) {
+      const r = renderFit({
+        scene: sceneOf(size), availableWidth: 1280, availableHeight: 800, dpr: 1,
+      })
+      const where = `${size[0]}x${size[1]}`
+      expect(r.sceneScale, where).toBeCloseTo(floor, 9)
+      // The breach, stated as such: the cap is a real bound and this is above it.
+      expect(r.sceneScale, where).toBeGreaterThan(MAX_SCENE_SCALE)
+      // ...and the floor is doing its job, which is what outranks the cap: a
+      // rasteriser cannot be handed a stage that floors to zero on an axis.
+      expect(r.sceneWidth, where).toBeGreaterThanOrEqual(1)
+      expect(r.sceneHeight, where).toBeGreaterThanOrEqual(1)
+    }
+  })
+
+  it('cannot report the breach when the solve IS the floor, and that is measured', () => {
+    // `clamped` is `sceneScale !== ideal`, so wherever the floor beats a
+    // *smaller* ideal the breach is reported...
+    const reported = renderFit({
+      scene: sceneOf([0.001, 0.001]), availableWidth: 1280, availableHeight: 800, dpr: 1,
+    })
+    expect(reported.sceneScale).toBe(1000)
+    expect(reported.clamped).toBe(true)
+    // ...but where `ideal === minScale > MAX_SCENE_SCALE` the answer IS the
+    // solve, so there is nothing for `clamped` to be unequal to. It reports
+    // false while the cap is exceeded by a factor of 1.6. Pinned because it is
+    // a genuine hole in the flag rather than an oversight to fix: the only way
+    // to close it would be to compare against the cap separately, and the flag
+    // is documented as one bit answering "is this the size I asked for?".
+    const silent = renderFit({
+      scene: sceneOf([0.01, 0.01]), availableWidth: 300, availableHeight: 1, dpr: 2,
+    })
+    expect(silent.sceneScale).toBe(100)
+    expect(silent.sceneScale).toBeGreaterThan(MAX_SCENE_SCALE)
+    expect(silent.clamped).toBe(false)
+    expect(silent.overflows).toBe(false)
+  })
+
   it('survives a box that has not been laid out yet', () => {
     for (const availableWidth of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
       const r = renderFit({ scene: DEFAULT_SCENE, availableWidth, availableHeight: 0 })

@@ -990,9 +990,29 @@ export const MAX_SCENE_SCALE = 64
  *   solution — the unclamped formula goes to zero and then negative — and the
  *   answer is the smallest renderable scene plus `overflows`, not a zero or
  *   negative scale handed to a rasteriser.
- * - `sceneScale` never exceeds {@link MAX_SCENE_SCALE}, because the container is
- *   a length a third party chose and the solve would otherwise follow it
- *   anywhere. See that constant for why there is a ceiling and why it is 64.
+ * - `sceneScale` never exceeds {@link MAX_SCENE_SCALE} **unless the one-pixel
+ *   floor is higher**, because the container is a length a third party chose and
+ *   the solve would otherwise follow it anywhere. See that constant for why
+ *   there is a ceiling and why it is 64. The exception is not a leak; it is the
+ *   precedence the implementation comment at `Math.max(minScale, Math.min(ideal,
+ *   MAX_SCENE_SCALE))` argues for — "renderable at all" outranks "within the
+ *   resource bound" — and it engages only for a scene axis under `1/64`
+ *   (≈ 0.0156) scene px. Measured: `[0.015, 0.015]` solves to 66.67,
+ *   `[0.001, 0.001]` to 1000, `[1e-6, 1e-6]` to 1000000. This bullet claimed the
+ *   unqualified "never" and so contradicted that comment three lines away.
+ *
+ *   `clamped` reports the breach wherever the floor beats a *smaller* `ideal`,
+ *   which is the ordinary case. In the one sub-case where `ideal === minScale >
+ *   MAX_SCENE_SCALE` the answer *is* the solve, so there is nothing for
+ *   `clamped` to be unequal to and it reports `false` while the cap is exceeded:
+ *   `renderFit({ scene: [0.01, 0.01], availableWidth: 300, availableHeight: 1,
+ *   dpr: 2 })` returns `sceneScale 100, clamped false, overflows false`. Stated
+ *   because it is a real hole in the flag, not because it is reachable from a
+ *   link: `site/scene.ts`'s `requireSize` rejects a non-integer or sub-1
+ *   `scene.size`, so **no parsed scene can get here** — only a
+ *   programmatically constructed `Scene`, which is what the tests do. No
+ *   validation is added here on purpose; it would be a second copy of
+ *   `requireSize`, and duplicating a validator is the defect two commits back.
  * - **Both clamps are flat**, which is where strict growth fails and the only
  *   place it does. They are reported by the one `clamped` flag and they differ
  *   in sign: the floor overflows the box, the cap letterboxes inside it.
