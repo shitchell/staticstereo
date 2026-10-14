@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -269,6 +269,152 @@ describe.skipIf(!freshPlayer)('the built player', () => {
   it('contains no code from src/node or src/cli', () => {
     const leaks = files.filter(f => readFileSync(f, 'utf8').includes('yuv444p'))
     expect(leaks.map(f => relative(ROOT, f))).toEqual([])
+  })
+})
+
+/* ===================================================================== */
+/*  no editor code in the player bundle (design §3.2, R14)                */
+/* ===================================================================== */
+
+/**
+ * A string-literal grep, in the spirit of the `yuv444p` probe above — and for
+ * exactly its recorded reason. `purity.test.ts` chose `yuv444p` over `@napi-rs`
+ * because the latter "appears in prose in several `core` docblocks", so
+ * matching it only works while the minifier happens to strip comments: true
+ * today, silently wrong tomorrow. Each needle below is therefore a **runtime
+ * string literal** — an error message, a label, a caption — that esbuild
+ * carries into the bundle verbatim and that a comment rewrite cannot forge.
+ *
+ * Every one was checked for uniqueness by grepping all of `src/` and `site/`:
+ * it occurs in its own editor-only module and at most in that module's test,
+ * and nowhere else. Identifiers were deliberately avoided — they are renamed
+ * by minification — which is why the needles are prose fragments rather than
+ * function names, even where the fragment names a function inside a message.
+ *
+ * ## Tree-shaking, and why each needle is in a *principal* export
+ *
+ * A string-literal grep proves the **function holding the literal** did not
+ * reach the bundle, which is weaker than "the module did not": rollup drops
+ * the rest of a module when one export is imported. Measured, while this was
+ * being written: planting `import { periodWindow } from './diagnostics.js'`
+ * in `site/player.ts` left `describeReadout`'s prose out of `dist-player/`
+ * entirely, so a needle taken from that function would have missed a real
+ * leak. Each needle below therefore sits either in a module-level constant
+ * (`examples.ts`, `controls.ts`) or in the argument guard of the export the
+ * editor actually imports the module *for* — `readSegment`, `measureInk`,
+ * `stageGuideStyle`, `depthToRgba`. The same limitation applies to the
+ * `yuv444p` probe above and is inherent to the technique, not to this list.
+ *
+ * ## Two-sided, and the second side is not optional
+ *
+ * A bare absence check passes when the grep itself is broken — a changed
+ * extension filter, a directory that moved, a needle that no longer exists
+ * anywhere. The presence half against `dist-site/` is the positive control for
+ * the machinery, and it is free: `npm run build:site` builds both directories
+ * in one command, so the editor bundle is always there to be matched.
+ *
+ * ## The limitation, stated here because it is a P3 criterion
+ *
+ * This tests against **today's** editor — `site/main.ts` and the modules it
+ * pulls in — and today that editor is real, imported by `dist-site/`'s entry,
+ * and genuinely absent from the player's, so the check bites. It does **not**
+ * test against P3's Svelte editor, which does not exist yet. When P3 lands,
+ * two things must happen or this file quietly becomes the tautology the
+ * execution plan warned it would be:
+ *
+ *  1. extend {@link EDITOR_NEEDLES} with literals from the Svelte editor's own
+ *     components and store — not from the modules below, which P3 deletes; and
+ *  2. re-run the **presence** half against whatever the editor bundle becomes,
+ *     since a renamed output directory or an inlined entry would make every
+ *     needle absent from both sides and turn the absence half green for the
+ *     worst possible reason.
+ */
+interface EditorNeedle {
+  /** The literal to grep for. */
+  readonly needle: string
+  /** The editor-only module it lives in, for the failure message. */
+  readonly source: string
+}
+
+const EDITOR_NEEDLES: readonly EditorNeedle[] = [
+  // `drawStereo`'s context guard. The player has its own canvas and its own
+  // wording, so this sentence belongs to the editor alone.
+  { needle: 'the stereogram canvas has no 2d context', source: 'site/main.ts' },
+  // `depthToRgba`'s buffer-size guard. The depth panel is the editor's whole
+  // debugging story and the player must not carry it.
+  { needle: 'depthToRgba: a ', source: 'site/depthmap.ts' },
+  // `readSegment`'s row-bounds guard — the diagnostics band's entry point.
+  { needle: 'is outside a frame of height', source: 'site/diagnostics.ts' },
+  // `measureInk`'s argument guard.
+  { needle: 'measureInk: the ink fraction must be in (0, 1], got', source: 'site/legibility.ts' },
+  // `stageGuideStyle`'s degenerate-frame guard.
+  { needle: 'stageGuideStyle: the frame has no area (', source: 'site/stageguide.ts' },
+  // The caption of one of the bundled examples — the example gallery is an
+  // authoring affordance with no meaning in an embed.
+  { needle: 'STATIC ON THE STEREO', source: 'site/examples.ts' },
+  // `CUSTOM_TRACK`, the editor reducer's sentinel for a hand-written track.
+  // `controls.ts` also re-exports the frame grid, which the player *does*
+  // need — it gets it from `site/transport.ts` instead, and this needle is
+  // what proves it did not take the reducer along with it.
+  { needle: '(custom track)', source: 'site/controls.ts' },
+]
+
+/** Which files under `dir` contain `needle`, as repo-relative paths. */
+function filesContaining(dir: string, needle: string): string[] {
+  return filesUnder(dir)
+    .filter(f => readFileSync(f, 'utf8').includes(needle))
+    .map(f => relative(ROOT, f))
+}
+
+describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () => {
+  it('has enough needles to be worth asserting', () => {
+    // The vacuity floor. Every assertion below is a `for` over this list, so
+    // an empty or accidentally-filtered list would pass all of them in
+    // silence. The floor is the real count, with no slack: a needle deleted
+    // because its message was reworded has to be replaced, not dropped.
+    expect(EDITOR_NEEDLES.length).toBeGreaterThanOrEqual(7)
+    expect(new Set(EDITOR_NEEDLES.map(n => n.source)).size).toBe(EDITOR_NEEDLES.length)
+  })
+
+  it('finds every needle in the editor bundle — the grep works', () => {
+    for (const { needle, source } of EDITOR_NEEDLES) {
+      expect(
+        filesContaining(DIST, needle),
+        `${JSON.stringify(needle)} (${source}) is in no file under dist-site/, so the ` +
+        `absence check for it proves nothing — the literal was reworded, or the editor ` +
+        `bundle no longer contains ${source}`,
+      ).not.toEqual([])
+    }
+  })
+
+  it('finds none of them in the player bundle', () => {
+    for (const { needle, source } of EDITOR_NEEDLES) {
+      expect(
+        filesContaining(DIST_PLAYER, needle),
+        `${JSON.stringify(needle)} reached the player bundle, so ${source} is in it. ` +
+        `An embedded stereogram must not ship a timeline editor (R14, design §3.2).`,
+      ).toEqual([])
+    }
+  })
+
+  it('would catch a planted needle in the player directory', () => {
+    // The positive control for the *absence* half, which is the half that can
+    // pass for the wrong reason: a predicate that reads the wrong directory,
+    // or filters every file out, reports "clean" forever. So plant a file in
+    // the real output directory, with the real needle, and require the real
+    // predicate to see it.
+    const planted = join(DIST_PLAYER, '__planted-editor-needle.js')
+    const needle = EDITOR_NEEDLES[0]!.needle
+    try {
+      writeFileSync(planted, `console.log(${JSON.stringify(needle)})\n`)
+      expect(filesContaining(DIST_PLAYER, needle))
+        .toContain(relative(ROOT, planted))
+    } finally {
+      rmSync(planted, { force: true })
+    }
+    // ...and it is gone again, so the directory this suite asserts over is
+    // exactly the one the build produced.
+    expect(filesContaining(DIST_PLAYER, needle)).toEqual([])
   })
 })
 
