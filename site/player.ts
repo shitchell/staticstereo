@@ -244,6 +244,24 @@ let plan: PlayerPlan
 function planNow(): PlayerPlan {
   return playerPlan({
     search: location.search,
+    // The only read of the fragment in the player, and there is deliberately
+    // **no `hashchange` listener** behind it. The editor does have one
+    // (`site/main.ts:1313`) because it *writes* the fragment — it round-trips
+    // the scene through the URL on every edit, so it has to notice a Back
+    // press or a hand-pasted link. The player never writes it, and nothing in
+    // the player's own four framings changes it: `reflow` is driven by the
+    // container, the dpr and `fullscreenchange`, and `environmentKey`
+    // explicitly excludes the URL because "a fragment change is a different
+    // scene and is not a reflow".
+    //
+    // The one case that would need it is an embedder mutating the `<iframe
+    // src>` fragment after load and expecting the plate to follow — a live
+    // scene swap without a reload. Nothing asks for that today (R14 is about
+    // the bare directory URL resolving at all), and the cost of guessing
+    // wrong in this direction is a reload. If it is ever wanted, the listener
+    // belongs here with a cache reset and a fresh driver, not in `reflow`:
+    // a new fragment is a new scene, and the driver holds the one it booted
+    // with.
     hash: location.hash,
     // CSS px, measured off the mount — `playerpage.css` gives it the viewport
     // minus the notice strip, and an embedder gives the `<iframe>` whatever
