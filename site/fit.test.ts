@@ -281,7 +281,8 @@ describe('parseFit and the fragment', () => {
       // exactly one `#` in the whole URL, which is what makes the fragment
       // boundary unambiguous. A search carrying a `#` gives `split('#')` three
       // parts, and the two-element cast on the next line then silently
-      // truncates the scene before the parser ever sees it.
+      // truncates the scene before the parser ever sees it — demonstrated by
+      // the test immediately below, which is this floor's positive control.
       expect(url.split('#'), search).toHaveLength(2)
       const [before, after] = url.split('#') as [string, string]
       expect(after).toBe(body)
@@ -291,6 +292,32 @@ describe('parseFit and the fragment', () => {
       const query = before.includes('?') ? before.slice(before.indexOf('?')) : ''
       expect(parseFit(query), search).toBe(search === '' ? DEFAULT_FIT : parseFit(search))
     }
+  })
+
+  it('and a search carrying a # really does truncate the scene, as the guard says', () => {
+    // The positive control for the `toHaveLength(2)` floor above, whose comment
+    // described this case while no `search` in that loop contained a `#`. The
+    // comment is now true of a test rather than only of the reader's
+    // imagination, which is the same standard the two fragment-spelling
+    // controls in this file already meet.
+    //
+    // It is a sibling rather than another entry in the loop deliberately: a
+    // `search` of `'?fit=snap#x'` IS what the floor is there to reject, so
+    // adding it to that loop would redden the guard instead of exercising it.
+    const body = encodeSceneHash(SCENE)
+    const url = `/p/?fit=snap#x#${body}`
+    expect(url.split('#')).toHaveLength(3)
+    // The two-element cast the loop above performs would bind `after` to the
+    // text between the two hashes, so the scene never reaches the parser...
+    const [, after] = url.split('#') as [string, string]
+    expect(after).toBe('x')
+    expect(after).not.toBe(body)
+    // ...and what the parser gets instead is unreadable rather than silently
+    // wrong, which is the one mercy here: `'x'` carries no `v1.` prefix.
+    expect(() => parseSceneHash(`#${after}`)).toThrow(/no version prefix/)
+    // The scene itself is intact on the far side of the second `#`, so the
+    // damage really is the boundary and not the encoding.
+    expect(parseSceneHash(`#${url.split('#')[2]}`)).toEqual(SCENE)
   })
 
   it('ignores the parameter spelling when it appears inside the fragment', () => {
