@@ -1,7 +1,15 @@
 # A ball crossing the frame while bouncing.
 #
-# Two animators on ONE layer: `move` and `bounce` compose, so their
-# translations sum -- which is why there is no `move-with-bounce` preset.
+# Two animators on ONE layer: a `move` and a raw keyframe track compose, so
+# their translations sum -- which is why there is no `move-with-bounce` preset.
+#
+# The second animator was a `bounce` preset, which is gone (design 4.2b narrows
+# the registry to five verbs). It is written out as the track it compiled to,
+# not re-expressed with `move`: a bounce is a THREE-key arc and `move` has two,
+# and two stacked `move`s would SUM rather than sequence, which is a different
+# animation. A raw track is a first-class animator -- `Anim` is
+# `Track | Preset | (Track | Preset)[]` -- and 4.2b makes the presets UI
+# templates that emit exactly this.
 #
 # Note the ball is a `shape`, not a PNG. Every example here is authorable in
 # text so a reviewer can read the scene in a diff.
@@ -28,4 +36,13 @@ layers:
     depth: 1.0
     anim:
       - {kind: move, from: [0, 0], to: [520, 0]}
-      - {kind: bounce, height: 150, duration: 1.0}
+      # Up 150px and back down, once a second, forever. Compiled from the live
+      # `bounce {height: 150, duration: 1.0}` rather than reconstructed by
+      # hand, so this is byte-for-byte the track that was rendering before.
+      - keys:
+          - {t: 0, y: 0}
+          - {t: 0.5, y: -150}
+          - {t: 1, y: 0}
+        ease: easeOutBounce
+        repeat: loop
+        duration: 1.0
