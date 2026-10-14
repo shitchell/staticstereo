@@ -59,6 +59,27 @@
  * - **Keyframe times, `start`, `duration`, `fps`, `ease`, `repeat`.** Time is
  *   not geometry.
  *
+ * ## Known limitation: the exhaustiveness guard does not partition accept/refuse
+ *
+ * `scalescene.test.ts` carries a two-armed `AssertNever` guard over
+ * `Layer['type']` — scaled or refused — so that a sixth layer variant is a
+ * compile error until somebody classifies it. **Read what it actually proves
+ * before trusting it.** The two arms partition the variant *names*, not the
+ * accept/refuse *outcome*. `text` sits in the scaled arm even though an
+ * unsized text layer is refused, because the refusal is conditional on a field
+ * rather than on the variant.
+ *
+ * The consequence: a future variant with that same conditional shape — scaled
+ * when some field is present, refused when it is absent — would be put in the
+ * scaled arm, the guard would be satisfied, and the conditional half would be
+ * nobody's job. The guard catches a forgotten *variant*; it does not catch a
+ * forgotten *condition*.
+ *
+ * Recorded rather than fixed, deliberately. Representing "conditionally
+ * refused" properly means a third arm and a per-variant predicate the guard
+ * can check, which is more machinery than one conditional refusal warrants.
+ * If a second one appears, that is the moment to build it.
+ *
  * Everything here is pure and allocation-only: nothing is mutated, and the
  * output shares references only with substructures that were not rewritten.
  */
@@ -119,9 +140,13 @@ export const SCALE_REFUSALS: Record<ScaleRefusal, ScaleRefusalInfo> = {
     explanation:
       "A draw layer's geometry lives inside a module named by a path string (its fn field), " +
       'so there is no number in the scene to scale and no way to learn one without executing ' +
-      'that module. Core refuses draw layers outright at render time already, so refusing ' +
-      'them here costs nothing that was ever going to be drawn; it only moves the refusal ' +
-      'somewhere the player can explain it instead of throwing.',
+      'that module. Core does not render these at all: src/core/raster.ts throws for layer ' +
+      'type "draw", because resolving a module path is platform-specific — import() of a ' +
+      'filesystem path works in Node and not in a static browser bundle, where there is no ' +
+      'path to resolve and no bundler entry for it — so the loader seam belongs on the ' +
+      'adapter rather than guessed at in core. The player IS that static browser bundle, so ' +
+      'a draw layer was never going to be drawn here under any fit mode. Refusing it costs ' +
+      'nothing and moves the failure somewhere it can be explained instead of thrown.',
   },
   'unsized-text': {
     reason: 'unsized-text',

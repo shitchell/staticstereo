@@ -44,6 +44,14 @@ type AssertNever<T extends never> = T
  * model is a COMPILE error here until somebody decides which arm it is in —
  * which is the whole difference between "we have not got to images yet" and
  * "images silently render at their authored size inside a half-size frame".
+ *
+ * **What it does NOT prove**, stated here because this is where someone would
+ * over-trust it: the arms partition the variant *names*, not the accept/refuse
+ * *outcome*. `text` is in the scaled arm even though unsized text is refused,
+ * because that refusal is conditional on a field rather than on the variant —
+ * so a future variant with the same conditional shape would satisfy this guard
+ * and leave its conditional half unowned. See the "Known limitation" section
+ * of the module docblock for why that is recorded rather than fixed.
  */
 const SCALED_LAYER_TYPES = ['text', 'shape'] as const
 const REFUSED_LAYER_TYPES = ['image', 'gif', 'draw'] as const
@@ -284,6 +292,15 @@ describe('scaleScene — identity', () => {
     ;(track.keys[0] as Record<string, unknown>)['surplus'] = 'key level'
     const preset = (scene.layers[1]!.anim as Array<Track | Preset>)[0] as Preset
     preset['surplus'] = 'preset level'
+    // The SHAPE variant too, and not as an afterthought. P0 puts id/name on
+    // LayerBase — every variant — and a verifier showed that rewriting only
+    // `case 'shape'` as a field-by-field rebuild left this suite green, because
+    // the keys above are all planted on the text layer. A shape layer's id
+    // would then be stripped on every URL round trip with nothing red, which
+    // is precisely the `site/scene.ts` defect the trap table records.
+    const shape = scene.layers[1]! as Layer & Record<string, unknown>
+    shape['id'] = 'the-disc'
+    shape['name'] = 'the disc'
 
     const out = ok(scene, 1) as Scene & Record<string, unknown>
     expect(out).toEqual(clone(scene))
@@ -293,6 +310,10 @@ describe('scaleScene — identity', () => {
     expect((out.layers[0] as Layer & Record<string, unknown>)['id']).toBe('headline')
     expect(((out.layers[0]!.anim as Track).keys[0] as Record<string, unknown>)['surplus'])
       .toBe('key level')
+    // Per variant, by name. A deep-equal alone would be satisfied by a rebuild
+    // that happened to list every field the fixture uses.
+    expect((out.layers[1] as Layer & Record<string, unknown>)['id']).toBe('the-disc')
+    expect((out.layers[1] as Layer & Record<string, unknown>)['name']).toBe('the disc')
   })
 
   it('refuses a refusable scene at a factor of 1 too', () => {
@@ -569,6 +590,56 @@ describe('scaleScene — agreement with renderFit', () => {
     }
     expect(checked).toBe(4)
   })
+
+  it('takes the stage from the plan, floored — not from sceneScale x size', () => {
+    // W2's seam, which was documented at length and pinned by nothing. A
+    // verifier replaced `size: [plan.sceneWidth, plan.sceneHeight]` with
+    // `size: [scene.size[0] * s, scene.size[1] * s]` and the whole suite
+    // stayed green, because `accepted()` is 960x480 and `renderFit` solves the
+    // binding axis exactly — with dyadic dimensions both axes come out
+    // integral at every container size tried.
+    //
+    // 961x377 is prime-ish on both axes and 1337x900 binds neither cleanly, so
+    // the two spellings diverge: the mutation emits [558.5, 219.0993756503642]
+    // against a plan of [558, 219]. A rasteriser cannot be handed either of
+    // those — `padDepth` rejects a fractional stage — so this is the assertion
+    // that keeps the stage whole.
+    const scene: Scene = {
+      size: [961, 377],
+      fps: 12,
+      duration: 1,
+      stereo: { sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 0, cross: false, seed: 1 },
+      layers: [
+        { type: 'text', text: 'ODD', size: 37, at: [13, 29] },
+        { type: 'shape', shape: 'circle', r: 41, at: [101, 103] },
+      ],
+    }
+    let checked = 0
+    for (const [w, h] of [[1337, 900], [777, 613], [1009, 331]] as const) {
+      const plan = renderFit({ scene, availableWidth: w, availableHeight: h, dpr: 1 })
+      const out = ok(scene, plan.sceneScale)
+      // Integral, which `sceneScale * size` is not obliged to be...
+      expect(Number.isInteger(out.size[0]), `${w}x${h} width integral`).toBe(true)
+      expect(Number.isInteger(out.size[1]), `${w}x${h} height integral`).toBe(true)
+      // ...and equal to the plan's own floored stage, which is the stronger
+      // claim: rounding instead of flooring would also be integral.
+      expect(out.size[0], `${w}x${h} width`).toBe(plan.sceneWidth)
+      expect(out.size[1], `${w}x${h} height`).toBe(plan.sceneHeight)
+      // The seam itself: the plan's stage and the ideal product really do
+      // differ here, so the assertions above are not vacuously satisfied by a
+      // scene that happened to scale exactly.
+      const idealW = plan.sceneScale * scene.size[0]
+      const idealH = plan.sceneScale * scene.size[1]
+      expect(Number.isInteger(idealW) && Number.isInteger(idealH), `${w}x${h} is a real seam`)
+        .toBe(false)
+      // And the residue is under one scene px per axis — absorbed at the stage
+      // edge, inside the fusion fringe the margins cover.
+      expect(idealW - plan.sceneWidth).toBeLessThan(1)
+      expect(idealH - plan.sceneHeight).toBeLessThan(1)
+      checked++
+    }
+    expect(checked).toBe(3)
+  })
 })
 
 /* ------------------------------------------------- 7. the allow-list fails closed */
@@ -751,11 +822,16 @@ describe('SCALE_REFUSALS', () => {
    * The specific consequence each reason must name. A stub reading "not
    * supported" satisfies a length floor; it does not satisfy this.
    */
-  const MUST_SAY: Record<ScaleRefusal, RegExp> = {
-    'raster-geometry': /drawImage|native pixel|no resting scale/i,
-    'draw-layer': /path string|module/i,
-    'unsized-text': /DEFAULT_TEXT_SIZE|48/,
-    'unscalable-preset': /allow-list|scene px|depth units/i,
+  const MUST_SAY: Record<ScaleRefusal, readonly RegExp[]> = {
+    'raster-geometry': [/drawImage/, /no resting scale/],
+    // Was `/path string|module/i`. The `module` alternative was loose enough
+    // that almost any 200-character explanation satisfied it, so the length
+    // floor was doing all the work and the other three had no such slack.
+    // Required conjunctively now, for every reason: each must name the
+    // mechanism AND the consequence.
+    'draw-layer': [/path string/, /without executing/],
+    'unsized-text': [/DEFAULT_TEXT_SIZE/, /\b48\b/],
+    'unscalable-preset': [/allow-list/, /scene px/, /depth units/],
   }
 
   it('is keyed by reason and every entry knows its own key', () => {
@@ -795,10 +871,14 @@ describe('SCALE_REFUSALS', () => {
       // Long enough that a placeholder cannot satisfy it; `fit.ts`'s own
       // rejection reason runs to several lines for the same reason.
       expect(info.explanation.length, key).toBeGreaterThan(200)
-      expect(info.explanation, key).toMatch(MUST_SAY[key as ScaleRefusal])
-      checked++
+      const required = MUST_SAY[key as ScaleRefusal]
+      // Conjunctive: every pattern, not any of them.
+      expect(required.length, `${key} has required phrases`).toBeGreaterThanOrEqual(2)
+      for (const re of required) {
+        expect(info.explanation, `${key} must say ${re}`).toMatch(re)
+        checked++
+      }
     }
-    expect(checked).toBe(Object.keys(SCALE_REFUSALS).length)
-    expect(checked).toBeGreaterThanOrEqual(4)
+    expect(checked).toBeGreaterThanOrEqual(8)
   })
 })
