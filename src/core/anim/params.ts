@@ -33,9 +33,26 @@ import type { PresetKind } from './presets.js'
  * `seconds` has no entry in `PRESET_PARAMS` below and that is correct, not an
  * omission: the only seconds-valued parameters are `start` and `duration`,
  * which `overrides()` applies to *every* preset uniformly. Repeating them in
- * all six tables would say nothing a consumer could not get from the fact that
- * they are universal, and would rot the moment a seventh verb forgot them. The
- * tag exists so that whoever does surface them has the word already fixed.
+ * all nine tables would say nothing a consumer could not get from the fact
+ * that they are universal, and would rot the moment a tenth verb forgot them.
+ * The tag exists so that whoever does surface them has the word already fixed.
+ *
+ * **There are four universal parameters, not two, and the other two have no
+ * tag at all.** `overrides()` (`presets.ts`) applies `start`, `duration`,
+ * `ease` and `repeat` to every preset alike; `PRESET_PARAMS` describes none of
+ * them. `start`/`duration` at least have `seconds` waiting above. `ease` and
+ * `repeat` do not, because neither is a physical quantity: `repeat` is one of
+ * `once`/`loop`/`pingpong` and `ease` is an easing, and both are validated by
+ * `overrides()` against their own lists rather than by anything here.
+ *
+ * Saying so is the point. A consumer driving UI from this table renders no
+ * ease control and no repeat control, and — unlike a missing verb, which does
+ * not compile — finds nothing in the table to say whether that is a decision
+ * or a hole. That is precisely the provenance loss §6a exists to prevent, one
+ * field over: it is cheap to record now and a guess later. Whoever surfaces
+ * them should read `overrides()`, which is the single place all four are
+ * applied, and should extend the vocabulary above rather than inventing tags
+ * at the call site.
  */
 export const PARAM_UNITS = [
   'scenePx',
