@@ -679,6 +679,28 @@
       }
     },
     {
+      "kind": "scale",
+      "label": "bezier-ease",
+      "input": {
+        "kind": "scale",
+        "ease": "cubic-bezier(.17,.67,.83,.67)"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 1
+          },
+          {
+            "t": 1,
+            "scale": 1
+          }
+        ],
+        "ease": "cubic-bezier(.17,.67,.83,.67)",
+        "repeat": "once"
+      }
+    },
+    {
       "kind": "slide-in",
       "label": "bare",
       "input": {

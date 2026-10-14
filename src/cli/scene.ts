@@ -24,7 +24,16 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { CHANNELS, EASINGS, PRESETS, compilePreset, resolveStereo, STEREO_KEYS } from '../core/index.js'
+import {
+  CHANNELS,
+  CUBIC_BEZIER_SYNTAX,
+  EASINGS,
+  PRESETS,
+  compilePreset,
+  isEasing,
+  resolveStereo,
+  STEREO_KEYS,
+} from '../core/index.js'
 import type { AssertNever, Channel, Layer, Scene } from '../core/index.js'
 import { UsageError } from './args.js'
 import type { CliArgs } from './args.js'
@@ -438,10 +447,16 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
     }
   })
 
-  if (a['ease'] !== undefined && !(typeof a['ease'] === 'string' && a['ease'] in EASINGS)) {
+  // `isEasing`, not `ease in EASINGS`: the record holds the five named curves
+  // and `Easing` is now wider than that. The message has to name the other
+  // form as well, because a list of five curve names no longer describes what
+  // is accepted — left alone it would tell an author that a perfectly valid
+  // `cubic-bezier(...)` is invalid, and offer five alternatives that are not
+  // what they asked for.
+  if (a['ease'] !== undefined && !isEasing(a['ease'])) {
     fail(
       `${path}.ease must be one of: ${Object.keys(EASINGS).sort().join(', ')} — ` +
-      `got ${describe(a['ease'])}`,
+      `or ${CUBIC_BEZIER_SYNTAX} — got ${describe(a['ease'])}`,
     )
   }
   if (a['repeat'] !== undefined &&

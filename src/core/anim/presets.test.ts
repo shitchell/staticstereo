@@ -214,6 +214,33 @@ describe('presets implemented from prose spec', () => {
     }
   })
 
+  it('every preset accepts a cubic-bezier ease and carries it into the track', () => {
+    // `overrides()` tested `ease in EASINGS`, which is every named curve and
+    // nothing else — so it rejected the entire bezier half of `Easing`. The
+    // string travels into the `Track` unchanged; `evalTrack` is what resolves
+    // it, and it is the only thing that needs to.
+    const ease = 'cubic-bezier(.17,.67,.83,.67)'
+    for (const kind of Object.keys(PRESETS)) {
+      expect(compilePreset({ kind, ease }, ctx).ease, kind).toBe(ease)
+    }
+  })
+
+  it('names the cubic-bezier form when it rejects an easing', () => {
+    // The message was built entirely from `Object.keys(EASINGS)`, which no
+    // longer describes what is accepted. Left alone it tells an author that a
+    // perfectly valid `cubic-bezier(...)` is invalid — and then lists five
+    // alternatives, none of which is what they wanted.
+    expect(() => compilePreset({ kind: 'bob', ease: 'elastic' }, ctx))
+      .toThrow(/cubic-bezier/)
+    // A malformed bezier is still a rejection, and still names the form.
+    expect(() => compilePreset({ kind: 'bob', ease: 'cubic-bezier(0,0,1)' }, ctx))
+      .toThrow(/cubic-bezier/)
+    // Out-of-range x is rejected at the validator rather than reaching the
+    // solver, which throws from inside the render loop.
+    expect(() => compilePreset({ kind: 'bob', ease: 'cubic-bezier(2,0,1,1)' }, ctx))
+      .toThrow(/unknown easing/)
+  })
+
   it('rejects malformed params instead of quietly using the default', () => {
     expect(() => compilePreset({ kind: 'move', to: 'nope' }, ctx)).toThrow(/\[x, y\] number pair/)
     expect(() => compilePreset({ kind: 'slide-in', from: 'sideways' }, ctx)).toThrow(/must be one of/)

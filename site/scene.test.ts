@@ -146,6 +146,45 @@ describe('validateScene', () => {
     expect(scene.layers).toHaveLength(3)
   })
 
+  it('accepts a cubic-bezier ease on a track and on a preset', () => {
+    // The site half of the acceptance: the same scene must also pass the
+    // CLI's `validateScene`. This validator **rebuilds** the track field by
+    // field, so a rejected `ease` here is not merely an error — before the
+    // check was widened it was an error; had it instead been dropped, the
+    // shared link would have rendered with `linear` and said nothing.
+    const scene = validateScene({
+      size: [8, 8],
+      layers: [
+        {
+          type: 'text', text: 'A',
+          anim: { keys: [{ t: 0 }, { t: 1, x: 5 }], ease: 'cubic-bezier(.17,.67,.83,.67)' },
+        },
+        { type: 'text', text: 'B', anim: { kind: 'bob', ease: 'cubic-bezier(0, 0, 1, 1)' } },
+      ],
+    })
+    expect((scene.layers[0]!.anim as Track).ease).toBe('cubic-bezier(.17,.67,.83,.67)')
+  })
+
+  it('still rejects a malformed or out-of-range cubic-bezier, naming the form', () => {
+    for (const ease of [
+      'cubic-bezier(0,0,1)', 'cubic-bezier(a,b,c,d)', 'cubic-bezier(2,0,1,1)', 'snap',
+    ]) {
+      let message = ''
+      try {
+        validateScene({
+          size: [8, 8],
+          layers: [{ type: 'text', text: 'A', anim: { keys: [{ t: 0 }], ease } }],
+        })
+      } catch (err) {
+        message = (err as Error).message
+      }
+      expect(message, ease).toMatch(/ease/)
+      // The named list stopped describing what is accepted the moment the
+      // type widened, so the message has to name the other form as well.
+      expect(message, ease).toMatch(/cubic-bezier/)
+    }
+  })
+
   it('rejects a raw track with no usable keys', () => {
     expect(() => validateScene({
       size: [8, 8],

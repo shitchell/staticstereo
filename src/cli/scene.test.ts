@@ -292,9 +292,42 @@ describe('validateScene — layers', () => {
     expect(checkFails(
       'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], ease: snap}}\n',
     )).toMatch(/ease.*linear|linear.*ease/s)
+    // The list of named curves no longer describes what is accepted, so the
+    // message has to name the other form too — otherwise it tells an author
+    // their valid easing is invalid and offers five curves that are not it.
+    expect(checkFails(
+      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], ease: snap}}\n',
+    )).toMatch(/cubic-bezier/)
     expect(checkFails(
       'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], repeat: yes}}\n',
     )).toMatch(/repeat/)
+  })
+
+  it('accepts a cubic-bezier ease on a track and on a preset', () => {
+    // Both validators and `overrides()` tested `ease in EASINGS`, which
+    // rejects every bezier string. This is the CLI half of the acceptance:
+    // the same scene must pass through `site/scene.ts` too.
+    const yaml =
+      'size: [40, 20]\nlayers:\n' +
+      '  - {type: text, text: A, anim: {keys: [{t: 0}, {t: 1, x: 5}], ' +
+      'ease: "cubic-bezier(.17,.67,.83,.67)"}}\n' +
+      '  - {type: text, text: B, anim: {kind: bob, ease: "cubic-bezier(0, 0, 1, 1)"}}\n'
+    const scene = check(yaml)
+    const track = scene.layers[0]!.anim as { ease: string }
+    expect(track.ease).toBe('cubic-bezier(.17,.67,.83,.67)')
+  })
+
+  it('still rejects a malformed or out-of-range cubic-bezier', () => {
+    // Accepting the prefix and nothing else would push the failure into the
+    // solver, which throws from inside the render loop with no file or path
+    // to name — the one thing a scene validator exists to prevent.
+    for (const ease of [
+      'cubic-bezier(0,0,1)', 'cubic-bezier(a,b,c,d)', 'cubic-bezier(2,0,1,1)',
+    ]) {
+      expect(checkFails(
+        `size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], ease: "${ease}"}}\n`,
+      ), ease).toMatch(/ease/)
+    }
   })
 
   it('rejects an animator that is neither a preset nor a track', () => {

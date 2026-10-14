@@ -1,4 +1,12 @@
-import { CHANNELS, PRESETS, EASINGS, resolveStereo, STEREO_KEYS } from '../src/core/index.js'
+import {
+  CHANNELS,
+  CUBIC_BEZIER_SYNTAX,
+  EASINGS,
+  PRESETS,
+  isEasing,
+  resolveStereo,
+  STEREO_KEYS,
+} from '../src/core/index.js'
 import type { Anim, Easing, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
@@ -178,10 +186,15 @@ function validateTrack(v: Record<string, unknown>, path: string): Track {
   const track: Track = { keys: keys.map((k, i) => validateKey(k, `${path}.keys[${i}]`)) }
   if (v['ease'] !== undefined) {
     const ease = v['ease']
-    if (typeof ease !== 'string' || !(ease in EASINGS)) {
+    // `isEasing`, not `ease in EASINGS`: the record holds the five named
+    // curves and `Easing` is now wider than that. The message names the other
+    // form too — a list of five curve names no longer describes what is
+    // accepted, and without it an author is told that a valid
+    // `cubic-bezier(...)` is invalid.
+    if (!isEasing(ease)) {
       fail(
-        `${path}.ease must be one of ${Object.keys(EASINGS).join(', ')}, got ` +
-        `${JSON.stringify(ease)}`,
+        `${path}.ease must be one of ${Object.keys(EASINGS).join(', ')}, or ` +
+        `${CUBIC_BEZIER_SYNTAX}, got ${JSON.stringify(ease)}`,
       )
     }
     track.ease = ease as Easing

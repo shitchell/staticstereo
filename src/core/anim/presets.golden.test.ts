@@ -90,10 +90,20 @@ const FULL: Record<string, Record<string, unknown>> = {
  * `[0,0] → [300,400]` at 25 px/sec is a 3-4-5 triangle scaled by 100: the
  * distance is exactly 500 and the duration exactly 20, both representable. An
  * implementation that measured one axis only would record 12 or 16 instead.
+ *
+ * `scale/bezier-ease` records that a `cubic-bezier(...)` survives compilation
+ * into the `Track` as the string it was written as. It is an EXTRA rather
+ * than a change to any `FULL` entry on purpose: widening what `ease` accepts
+ * must not move a single recorded output, and editing a `FULL` entry would
+ * have rewritten three existing tracks and destroyed that evidence. `scale`
+ * because its own default is `linear`, so the override is visible, and
+ * because its track is two keys of one channel — nothing else in the
+ * recorded output can absorb a mistake.
  */
 const EXTRA: Record<string, { label: string, params: Record<string, unknown> }[]> = {
   bounce: [{ label: 'h-alias', params: { h: 63 } }],
   move: [{ label: 'speed', params: { from: [0, 0], to: [300, 400], speed: 25 } }],
+  scale: [{ label: 'bezier-ease', params: { ease: 'cubic-bezier(.17,.67,.83,.67)' } }],
 }
 
 /**

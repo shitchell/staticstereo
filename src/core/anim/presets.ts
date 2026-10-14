@@ -5,10 +5,10 @@
  *
  * Nothing here animates opacity. Fading is motion in `depth` (`push`).
  */
-import { EASINGS } from './easing.js'
+import { CUBIC_BEZIER_SYNTAX, EASINGS, isEasing } from './easing.js'
 import { degToRad } from '../angle.js'
 import type { Channel } from './track.js'
-import type { Easing, Preset, Track } from '../types.js'
+import type { Preset, Track } from '../types.js'
 
 /**
  * Measurements a preset may need. `contentW`/`contentH` are the *measured* size
@@ -161,13 +161,18 @@ function oneOf<T extends string>(
 function overrides(tr: Track, p: Preset): Track {
   const ease = p['ease']
   if (ease !== undefined) {
-    if (typeof ease !== 'string' || !(ease in EASINGS)) {
+    // `isEasing`, not `ease in EASINGS`: the record holds the five named
+    // curves, and `Easing` also admits `cubic-bezier(...)`. The message names
+    // that form too, because a list of five curve names has stopped
+    // describing what is accepted — without it an author is told that their
+    // valid easing is invalid, and offered five curves that are not it.
+    if (!isEasing(ease)) {
       throw new Error(
         `preset "${p.kind}": unknown easing ${JSON.stringify(ease)} — ` +
-        `valid: ${Object.keys(EASINGS).join(', ')}`,
+        `valid: ${Object.keys(EASINGS).join(', ')}, or ${CUBIC_BEZIER_SYNTAX}`,
       )
     }
-    tr.ease = ease as Easing
+    tr.ease = ease
   }
   const repeat = p['repeat']
   if (repeat !== undefined) {
