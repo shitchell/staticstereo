@@ -231,7 +231,7 @@ type _CompositionDisjoint = AssertNever<Extract<SummedChannel, MultipliedChannel
  * `ctx` carries the scene/content measurements a preset may need, and every
  * field of it now has a reader: `push` reads `layerDepth`, and `move`'s
  * symbolic off-stage endpoints read the other six to turn `offLeft`,
- * `offRight`, `offTop` and `offBottom` into stage px. It is optional only
+ * `offRight`, `offTop` and `offBottom` into scene px. It is optional only
  * because an anim built entirely from raw tracks does not need it; a preset
  * without it throws rather than guessing a size.
  */
@@ -263,9 +263,12 @@ export function composeAnim(
     // Each channel accumulates into its own slot, so replacing the seven
     // statements with these loops reorders no float operation: *within* a
     // channel the sequence is still animator by animator, in list order, which
-    // is the only ordering that could change a result. Verified by comparing
-    // both spellings bitwise (`Object.is`, so −0 and NaN count) over 280,000
-    // channel values of mixed-magnitude random compositions: zero differences.
+    // is the only ordering that could change a result. That makes the two
+    // spellings bitwise identical **by construction**, which is the whole of
+    // the argument. A differential sweep against the hand-written spelling was
+    // run when this landed and found zero differences, but it is deliberately
+    // not quoted here as evidence: it cannot be rerun, the spelling it compared
+    // against having been deleted in the same commit.
     for (const ch of SUMMED_CHANNELS) acc[ch] += t[ch]
     for (const ch of MULTIPLIED_CHANNELS) acc[ch] *= t[ch]
   }

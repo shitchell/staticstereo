@@ -596,7 +596,11 @@ export const PRESETS: Record<string, PresetFn> = REGISTRY
  * throw, nothing logged, a still frame. `{kind: 'toString'}` was worse: it
  * returned the *string* `"[object Undefined]"` as a `Track`. `{kind:
  * '__proto__'}` threw `TypeError: fn is not a function` from in here, naming
- * no field and no scene. The kind is a string from a scene file, and on the
+ * no field and no scene. `{kind: 'valueOf'}` — the fourth, and the one both
+ * `presets.test.ts` and `site/scene.test.ts` carry in their `INHERITED` arrays
+ * — threw `TypeError: Cannot convert undefined or null to object`, from inside
+ * `Object.prototype.valueOf` called with no receiver, which names neither this
+ * function nor the scene. The kind is a string from a scene file, and on the
  * site the scene is the URL, so none of those four are hypothetical.
  */
 export function compilePreset(p: Preset, ctx: PresetCtx): Track {

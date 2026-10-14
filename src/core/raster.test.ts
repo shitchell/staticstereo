@@ -749,7 +749,7 @@ describe('move\'s off-frame endpoints against the plate', () => {
   const STEREO: Scene['stereo'] = { sepFar: SEP_FAR, sepNear: 5, algorithm: 'shift' }
 
   /**
-   * 6 characters at 11px measures 39.6 stage px on the fake's metrics. Chosen
+   * 6 characters at 11px measures 39.6 scene px on the fake's metrics. Chosen
    * so that no two quantities in the context can be swapped for each other
    * without a number here moving: it is non-integral, it is not a multiple of
    * either margin, and it differs from `sceneW` (50), `sceneH` (12) and
@@ -812,7 +812,7 @@ describe('move\'s off-frame endpoints against the plate', () => {
 
   /**
    * The string held at its far endpoint, with its resting origin slid right by
-   * `shift` stage px.
+   * `shift` scene px.
    *
    * `to` is left at its default and the frame is taken at t = 0, so the pose is
    * `from` exactly — there is no interpolation, easing or clamping between the
