@@ -277,6 +277,7 @@ contradicted this table.
 | Phase | Owner | Depends on | Closes |
 |---|---|---|---|
 | **P0** Scene model | PM-MODEL | — | R9, R10 |
+| **P0b** Off-stage endpoints + the guards P0 left | PM-ENDPOINTS | P0 | *nothing new — closes gaps in R9* |
 | **P1** `shared/` + `.stst` | PM-SHARED | P0 | R17, R18 |
 | **P7** Perception module | PM-SHARED | P0 | R22 *(model half)* |
 | **P2** Player | PM-PLAYER | P0 | R14–R16, R20, R21 |
@@ -301,6 +302,20 @@ for the player; P3 lifts it into the editor. Then P4 and P6 both consume it, and
 order is P4 → P6.
 
 **Genuine concurrency is P2 ∥ (P1 + P7)**, which share no files.
+
+**P0b was not planned and is recorded here after the fact.** It exists because P0 landed
+green with one design item unbuilt — design §4.2's symbolic off-stage endpoints — and that
+omission had three consequences nothing would have caught: two `PresetCtx` fields with no
+reader, the plate-vs-stage margin relationship with no assertion, and no shipped scene
+rendering a scroll's far endpoint, which is why one stayed wrong by 17px. It also carries
+`composeAnim`'s unguarded channel list and the prototype-chain defect P2 escalated out of
+`site/scene.ts`.
+
+The lesson for later phases: **a phase can pass its own gate with a design item simply
+missing**, because the gate checks the criteria list and the criteria list is derived from
+the plan rather than from the design. Where the two disagree, nothing fails. A PM should
+diff its design sections against its criteria before dispatching, and report any item the
+criteria do not cover.
 
 ---
 
