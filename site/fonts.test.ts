@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { existsSync, readFileSync, statSync } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadVendoredFont } from './fonts.js'
 import {
@@ -12,11 +12,11 @@ import {
  *
  * Two separable claims, and neither needs a browser:
  *
- * 1. **`site/styles.css` really declares the vendored files**, one `@font-face`
- *    per weight, under the same family name `src/web/canvas.ts` retargets
- *    `sans-serif` to, pointing at files that exist. A typo in the family name
- *    is the failure this guards: everything keeps working, the page silently
- *    renders in the engine's own sans, and the legibility panel quietly
+ * 1. **Each page's stylesheet really declares the vendored files**, one
+ *    `@font-face` per weight, under the same family name `src/web/canvas.ts`
+ *    retargets `sans-serif` to, pointing at files that exist. A typo in the
+ *    family name is the failure this guards: everything keeps working, the page
+ *    silently renders in the engine's own sans, and the legibility panel quietly
  *    disagrees with `stst` again — the exact bug the vendoring was for.
  * 2. **`loadVendoredFont` treats a non-loading face as a failure.** The trap is
  *    that `FontFaceSet.load` *resolves* — with an empty array — when no
@@ -32,7 +32,28 @@ import {
  */
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
-const css = readFileSync(join(ROOT, 'site/styles.css'), 'utf8')
+
+/**
+ * Every stylesheet that has to declare the faces, because every *document*
+ * that has to display them loads one of these and nothing else.
+ *
+ * `playerpage.css` is a forced duplicate of `styles.css`'s three rules — its
+ * own header records why (the player "shares nothing" with the editor sheet by
+ * design, and a shared partial would mean editing `styles.css`, which this
+ * phase may not touch). A duplicate is exactly the thing that drifts, so both
+ * copies are read here rather than only the editor's.
+ *
+ * This is also the **only** place either sheet's face list is tied to
+ * {@link VENDORED_WEIGHTS}. `site/dist.test.ts`'s player font checks cannot do
+ * it: vite emits a woff2 *because* a stylesheet referenced it, so a deleted
+ * `@font-face` disappears from the emitted files and from the emitted CSS
+ * together and every equality there still holds. Measured: with the `900`
+ * block deleted from `playerpage.css` and the player rebuilt, `dist-player/`
+ * carried `inter-400` and `inter-700`, the emitted sheet referenced exactly
+ * those two, and the suite reported **1329 passed / 0 failed**. Read off the
+ * sources rather than off a build so it is not gated on one either.
+ */
+const SHEETS = ['site/styles.css', 'site/playerpage.css'] as const
 
 /** Every `@font-face { … }` block in the stylesheet, as its raw body. */
 function fontFaceBlocks(text: string): string[] {
@@ -44,8 +65,8 @@ function declaration(block: string, property: string): string | undefined {
   return m?.[1]?.trim()
 }
 
-describe('site/styles.css declares the vendored face', () => {
-  const blocks = fontFaceBlocks(css)
+describe.each(SHEETS)('%s declares the vendored face', sheet => {
+  const blocks = fontFaceBlocks(readFileSync(join(ROOT, sheet), 'utf8'))
 
   it('has exactly one @font-face per vendored weight', () => {
     // The vacuity guard for everything below: a regex that matched nothing
@@ -75,7 +96,10 @@ describe('site/styles.css declares the vendored face', () => {
       expect(url!.startsWith('/')).toBe(false)
       expect(url!.endsWith(vendoredFontPath(weight, 'woff2').replace('assets/fonts/', '')))
         .toBe(true)
-      const onDisk = resolve(ROOT, 'site', url!)
+      // Resolved against the *sheet's own* directory and not against a
+      // hard-coded `site/`: a `url()` in CSS is relative to the stylesheet, so
+      // a sheet added one directory deeper has to be checked where it lives.
+      const onDisk = resolve(ROOT, dirname(sheet), url!)
       expect(existsSync(onDisk), onDisk).toBe(true)
       rows.push(`${weight}=${statSync(onDisk).size}B`)
       expect(src).toContain('woff2')

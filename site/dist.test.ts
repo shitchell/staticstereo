@@ -170,21 +170,33 @@ function filesUnder(dir: string): string[] {
  * for the literal `3`, and the only side of a font assertion that is not
  * derived from the thing being asserted.
  *
- * Both font checks below ask "is every vendored weight reachable", which needs
- * two independent sides: the references found by grepping the emitted CSS, and
- * the files vite actually wrote. Comparing references against references is
- * what the nested block did after it stopped pinning `3`, and it cannot fail —
- * same bytes, same predicate, so a dropped `url()` disappears from both sides
- * at once. Measured: with one `src:url(...)` replaced by `src:local(Inter)` in
- * `dist-player/assets/player-*.css`, the nested block reported **1 passed**
- * while the file it claimed to be checking was unreferenced; the pinned `3` one
- * block down was the only assertion in this file that went red
- * (`expected 2 to be 3`).
+ * Both font checks below ask the narrower question **"is every woff2 this build
+ * emitted still reachable"** — not "is every vendored weight present". They
+ * cannot ask the second one. Vite emits an asset *because* a stylesheet
+ * referenced it, so a deleted `@font-face` takes the file and the reference
+ * with it and every comparison here holds over the smaller set. Measured: with
+ * the `900` block deleted from `site/playerpage.css` and the player rebuilt,
+ * `dist-player/` carried `inter-400` and `inter-700`, the emitted sheet
+ * referenced exactly those two, and the suite reported **1329 passed / 0
+ * failed**. `site/fonts.test.ts` is where the weight list is pinned, over both
+ * page stylesheets and off the sources, so it is not gated on a build.
+ *
+ * What the emitted files *are* independent of is the **references**, and that
+ * is the mutation these blocks were measured against. Comparing references
+ * against references is what the nested block did after it stopped pinning
+ * `3`, and it cannot fail — same bytes, same predicate, so a dropped `url()`
+ * disappears from both sides at once. Measured: with one `src:url(...)`
+ * replaced by `src:local(Inter)` in `dist-player/assets/player-*.css`, the
+ * nested block reported **1 passed** while the file it claimed to be checking
+ * was unreferenced; the pinned `3` one block down was the only assertion in
+ * this file that went red (`expected 2 to be 3`).
  *
  * Keyed on the directory so each block reads the tree it is actually about, and
  * returned sorted so a set comparison does not depend on readdir order. It
  * tracks a fourth vendored weight without an edit, which is the property the
- * pinned count was traded away for — this keeps that and restores the guard.
+ * pinned count was traded away for — this keeps that and restores the
+ * *reference* guard. The weight-count guard the pinned `3` also happened to be
+ * is restored in `site/fonts.test.ts`, not here.
  */
 function emittedFontNames(dir: string): string[] {
   return filesUnder(dir)
@@ -1017,6 +1029,11 @@ describe.skipIf(!freshPlayer)('the player answers at the bare directory URL (R14
         // compared against something independent this pinned `3` was the only
         // assertion in the file that caught a lost font reference: loosening it
         // first would have left a window with no guard at all.
+        //
+        // It *was* a loosening in one respect, and that is paid for elsewhere:
+        // the literal also happened to assert "three weights exist", which no
+        // check in this file can, for `emittedFontNames`' recorded reason.
+        // `site/fonts.test.ts` asserts it over both page stylesheets instead.
         //
         // Basenames, because the reference is resolved against the
         // *stylesheet's* URL one directory deeper than the document — the hop
