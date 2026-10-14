@@ -223,6 +223,30 @@ fiction**, and a phase that economises on them is not saving effort, it is remov
 sensor. Both PMs volunteered their own failure lists unprompted; treat that as the
 expected standard for a stand-down report rather than as unusual candour.
 
+### 1.2e-ter A PM's acceptance criteria are the weakest thing it produces
+
+PM-SHELL named this about itself and it is sharper than §1.2e-bis:
+
+> "My acceptance criteria are the weakest artefact I produce, because they are the one
+> thing I write that I cannot check against the code."
+
+A PM's *reports* being unverifiable is bad. Its *acceptance criteria* being unverifiable is
+worse, because criteria are **prescriptive** — a worker handed an impossible one must
+either obey it, which produces wrong work, or refuse it, which costs a round trip and
+only happens if the worker has been told it may. In one cluster, three separate workers
+declined to build on their PM's assertions: two refused unsatisfiable acceptance criteria
+and proved why, and a third re-derived a premise its brief had explicitly filed under
+*"what is already ruled out, so do not re-derive it"* — and found it false.
+
+Two consequences:
+
+1. **Every acceptance criterion a PM writes should be checkable by the worker before it
+   starts**, and the brief should say so in as many words. A criterion the worker cannot
+   evaluate up front is a criterion the PM could not evaluate either.
+2. **"Already ruled out, do not re-derive" is the most dangerous sentence in a brief.** It
+   is an instruction to skip exactly the cheap check §1.2e says never to skip. Use it only
+   for things settled by a command whose output is quoted in the brief.
+
 ### 1.2f Escalate on conflict, not only on uncertainty
 
 The worker that stopped a cluster rather than comply was not being careful in general. It
@@ -755,6 +779,7 @@ Each already cost a correction. Hand this table to every worker.
 | Trap | Reality |
 |---|---|
 | `npm run typecheck \| tail` exited 0, so it is clean | `$?` after a pipeline is **`tail`'s** status. Redirect to a file and echo `$?`. |
+| a freshness gate skips when stale | Not always — and the other failure is worse. `purity.test.ts` had **no freshness gate at all**, only `existsSync`, so it *silently passed* over stale output rather than skipping. On a tree stale by `touch` alone: 62 files, 1349 passed, **22 skipped, exit 0**. A silent pass is a green claim about output nobody checked; a silent skip is at least absent. |
 | the suite is 862 tests | 855 on `main`; 862 with `400ba98`; ±8 move with ffmpeg/tsc availability, and `dist.test.ts` freshness is **mtime**-based. Build first or two suites skip silently. |
 | `purity.test.ts` guards `site/` | It parses `dist/core` only. Nothing in `site/` can turn it red. |
 | the channel list is guarded | Guarded in `track.ts` only; duplicated unguarded in `src/cli/scene.ts` and `site/scene.ts`. |
