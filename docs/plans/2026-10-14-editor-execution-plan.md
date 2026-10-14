@@ -67,6 +67,29 @@ once, at bounded cost, without reading it.
   `DEVIATIONS`. A third round is an escalation, not a round.
 - **Gate runner** — runs §6's sequence and reports numbers. Implemented none of the phase.
 
+### 1.2a A PM's context is finite, and a phase will exhaust it
+
+Workers are ephemeral by design, so their context cost dies with them. **A PM is not, and
+that is a defect in the tier as originally specified.** PM-PLAYER ran P2 for 102 tool
+calls and ~277k tokens and then stopped with a one-line non-report — "waiting on W5's
+clean tree" — holding the entire phase state in a context it could no longer use. The work
+was intact; the supervision was not.
+
+Two obligations follow, and both are cheap:
+
+**Every PM keeps a ledger**, updated **at every task completion**, never at phase end. It
+lives in the scratchpad as `P<n>-LEDGER.md` and always carries: criteria status with the
+commit for each, orchestrator rulings status, current gate numbers, open escalations, and
+the next task. A PM that maintains this can be replaced for free.
+
+**A PM that senses its context running out says so and stops.** That is a successful
+outcome, not a failure — a successor reads the ledger and loses nothing. A PM that pushes
+on until it degrades costs the orchestrator a reconstruction it is not allowed to do by
+reading code.
+
+The orchestrator should expect to replace a PM at least once in any phase above ~20 tasks,
+and should treat a PM's own "I am running low" as the normal end of a shift.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
