@@ -7,6 +7,7 @@ import {
   resolveStereo,
   STEREO_KEYS,
 } from '../src/core/index.js'
+import type { AssertNever, Channel } from '../src/core/index.js'
 import type { Anim, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
@@ -46,6 +47,16 @@ const REPEATS = ['once', 'loop', 'pingpong'] as const
  * the CLI and the rasteriser both handle.
  */
 const KEY_CHANNELS = ['t', ...CHANNELS] as const
+type KeyChannel = typeof KEY_CHANNELS[number]
+// The guard, not the spread, is what keeps this honest: it fails the build if
+// anyone writes the list out again, in either direction. Mirrors
+// `src/cli/scene.ts`, which has carried this pair since `69b2f4a` while this
+// file never had it. The asymmetry mattered: measured by replacing the spread
+// above with the drifted list it used to be, `npm run typecheck` exited 0 and
+// only `npm test` objected — so the one validator reachable from a shared link
+// was the one where the drift could reach a reviewer's eyes last.
+type _NoKeyChannelMissing = AssertNever<Exclude<Channel, KeyChannel>>
+type _NoKeyChannelExtra = AssertNever<Exclude<KeyChannel, Channel | 't'>>
 
 
 function fail(message: string): never {
