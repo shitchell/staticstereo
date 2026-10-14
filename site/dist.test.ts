@@ -254,6 +254,142 @@ const fresh = built && newerThanSources(DIST, 'vite.site.config.ts')
  */
 const freshPlayer = builtPlayer && newerThanSources(DIST_PLAYER, 'vite.player.config.ts')
 
+/* ===================================================================== */
+/*  the gates above are sensors, and until now nothing read them          */
+/* ===================================================================== */
+
+/**
+ * `fresh` and `freshPlayer` are false in two situations that are not the same
+ * situation, and every block in this file treats them identically.
+ *
+ * A **clean checkout** has never built, so there is nothing on disk to assert
+ * over and nothing to mistake for evidence. A **stale tree** has built, and the
+ * sources have moved since: the directories are there, every grep below would
+ * happily read them, and the file quietly declines to. Both skip; both exit 0.
+ * Only the second one lies.
+ *
+ * Measured on this branch, which is why this block exists rather than a note:
+ * `touch site/main.ts` — no edit, just an mtime — then `npm test` reports
+ *
+ *     Test Files  62 passed (62)
+ *          Tests  1349 passed | 22 skipped (1371)        exit 0
+ *
+ * and the 22 are every Pages-critical assertion in this file: the absolute-path
+ * checks, both `yuv444p` leak probes, the served-URL block, and the whole
+ * no-editor-code pair. A green summary over a third of the file not running.
+ * Every worker in this phase has had to *remember* to rebuild, which is the
+ * definition of a check that is not one.
+ *
+ * ## The clean checkout stays green. That policy is kept, not traded away
+ *
+ * "`vitest run` on a clean checkout is green" is recorded three times in this
+ * file ({@link builtPlayer}, {@link newerThanSources}, and the notice at the
+ * bottom) and once in `.github/workflows/ci.yml`. With no `dist-site/` and no
+ * `dist-player/` on disk, {@link staleOutputs} returns `[]` and this passes.
+ * `git clone && npm ci && npm test` is unaffected.
+ *
+ * What changes is the middle state, which that policy never spoke about.
+ * {@link newerThanSources} says "a stale tree is treated as *not built* rather
+ * than as a failure, matching the policy below that `vitest run` on a clean
+ * checkout is green" — it borrows the clean-checkout rationale for a case that
+ * is not the clean-checkout case. An absent directory promises nothing. A
+ * present one that the suite silently declines to read is a check reporting
+ * fine when it cannot see, and the two are opposite failures, not one.
+ *
+ * The middle state is also only reachable by someone who **built and then
+ * changed something** — which is to say by exactly the person who needs telling
+ * — and is unreachable in CI, where both builds are their own steps
+ * immediately ahead of the suite (asserted below). So nothing is traded: the
+ * workflow the recorded policy protects is untouched, and the workflow that
+ * produced every near-miss in this phase now fails loudly.
+ *
+ * ## This also closes the hole {@link builtPlayer} records as unfixable
+ *
+ * That docblock states that a *failed* player build is indistinguishable from
+ * an unbuilt one — `vite build` empties `outDir` before `generateBundle`, so a
+ * throwing plugin leaves `dist-player/` present and **empty** — and declines to
+ * fix it because "a flag that treated an empty directory as a *failure* would
+ * make `vitest run` on a clean checkout red". That is true of the *flag* and
+ * false of the predicate here, which asks whether the directory **exists**
+ * before it asks whether it is fresh. An empty `dist-player/` exists; a clean
+ * checkout's does not. The constraint the rationale protects is intact and the
+ * hole is shut, so `build:site` failing as its own CI step is no longer the
+ * only thing standing between a failed player build and a green suite.
+ */
+interface BuildOutput {
+  /** The directory's name, which is what the failure message has to say. */
+  readonly label: string
+  /**
+   * On disk at all. The clean-checkout discriminator, and deliberately the
+   * *directory* rather than its entry document: an emptied `dist-player/` left
+   * by a failed build must read as "someone built here", not as "nobody did".
+   */
+  readonly exists: boolean
+  /** On disk **and** newer than every non-test source it is built from. */
+  readonly fresh: boolean
+}
+
+const BUILD_OUTPUTS: readonly BuildOutput[] = [
+  { label: 'dist-site', exists: existsSync(DIST), fresh },
+  { label: 'dist-player', exists: existsSync(DIST_PLAYER), fresh: freshPlayer },
+]
+
+/**
+ * The outputs that are on disk and are not evidence. Empty means there is
+ * nothing here that could be mistaken for a checked tree.
+ *
+ * The all-absent case is answered over the **whole list** rather than per
+ * directory, and that is the half that would otherwise be missed: `build:site`
+ * emits both, so one present and one absent is a half-built tree, in which the
+ * player's 14 assertions skip while the site's 8 run and the summary line reads
+ * exactly as it does on a full pass.
+ */
+function staleOutputs(outputs: readonly BuildOutput[]): string[] {
+  if (outputs.every(o => !o.exists)) return []
+  return outputs.filter(o => !o.fresh).map(o => o.label)
+}
+
+describe('a stale build is not a checked one', () => {
+  it('has either built every output directory this file reads, or none of them', () => {
+    expect(
+      staleOutputs(BUILD_OUTPUTS),
+      'these directories are on disk and do not correspond to the current sources, so every ' +
+      'assertion in this file that reads them is skipped — which is why this is what failed ' +
+      'rather than one of them. Run `npm run build && npm run build:site`, then `npm test`. ' +
+      'A tree with neither dist-site/ nor dist-player/ is a clean checkout and passes here; ' +
+      'it is output that exists and is not evidence that this guards against.',
+    ).toEqual([])
+  })
+
+  it('would say so — the same predicate, over trees that are wrong on purpose', () => {
+    // The paired control, and it is not optional here: on a correctly built
+    // tree — CI's, always — the test above never exercises its failing branch,
+    // so nothing but this would notice the predicate being gutted into
+    // `() => []`. Pure inputs rather than a mutated repo, because the thing
+    // being controlled is the decision and not the stat() calls.
+    const absent = { exists: false, fresh: false }
+    expect(
+      staleOutputs([{ label: 'dist-site', ...absent }, { label: 'dist-player', ...absent }]),
+      'a clean checkout must stay green — the recorded policy this predicate is built around',
+    ).toEqual([])
+    expect(
+      staleOutputs([
+        { label: 'dist-site', exists: true, fresh: true },
+        { label: 'dist-player', exists: true, fresh: false },
+      ]),
+    ).toEqual(['dist-player'])
+    // The half-built tree, which is the case the whole-list form exists for:
+    // `build:site` emits both, so one of each is a build that did not finish
+    // and not a checkout that never started.
+    expect(
+      staleOutputs([
+        { label: 'dist-site', exists: true, fresh: true },
+        { label: 'dist-player', exists: false, fresh: false },
+      ]),
+    ).toEqual(['dist-player'])
+  })
+})
+
 /** Every `src=` / `href=` value in the document. */
 function assetRefs(html: string): string[] {
   return [...html.matchAll(/(?:src|href)="([^"]*)"/g)].map(m => m[1]!)
