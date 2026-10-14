@@ -28,6 +28,40 @@ const MOVED = ['frameTimesOf', 'frameIndexAt', 'timeOfFrame', 'lastFrameTime'] a
 
 const SOURCE = readFileSync(new URL('./transport.ts', import.meta.url), 'utf8')
 
+/**
+ * The editor's own modules. The player may not pull any of them in, by phase
+ * brief: `UiState`, `reduce` and the editor panels stay on the other side.
+ */
+const EDITOR_MODULES = [
+  'controls', 'main', 'examples', 'legibility', 'diagnostics', 'depthmap', 'stageguide',
+] as const
+
+/**
+ * Does `source` reach for one of `modules` by **any** import spelling?
+ *
+ * Both import bans in this file used to be written as `/from\s+'\.\/controls/`
+ * and its seven-module sibling: the `from` keyword, and single quotes. So
+ * `from "./controls.js"` passed, as did a bare `import './controls.js'` and a
+ * dynamic `import('./controls.js')`. Measured: adding
+ * `import { reduce } from "./controls.js"` to `transport.ts` — the editor's
+ * whole reducer, by the back door the move existed to close — left this file
+ * at 23 passed, `transportdriver.test.ts` at 12, and the full suite at
+ * 50 files / 1162 passed / 0 skipped.
+ *
+ * Prettier would not write the double-quoted form, which is why the old guard
+ * survived review; "unlikely" and "guarded" are not the same property, and the
+ * comment above it was being read as the second.
+ *
+ * A strict superset of the two patterns it replaces — the same `./`-prefix
+ * match, widened to all three quote characters and to `import`/`require` with
+ * or without the call parentheses. Nothing it used to reject is now accepted.
+ */
+function importsAnyOf(source: string, modules: readonly string[]): boolean {
+  return new RegExp(
+    `(?:\\bfrom|\\bimport|\\brequire)\\s*\\(?\\s*['"\`]\\.\\/(?:${modules.join('|')})`,
+  ).test(source)
+}
+
 describe('the frame grid, moved here from controls.ts', () => {
   /**
    * Identity, not equality of behaviour.
@@ -58,8 +92,26 @@ describe('the frame grid, moved here from controls.ts', () => {
    * editor into its bundle through the back door, and P3 could not lift this
    * module into the editor store without dragging its own consumer along.
    */
-  it('imports nothing from controls.ts', () => {
-    expect(SOURCE).not.toMatch(/from\s+'\.\/controls/)
+  it('imports nothing from controls.ts, by any spelling of an import', () => {
+    expect(importsAnyOf(SOURCE, ['controls'])).toBe(false)
+    // Positive controls: every spelling the single-quote-only pattern let
+    // through. The second of these is the measured one — see `importsAnyOf`.
+    for (const spelling of [
+      `import { reduce } from './controls.js'`,
+      `import { reduce } from "./controls.js"`,
+      `import './controls.js'`,
+      `const m = await import('./controls.js')`,
+      'const m = await import(`./controls.js`)',
+      `const m = require("./controls.js")`,
+    ]) {
+      expect(importsAnyOf(spelling, ['controls']), spelling).toBe(true)
+    }
+    // ...and it is still a ban on the editor's modules, not on relative
+    // imports. `src/core` and `site/scene.ts` are permitted and must stay so,
+    // or the guard would be refusing the thing this module is built out of.
+    expect(importsAnyOf(`import { frameTimes } from '../src/core/index.js'`, EDITOR_MODULES))
+      .toBe(false)
+    expect(importsAnyOf(`import { validateScene } from './scene.js'`, EDITOR_MODULES)).toBe(false)
     // Vacuity floor: proves we are reading the real module and not an empty
     // or renamed file that trivially satisfies the negative above.
     for (const name of MOVED) expect(SOURCE).toContain(`export function ${name}`)
@@ -326,8 +378,13 @@ describe('the transport state machine', () => {
     // Module-level `let`/`var` only — an indented one inside a function body is
     // local and fine. State has to be a value the caller holds.
     expect(SOURCE).not.toMatch(/^(let|var)\s/m)
-    // Nothing editor-shaped: UiState and reduce stay on the other side.
-    expect(SOURCE).not.toMatch(/from\s+'\.\/(controls|main|examples|legibility|diagnostics|depthmap|stageguide)/)
+    // Nothing editor-shaped: UiState and reduce stay on the other side. By
+    // any spelling of an import — see `importsAnyOf` for the measurement.
+    expect(importsAnyOf(SOURCE, EDITOR_MODULES)).toBe(false)
+    for (const name of EDITOR_MODULES) {
+      expect(importsAnyOf(`import { x } from "./${name}.js"`, EDITOR_MODULES), name).toBe(true)
+    }
+    expect(EDITOR_MODULES).toHaveLength(7)
     // Vacuity floor.
     expect(SOURCE).toContain('export function timeAt')
     expect(SOURCE).toContain('export function seek')

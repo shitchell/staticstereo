@@ -12,6 +12,38 @@ const INTERVAL = 1000 / sceneFps(ANIM)
 const SOURCE = readFileSync(new URL('./transportdriver.ts', import.meta.url), 'utf8')
 
 /**
+ * The editor's own modules, and whether `source` reaches for any of them by
+ * **any** import spelling.
+ *
+ * The third copy of one ban, and the quote-sensitivity that FIX-16 names in
+ * `transport.test.ts` was identical here: `/from\s+'\.\/(controls|…)/` matches
+ * the `from` keyword and single quotes only, so `from "./controls.js"`, a bare
+ * `import './controls.js'` and a dynamic `import('./controls.js')` all passed.
+ * Measured on the sibling module — `import { reduce } from "./controls.js"` in
+ * `site/transport.ts` left the full suite at 50 files / 1162 passed.
+ *
+ * Fixed here as well as there deliberately, and not left for later: this
+ * repo's signature recorded defect is one list living in three files with one
+ * of them guarded — the animatable-channel list, guarded in `track.ts` and
+ * duplicated unguarded in `src/cli/scene.ts` and `site/scene.ts`, which is why
+ * both site validators silently drop channels. Repairing two of three copies
+ * of a guard reproduces it exactly.
+ *
+ * A strict superset of the pattern it replaces: same `./`-prefix match,
+ * widened to all three quote characters and to `import`/`require` with or
+ * without the call parentheses.
+ */
+const EDITOR_MODULES = [
+  'controls', 'main', 'examples', 'legibility', 'diagnostics', 'depthmap', 'stageguide',
+] as const
+
+function importsAnyOf(source: string, modules: readonly string[]): boolean {
+  return new RegExp(
+    `(?:\\bfrom|\\bimport|\\brequire)\\s*\\(?\\s*['"\`]\\.\\/(?:${modules.join('|')})`,
+  ).test(source)
+}
+
+/**
  * A clock and a scheduler the test owns outright.
  *
  * Nothing here is a timer. `advance` is the only thing that moves time and
@@ -258,7 +290,16 @@ describe('runTransport', () => {
     // Module-level `let`/`var`: the loop's mutable state belongs to one driver,
     // not to the module, or two players on one page would share a playhead.
     expect(SOURCE).not.toMatch(/^(let|var)\s/m)
-    expect(SOURCE).not.toMatch(/from\s+'\.\/(controls|main|examples|legibility|diagnostics|depthmap|stageguide)/)
+    expect(importsAnyOf(SOURCE, EDITOR_MODULES)).toBe(false)
+    // Positive controls: the spellings the single-quote-only pattern let
+    // through, one per editor module so a shortened list cannot hide.
+    for (const name of EDITOR_MODULES) {
+      expect(importsAnyOf(`import { x } from "./${name}.js"`, EDITOR_MODULES), name).toBe(true)
+    }
+    expect(importsAnyOf(`const m = await import('./controls.js')`, EDITOR_MODULES)).toBe(true)
+    // ...and still a ban on the editor, not on relative imports as such.
+    expect(importsAnyOf(`import { timeAt } from './transport.js'`, EDITOR_MODULES)).toBe(false)
+    expect(EDITOR_MODULES).toHaveLength(7)
     // The cadence decision has to be recorded, not just implemented.
     expect(SOURCE).toMatch(/requestAnimationFrame/)
     // Vacuity floor.
