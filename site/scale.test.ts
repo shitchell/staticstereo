@@ -728,8 +728,9 @@ describe('renderFit', () => {
     // counted and both have a floor — the idiom `playerplan.test.ts` already
     // uses for its own sweeps.
     let unclamped = 0
-    let clamped = 0
-    sweepRender((r, _size, box, dpr, where) => {
+    let byCap = 0
+    let byFloor = 0
+    sweepRender((r, size, box, dpr, where) => {
       // The pixel-exactness claim, which is the whole reason the mode exists:
       // the backing store lands on device pixels 1:1, never resampled. True on
       // both sides of the gate, which is why it is outside it.
@@ -740,18 +741,33 @@ describe('renderFit', () => {
         expect(r.cssHeight, where).toBeLessThanOrEqual(box[1] + 1e-6)
         expect(r.overflows, where).toBe(false)
         unclamped++
+      } else if (r.sceneScale === MAX_SCENE_SCALE) {
+        byCap++
       } else {
-        clamped++
+        // The only other way to clamp: the one-pixel floor on the tighter axis.
+        expect(r.sceneScale, where).toBeCloseTo(Math.max(1 / size[0], 1 / size[1]), 12)
+        byFloor++
       }
     })
-    expect(unclamped + clamped).toBe(SCENES.length * BOXES.length * DPRS.length)
+    expect(unclamped + byCap + byFloor).toBe(SCENES.length * BOXES.length * DPRS.length)
     // The floor on the gated branch, which is the one that can vanish.
     expect(unclamped).toBeGreaterThan(200)
-    // ...and a floor on the other branch too, so that a clamp which stopped
-    // firing altogether — a cap raised out of reach, a floor that stopped
-    // engaging — shows up here rather than as three assertions quietly
-    // becoming unconditional.
-    expect(clamped).toBeGreaterThan(20)
+    // **A floor per bound, not one over both.** A single `clamped > 20` counter
+    // stood here, commented as catching "a clamp which stopped firing
+    // altogether — a cap raised out of reach, a floor that stopped engaging".
+    // It catches neither half on its own: measured, with `MAX_SCENE_SCALE` set
+    // to `1e9` — a cap raised entirely out of reach — this test alone was
+    // **exit 0, 2 passed**, because the floor hits clear a threshold of 20 by
+    // themselves. Two bounds that can fail independently need two counters, and
+    // the fact that one of them is a *resource* bound and the other a
+    // *renderability* bound is exactly why they do not fail together.
+    //
+    // Today's split, so the next reader can see the margin on each floor
+    // rather than guessing it: 315 points = 244 unclamped + 12 by the cap + 59
+    // by the floor. The cap branch is the thin one, which is why a threshold
+    // set from the total was dominated by the other.
+    expect(byCap, 'clamps by MAX_SCENE_SCALE').toBeGreaterThan(8)
+    expect(byFloor, 'clamps by the one-pixel floor').toBeGreaterThan(20)
   })
 
   it('reports a plate that is exactly margins + scaled stage, in whole scene px', () => {
