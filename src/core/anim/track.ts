@@ -173,6 +173,40 @@ const noCompiler: AnimCompiler = preset => {
 }
 
 /**
+ * How each channel accumulates when several animators act on one layer: the
+ * displacements **sum**, `scale` **multiplies**. A 2× and a 3× animator compose
+ * to 6×, not to 5× and not to 3× — "later animator wins" is not the rule, and
+ * the asymmetry is the whole reason this is a partition and not a single list.
+ *
+ * Derived from, and guarded against, `CHANNELS` because `composeAnim` used to
+ * write all seven accumulations out by hand. That made an eighth channel a
+ * *silent* no-op: measured by adding one correctly (on `Transform`, in
+ * `IDENTITY`, in `CHANNELS`), `npm run typecheck` exited 0 and all 972 tests
+ * passed while the compositor discarded the channel once per layer per frame.
+ * This is the same defect P0 removed from both scene validators, surviving in
+ * the one place that consumes the channels rather than validating them.
+ *
+ * Exported only for the test that pins the partition at runtime, as
+ * `cli/scene.ts` exports `KEY_CHANNELS`: `AssertNever` is enforced by
+ * `npm run typecheck` alone (`types.seam.test.ts`), so without a runtime
+ * witness the guard below is invisible to `npm test`. Not on the package root —
+ * nothing outside `core` composes animators.
+ */
+export const SUMMED_CHANNELS = ['x', 'y', 'depth', 'rotate', 'rotateX', 'rotateY'] as const
+export const MULTIPLIED_CHANNELS = ['scale'] as const
+type SummedChannel = typeof SUMMED_CHANNELS[number]
+type MultipliedChannel = typeof MULTIPLIED_CHANNELS[number]
+
+// The partition must be **total and disjoint** over `CHANNELS`. Total is the
+// guard that was missing: a channel in neither set is a channel `composeAnim`
+// never accumulates, and this is what now fails the build instead of shipping.
+// Disjoint matters because a channel in both would be summed *and* multiplied,
+// which is silent too — the second operator just overwrites the first.
+type _NoChannelUncomposed = AssertNever<Exclude<Channel, SummedChannel | MultipliedChannel>>
+type _NoComposedChannelExtra = AssertNever<Exclude<SummedChannel | MultipliedChannel, Channel>>
+type _CompositionDisjoint = AssertNever<Extract<SummedChannel, MultipliedChannel>>
+
+/**
  * Compose one or many animators into a single transform.
  * Translations/rotations sum; scales multiply; depth sums (then the caller clamps).
  * This is what lets `[{kind: 'move'}, <a three-key bounce track>]` work
@@ -210,13 +244,14 @@ export function composeAnim(
       tr = compile(item, ctx)
     }
     const t = evalTrack(tr, seconds, sceneDuration)
-    acc.x += t.x
-    acc.y += t.y
-    acc.depth += t.depth
-    acc.rotate += t.rotate
-    acc.rotateX += t.rotateX
-    acc.rotateY += t.rotateY
-    acc.scale *= t.scale
+    // Each channel accumulates into its own slot, so replacing the seven
+    // statements with these loops reorders no float operation: *within* a
+    // channel the sequence is still animator by animator, in list order, which
+    // is the only ordering that could change a result. Verified by comparing
+    // both spellings bitwise (`Object.is`, so −0 and NaN count) over 280,000
+    // channel values of mixed-magnitude random compositions: zero differences.
+    for (const ch of SUMMED_CHANNELS) acc[ch] += t[ch]
+    for (const ch of MULTIPLIED_CHANNELS) acc[ch] *= t[ch]
   }
   return acc
 }

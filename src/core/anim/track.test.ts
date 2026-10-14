@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest'
-import { easingFor, evalTrack, composeAnim } from './track.js'
+import {
+  easingFor, evalTrack, composeAnim, SUMMED_CHANNELS, MULTIPLIED_CHANNELS,
+} from './track.js'
 import { cubicBezier } from './bezier.js'
 import { EASINGS } from './easing.js'
-import { CHANNELS } from '../index.js'
-import { IDENTITY, type Track } from '../types.js'
+import { CHANNELS, type Channel } from '../index.js'
+import { IDENTITY, type Key, type Track } from '../types.js'
 
 describe('evalTrack', () => {
   const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }] }
@@ -149,6 +151,72 @@ describe('composeAnim', () => {
 
   it('accepts a bare track as well as a list', () => {
     expect(composeAnim({ keys: [{ t: 0, x: 4 }] }, 0, 1).x).toBe(4)
+  })
+})
+
+// `composeAnim` wrote its seven accumulations out by hand, so a channel could be
+// added to `CHANNELS` *correctly* — declared on `Transform`, present in
+// `IDENTITY`, accepted by both validators, interpolated by `evalTrack` — and
+// still be dropped on the floor by the compositor. Measured, by adding an
+// eighth channel that way: `npm run typecheck` stayed at 0 and all 972 tests
+// stayed green. The channel was computed once per layer per frame and discarded.
+//
+// The `AssertNever` partition guard in `track.ts` is the fix; these are its
+// runtime witnesses. They are needed because `types.seam.test.ts` records that
+// vitest does not type-check, so a guard on its own is invisible to `npm test`.
+describe('composeAnim channel coverage', () => {
+  /** A one-key track that moves exactly `ch` off its identity value. */
+  const nudge = (ch: Channel): Track => {
+    const k: Key = { t: 0 }
+    k[ch] = 3
+    return { keys: [k] }
+  }
+
+  // Driven off `CHANNELS` rather than a list written out here: a hand-written
+  // list is the precise defect this test exists to catch one level up, and a
+  // copy of it here would fail to notice the eighth channel for the same reason
+  // the compositor did.
+  it('accumulates every channel in CHANNELS across animators', () => {
+    for (const ch of CHANNELS) {
+      const one = composeAnim([nudge(ch)], 0, 1)
+      const two = composeAnim([nudge(ch), nudge(ch)], 0, 1)
+      // Two failures are distinguished, because they fail differently. A
+      // channel the compositor never touches is indistinguishable from
+      // identity; a channel it *assigns* rather than accumulates gives
+      // `two === one`. Neither assertion pins whether the operator is `+` or
+      // `*`; that belongs to the per-operator tests, not to the loop, because a
+      // loop that knew the operator would have to carry a copy of the partition.
+      expect(one[ch], `composeAnim leaves "${ch}" at IDENTITY`).not.toBe(IDENTITY[ch])
+      expect(two[ch], `composeAnim does not accumulate "${ch}" across animators`)
+        .not.toBe(one[ch])
+    }
+  })
+
+  // The partition's *operator* is load-bearing too, and it was unpinned.
+  // `composeAnim`'s own 'sums translations and multiplies scales' above uses 2×
+  // and 3×, whose product is 6 — but so is their sum with identity, 1+2+3. It
+  // therefore passes whether `scale` multiplies or sums: measured, by changing
+  // `*=` to `+=` in `composeAnim`, which left that test green and was caught
+  // only by a preset-wiring test asserting an unrelated thing. 2 and 4 do not
+  // collide: 2×4 = 8, 1+2+4 = 7.
+  it('multiplies scale rather than summing it', () => {
+    const r = composeAnim([
+      { keys: [{ t: 0, scale: 2 }] },
+      { keys: [{ t: 0, scale: 4 }] },
+    ], 0, 1)
+    expect(r.scale).toBe(8)
+  })
+
+  // The runtime witness for `_CompositionDisjoint`. Totality is already covered
+  // by the test above — an unpartitioned channel accumulates nothing — but
+  // *overlap* is behaviourally silent: a channel both summed and multiplied
+  // still moves off identity and still differs between one and two animators,
+  // so only the sets themselves can show it.
+  it('partitions CHANNELS into the summed and the multiplied, totally and disjointly', () => {
+    expect(new Set([...SUMMED_CHANNELS, ...MULTIPLIED_CHANNELS])).toEqual(new Set(CHANNELS))
+    const both = (SUMMED_CHANNELS as readonly string[])
+      .filter(ch => (MULTIPLIED_CHANNELS as readonly string[]).includes(ch))
+    expect(both).toEqual([])
   })
 })
 
