@@ -489,11 +489,22 @@ const WORKFLOW = join(ROOT, '.github', 'workflows', 'pages.yml')
 /** Where the workflow is required to put the player, relative to the upload root. */
 const PLAYER_DEPLOY_DIR = 'player'
 
-describe('the Pages workflow publishes the player, not only the page', () => {
-  const workflow = readFileSync(WORKFLOW, 'utf8')
-  /** Every `run:` command in the workflow, as one string each. */
-  const runs = [...workflow.matchAll(/^[\s-]*run:\s*(.+)$/gm)].map(m => m[1]!.trim())
+const workflow = readFileSync(WORKFLOW, 'utf8')
+/**
+ * Every `run:` command in the workflow, as one string each.
+ *
+ * At module scope rather than inside one block because two of them need it:
+ * the publishing block below, and the gate-ordering block after it. One parse,
+ * so a change to how the YAML is read cannot leave the two disagreeing about
+ * what the workflow says.
+ *
+ * **Single-line `run:` values only.** A `|` block scalar would capture the
+ * `|` itself and nothing after it, which would silently empty this list rather
+ * than failing — hence the vacuity floor every block that searches it carries.
+ */
+const runs = [...workflow.matchAll(/^[\s-]*run:\s*(.+)$/gm)].map(m => m[1]!.trim())
 
+describe('the Pages workflow publishes the player, not only the page', () => {
   /**
    * The step(s) that put `dist-player/` inside `dist-site/`.
    *
@@ -645,6 +656,85 @@ describe('the Pages workflow publishes the player, not only the page', () => {
     expect(workflow.indexOf('upload-pages-artifact')).toBeGreaterThan(
       workflow.indexOf(`dist-site/${PLAYER_DEPLOY_DIR}`),
     )
+  })
+})
+
+/**
+ * **The one thing standing between a failed player build and a green CI run.**
+ *
+ * {@link builtPlayer}'s docblock states this and nothing asserted it. A failed
+ * `vite build` leaves `dist-player/` present and **completely empty** — vite
+ * empties the directory before `generateBundle` runs, so a throw from
+ * `directoryIndexEntry` (which it is written to do, deliberately, if a vite
+ * upgrade changes the emitted name) destroys the previous output and emits
+ * nothing. No HTML, so `builtPlayer` is false, so every player block in this
+ * file skips and the suite reports green with a legible-but-ignorable
+ * "skipped because dist-player is absent".
+ *
+ * That is not fixable here and should not be attempted — the policy this file
+ * keeps on purpose is that `vitest run` on a clean checkout is green. What
+ * makes it safe is entirely external: `npm run build:site` exits non-zero as
+ * its **own step, ahead of `npm test`**, so the job fails before the suite is
+ * reached. Collapse the two into one step, move the build after the suite, or
+ * make it non-fatal, and this file goes quiet about the player without a
+ * single assertion changing.
+ *
+ * Measured, which is why this block exists: with the `build:site` step moved to
+ * *after* `npm test` in `pages.yml` and nothing else altered, the suite
+ * reported **60 files / 1325 passed / 0 skipped** — every assertion green, over
+ * a CI pipeline that would publish an unbuilt player.
+ *
+ * The served-URL and nesting blocks above have the same dependency from the
+ * other side: they materialise and re-resolve the real emitted bundles, so
+ * without a fresh build ahead of them there is nothing for them to read.
+ */
+describe('the builds are their own steps, ahead of the suite that gates them', () => {
+  it('parsed the workflow, rather than matching nothing and passing', () => {
+    // The vacuity floor, restated for this block: every assertion below is an
+    // `indexOf` over `runs`, and `-1 < -1` is false but `-1 < 0` is true, so a
+    // parse that found nothing could satisfy an ordering check by accident.
+    expect(runs.length).toBeGreaterThanOrEqual(5)
+  })
+
+  /**
+   * `indexOf` and not `findIndex(r => r.includes(…))`, and the exactness is
+   * the point rather than brevity: what has to hold is that the build's
+   * **exit status fails the job**, and every way of losing that leaves the
+   * command still *present* as a substring. `npm run build:site && npm test`
+   * is one step, `npm run build:site || true` discards the status,
+   * `npm run build:site; npm test` discards it and keeps going. All three
+   * contain the text; none of them is the step this file depends on.
+   */
+  const step = (command: string): number => runs.indexOf(command)
+
+  it('runs build:site as a step of its own, whose failure is the job’s', () => {
+    expect(
+      step('npm run build:site'),
+      'pages.yml has no bare `npm run build:site` step. A player build that throws then ' +
+      'leaves dist-player/ empty, every player block in this file skips, and the suite is ' +
+      'green over an unbuilt player',
+    ).toBeGreaterThanOrEqual(0)
+  })
+
+  it('and the core build too, which the bundle greps read through dist/', () => {
+    // `npm run build` feeds `purity.test.ts` and the `dist/core` reads here by
+    // the same freshness rule, so it is the same property and not a second one.
+    expect(step('npm run build')).toBeGreaterThanOrEqual(0)
+  })
+
+  it('puts both of them before the suite, which is what makes the gate a gate', () => {
+    const suite = step('npm test')
+    expect(suite).toBeGreaterThanOrEqual(0)
+    expect(
+      step('npm run build'),
+      'the core build does not precede `npm test`, so the suite reads the previous build or ' +
+      'skips',
+    ).toBeLessThan(suite)
+    expect(
+      step('npm run build:site'),
+      'the site/player build does not precede `npm test`, so every player assertion in this ' +
+      'file skips and reports green',
+    ).toBeLessThan(suite)
   })
 })
 
