@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_SMOOTH, SMOOTH_MODES, SMOOTH_PARAM, parseSmooth } from './smooth.js'
+import {
+  DEFAULT_SMOOTH,
+  SMOOTH_MODES,
+  SMOOTH_PARAM,
+  imageRenderingFor,
+  parseSmooth,
+} from './smooth.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
 import { validateScene } from './scene.js'
 import type { Scene } from '../src/core/types.js'
@@ -118,6 +124,90 @@ describe('parseSmooth', () => {
     expect(parseSmooth('?smoothing=on')).toBe(DEFAULT_SMOOTH)
     expect(parseSmooth('?smooth_mode=on')).toBe(DEFAULT_SMOOTH)
     expect(parseSmooth('?x=smooth=on')).toBe(DEFAULT_SMOOTH)
+  })
+})
+
+describe('imageRenderingFor', () => {
+  /**
+   * A sweep rather than two hand-picked points: the claim is "every downscale"
+   * and "every upscale", and two points cannot distinguish that from a
+   * threshold accidentally written at 0.5 or at 2.
+   */
+  const DOWN = [0.001, 0.01, 0.1, 0.25, 1 / 3, 0.5, 0.75, 0.9, 0.99, 0.999, 0.999999]
+  const UP = [1.000001, 1.001, 1.01, 1.1, 1.5, 2, 2.5, 3, 10, 100, 1000]
+  const DEGENERATE = [1, 0, -0, -1, -0.5, Number.NaN, Infinity, -Infinity]
+  const ALL = [...DOWN, ...UP, ...DEGENERATE]
+
+  it('is total: every mode and every scale yields one of the two legal values', () => {
+    // A CSS property with an undefined value is a silent no-op, so a hole here
+    // would not throw — it would just quietly stop pixelating.
+    for (const mode of Object.keys(SMOOTH_MODES)) {
+      for (const scale of ALL) {
+        const got = imageRenderingFor(mode as never, scale)
+        expect(['auto', 'pixelated'], `${mode} @ ${scale}`).toContain(got)
+      }
+    }
+  })
+
+  it('honours an explicit on at every scale, including the degenerate ones', () => {
+    for (const scale of ALL) {
+      expect(imageRenderingFor('on', scale), `on @ ${scale}`).toBe('auto')
+    }
+  })
+
+  it('honours an explicit off at every scale, including the degenerate ones', () => {
+    for (const scale of ALL) {
+      expect(imageRenderingFor('off', scale), `off @ ${scale}`).toBe('pixelated')
+    }
+  })
+
+  it('smooths every downscale under auto, per R20', () => {
+    // R20: "softening and blurring and pixels compressing into each other
+    // acknowledged and accepted". Nearest-neighbour on the way down drops
+    // whole columns, which is the one outcome R20 does NOT accept.
+    for (const scale of DOWN) {
+      expect(imageRenderingFor('auto', scale), `auto @ ${scale}`).toBe('auto')
+    }
+  })
+
+  it('pixelates every upscale under auto, so integer factors stay exact', () => {
+    for (const scale of UP) {
+      expect(imageRenderingFor('auto', scale), `auto @ ${scale}`).toBe('pixelated')
+    }
+  })
+
+  it('pixelates at exactly 1:1, which is an argued pick and not a don’t-care', () => {
+    // Observable, so it is argued rather than asserted blindly. At a true 1:1
+    // neither value resamples and the two are identical — but a nominal 1:1 is
+    // not a true one: the plate's device-pixel origin is fractional whenever
+    // the layout lands it off a whole pixel, and `auto` in that state blends
+    // adjacent columns of RANDOM dots, which is exactly the failure
+    // site/scale.ts was written to prevent. `pixelated` is the value that is
+    // right at 1:1 and still right when the ratio drifts off it, so it is the
+    // fail-safe branch. It also agrees with the rule either neighbouring case
+    // would suggest by continuity from above ("integer factors stay exact").
+    expect(imageRenderingFor('auto', 1)).toBe('pixelated')
+  })
+
+  it('pixelates for a scale that cannot be a downscale', () => {
+    // Zero, negative and NaN are not downscales; they are a container with no
+    // size, an arithmetic error upstream, or a division by zero. None of them
+    // is a reason to start blending random dots, so they take the same
+    // fail-safe branch as 1:1 rather than a separate rule.
+    for (const scale of [0, -0, -1, -0.5, Number.NaN, -Infinity]) {
+      expect(imageRenderingFor('auto', scale), `auto @ ${scale}`).toBe('pixelated')
+    }
+    // Infinity is an upscale by any reading, and lands in the same place.
+    expect(imageRenderingFor('auto', Infinity)).toBe('pixelated')
+  })
+
+  it('agrees with parseSmooth on the default, which is the composed behaviour', () => {
+    // The pairing a caller actually writes: parse the URL, then ask the policy.
+    // Pinned so that changing either half alone shows up here.
+    expect(imageRenderingFor(parseSmooth(''), 0.5)).toBe('auto')
+    expect(imageRenderingFor(parseSmooth(''), 2)).toBe('pixelated')
+    expect(imageRenderingFor(parseSmooth('?smooth=on'), 2)).toBe('auto')
+    expect(imageRenderingFor(parseSmooth('?smooth=off'), 0.5)).toBe('pixelated')
   })
 })
 

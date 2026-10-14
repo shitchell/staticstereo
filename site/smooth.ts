@@ -133,3 +133,66 @@ export function parseSmooth(search: string): SmoothMode {
   if (key in SMOOTH_MODES) return key as SmoothMode
   return ALIASES[key] ?? DEFAULT_SMOOTH
 }
+
+/**
+ * Is this ratio a genuine downscale — the one case where interpolation helps?
+ *
+ * A function and not an inlined `< 1` per invariant 6: this is the threshold
+ * the whole `auto` policy turns on, and if trials ever show that, say, a 0.98×
+ * downscale is better served by nearest-neighbour than by a blur, this is the
+ * single body to change.
+ *
+ * Strictly between 0 and 1, which makes it false for `NaN` by construction
+ * (every comparison with `NaN` is false) and false for zero and negatives,
+ * which are not downscales at all — they are a container with no size or an
+ * arithmetic error upstream. None of those is a reason to start blending.
+ */
+function isDownscale(displayScale: number): boolean {
+  return displayScale > 0 && displayScale < 1
+}
+
+/**
+ * The CSS `image-rendering` value for a mode at a given display scale.
+ *
+ * `displayScale` is **CSS px shown ÷ backing-store px** — the output of the fit
+ * arithmetic, measured between two of the four pixel spaces this project
+ * tracks. The backing store is the plate at `noiseScale` (default 2), so a
+ * 1930-backing-px plate laid out at 965 CSS px is `0.5`, not `1`. Below 1 the
+ * browser is throwing information away; above 1 it is inventing it.
+ *
+ * The policy is design §8.1's: "smooth when downscaling (R20's accepted
+ * 'softening and blurring'), `pixelated` when upscaling, where integer factors
+ * stay exact." Both halves are load-bearing and neither is a preference:
+ *
+ * - **Down, smooth.** Nearest-neighbour on the way down *drops whole columns*,
+ *   and a dropped column is removed independently of its stereo partner, which
+ *   breaks correspondence outright. R20 accepts "softening and blurring and
+ *   pixels compressing into each other" and does not accept that.
+ * - **Up, pixelated.** Interpolating upward blends adjacent *random* dots, and
+ *   at an integer factor nearest-neighbour is exactly lossless — every original
+ *   pixel becomes an n×n block and the correspondence survives intact.
+ *
+ * At exactly `1` the choice is observable, so it is argued rather than left to
+ * fall out of a comparison: at a true 1:1 neither value resamples and the two
+ * are identical, but a *nominal* 1:1 is not a true one — the plate's
+ * device-pixel origin is fractional whenever the layout lands it off a whole
+ * pixel, and `auto` in that state blends adjacent columns of random dots, which
+ * is precisely what `site/scale.ts` exists to prevent. `pixelated` is right at
+ * 1:1 and still right when the ratio drifts off it, so it is the fail-safe
+ * branch, and it agrees with the "integer factors stay exact" rule that governs
+ * the whole upper half.
+ *
+ * Total by construction: the mode chain ends in `auto`'s policy rather than in
+ * a lookup, and `isDownscale` is false for every non-finite and non-positive
+ * input. A CSS property set to `undefined` is a silent no-op, so a hole here
+ * would not throw — it would quietly stop pixelating, which is the kind of bug
+ * that is only ever found by eye.
+ */
+export function imageRenderingFor(
+  mode: SmoothMode,
+  displayScale: number,
+): 'auto' | 'pixelated' {
+  if (mode === 'on') return 'auto'
+  if (mode === 'off') return 'pixelated'
+  return isDownscale(displayScale) ? 'auto' : 'pixelated'
+}
