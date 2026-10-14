@@ -792,7 +792,8 @@ describe('move\'s off-frame endpoints against the plate', () => {
    *
    * `to` is left at its default and the frame is taken at t = 0, so the pose is
    * `from` exactly — there is no interpolation, easing or clamping between the
-   * token and the drawn position for a failure to hide in.
+   * token and the drawn position for a failure to hide in. The scroll that does
+   * involve time is the suite below.
    */
   function parked(shift: number): Scene {
     return {
@@ -848,6 +849,81 @@ describe('move\'s off-frame endpoints against the plate', () => {
       trailing.push(lastPaintedColumn(depth, STAGE[0]))
     }
     expect(new Set(trailing).size).toBe(overlaps.length)
+  })
+
+  /**
+   * A scroll whose scene duration actually reaches the far endpoint.
+   *
+   * **No shipped scene does.** Measured over the three corpora — derived
+   * duration against the scene's own `duration` — `examples/scrolling-text.yaml`
+   * runs 17.0025s against 6 (2.83×), `site/examples.ts`'s SCROLL 11.7021s
+   * against 6 (1.95×), and the README's 21.6667s against 4 (5.42×). The far
+   * endpoint of a scroll has therefore never been rendered anywhere in this
+   * repo, which is how one of those endpoints stayed wrong by 17.33px over
+   * several commits with nothing red and nothing visibly bad in the output.
+   *
+   * This is a fixture rather than an edit to `examples/scrolling-text.yaml`
+   * deliberately: that file's measured numbers feed
+   * `node/metamorphic.real.test.ts`, which `report()`s them to stdout rather
+   * than asserting them, so changing its `duration` or `speed` would move
+   * numbers that nothing would flag.
+   */
+  describe('a scroll that reaches its far endpoint', () => {
+    const DURATION = 2
+    /**
+     * Chosen so the derived duration (travel ÷ speed, 1.37s here) is comfortably
+     * *inside* the scene's 2s rather than outside it. Every shipped scroll has
+     * this the other way round, and that inversion is the defect: the last
+     * frame of the scene is then a frame mid-travel, so no frame exists in
+     * which the endpoint is the pose.
+     */
+    const SPEED = 80
+
+    /** Head off the right of the plate, tail off the left of it. */
+    function scrolling(shift: number): Scene {
+      return {
+        size: STAGE,
+        duration: DURATION,
+        stereo: STEREO,
+        layers: [{
+          type: 'text', text: TEXT, size: SIZE, at: [shift, 0], depth: 1,
+          // `repeat` is left at `move`'s default `once`, which clamps at the
+          // last key. A `loop` — what all three shipped scrolls use — passes
+          // through the far endpoint at a single instant and holds it never, so
+          // there is no frame of a looping scroll in which the endpoint is the
+          // pose, whatever its duration.
+          anim: { kind: 'move', from: ['offRight', 0], to: ['offLeft', 0], speed: SPEED },
+        }],
+      }
+    }
+
+    it('enters the frame, crosses it and leaves it within the scene', async () => {
+      const start = await frameOf(scrolling(0), 0)
+      const mid = await frameOf(scrolling(0), DURATION / 2)
+      const end = await frameOf(scrolling(0), DURATION)
+      // Non-vacuity for the endpoint assertions: a scroll that never reached
+      // the stage at all would satisfy both of the empty frames trivially.
+      expect(firstPaintedColumn(start.depth, STAGE[0])).toBe(-1)
+      expect(firstPaintedColumn(mid.depth, STAGE[0])).toBeGreaterThanOrEqual(0)
+      expect(firstPaintedColumn(end.depth, STAGE[0])).toBe(-1)
+    })
+
+    it('arrives at the measured endpoint rather than somewhere off-frame', async () => {
+      const layout = plateLayoutOf(scrolling(0))
+      const probe = await frameOf(scrolling(0), 0)
+      const overlap = Math.floor(probe.measured / 4)
+      const { depth } = await frameOf(scrolling(layout.margins.left + overlap), DURATION)
+      // This is what the empty frame above cannot say. Position under a
+      // constant speed is `from − speed × t`, so the last frame of a scene
+      // whose duration *undershoots* the travel is also off the plate and also
+      // paints nothing. Only the clamp at t = 1 puts the string at the endpoint
+      // itself, and only a pose read against the plate's left edge can tell the
+      // two apart: a scroll still in flight here would be a further ~50px left
+      // and paint nothing, where an arrived one shows exactly `overlap`
+      // columns.
+      expect(firstPaintedColumn(depth, STAGE[0])).toBe(0)
+      expect(lastPaintedColumn(depth, STAGE[0])).toBe(overlap - 1)
+    })
   })
 })
 
