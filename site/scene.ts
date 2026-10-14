@@ -27,6 +27,17 @@ const LAYER_TYPES = ['text', 'image', 'gif', 'shape'] as const
 const MODES = ['silhouette', 'heightmap'] as const
 const LOOPS = ['loop', 'once', 'pingpong'] as const
 const REPEATS = ['once', 'loop', 'pingpong'] as const
+/**
+ * What may appear in a keyframe: every animatable channel plus `t`, the
+ * keyframe's own time, which is not a `Transform` channel.
+ *
+ * Derived from `CHANNELS`, like the CLI's `KEY_CHANNELS`, rather than written
+ * out: the list this validator used to carry had fallen behind and omitted
+ * `rotateX`/`rotateY`. Spelling it out again here would re-create the drift
+ * one layer down — now in the *rejection* path, where it would refuse a scene
+ * the CLI and the rasteriser both handle.
+ */
+const KEY_CHANNELS = ['t', ...CHANNELS] as const
 
 
 function fail(message: string): never {
@@ -128,6 +139,24 @@ function validateMask(v: unknown, path: string): MaskSource {
 function validateKey(v: unknown, path: string): Key {
   if (!isRecord(v)) fail(`${path} must be an object, got ${JSON.stringify(v)}`)
   requireFinite(v['t'], `${path}.t`)
+  // A misspelled channel is REJECTED, not dropped. The loop below copies what
+  // it recognises, so without this check `rotatX: 5` would leave the scene
+  // valid, the value gone and the layer still on screen rendering something
+  // subtly wrong — while the CLI named the key and refused the same file. The
+  // wording deliberately matches `unknownKeys()` in `src/cli/scene.ts`, down
+  // to listing the valid keys sorted, so the two read as one product.
+  //
+  // Scoped to keyframes on purpose. Unknown-key parity for layers, tracks and
+  // scene keys is a much larger job; half of it delivered quietly would teach
+  // authors that the site catches typos and leave them wrong about where.
+  for (const field of Object.keys(v)) {
+    if (!(KEY_CHANNELS as readonly string[]).includes(field)) {
+      fail(
+        `unknown keyframe channel "${field}" at ${path} — valid keys: ` +
+        `${[...KEY_CHANNELS].sort().join(', ')}`,
+      )
+    }
+  }
   const key: Record<string, unknown> = { t: v['t'] }
   // Looping over `CHANNELS` rather than a list written out here, because this
   // validator **rebuilds** the key instead of checking it: anything the loop

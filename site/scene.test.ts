@@ -175,6 +175,29 @@ describe('validateScene', () => {
     for (const ch of CHANNELS) expect(got[ch]).toBe(key[ch])
   })
 
+  // The other half of the same asymmetry. The test above makes the *known*
+  // channels survive the rebuild; a misspelled one was still discarded in
+  // silence. `rotatX: 5` made the CLI name the key and refuse to load, while
+  // the site accepted the scene, dropped the value, and rendered something
+  // subtly wrong with no signal anywhere — the one error class a validator
+  // catches that nothing downstream ever will.
+  it('rejects an unknown keyframe channel instead of dropping it', () => {
+    let message = ''
+    try {
+      validateScene({
+        size: [8, 8],
+        layers: [{ type: 'text', text: 'A', anim: { keys: [{ t: 0, rotatX: 5 }] } }],
+      })
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/rotatX/)
+    expect(message).toMatch(/layers\[0\]\.anim\.keys\[0\]/)
+    // Naming the bad key without listing the good ones leaves the author
+    // guessing, which is where the CLI's wording earns its keep.
+    for (const valid of ['t', ...CHANNELS]) expect(message).toContain(valid)
+  })
+
   it('rejects an animator that is neither a track nor a preset', () => {
     expect(() => validateScene({
       size: [8, 8],
