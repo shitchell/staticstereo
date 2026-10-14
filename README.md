@@ -64,9 +64,12 @@ layers:
     text: HELLO
     size: 90
     depth: 0.6
-    # A scroll is a `move` with a `speed` and `repeat: loop`; the endpoints run
-    # off the plate at both ends, so the string never parks its tail on screen.
-    anim: {kind: move, from: [900, 0], to: [-400, 0], speed: 60, repeat: loop}
+    # A scroll is a `move` with a `speed` and `repeat: loop`. `offRight` and
+    # `offLeft` are symbolic endpoints `move` resolves from the stage, the
+    # margins and the MEASURED text width, so the string runs off the plate at
+    # both ends and never parks its tail on screen — without this file naming
+    # a width that goes stale the moment the text or the size changes.
+    anim: {kind: move, from: [offRight, 0], to: [offLeft, 0], speed: 60, repeat: loop}
   - type: image
     src: ball.png
     depth: 1.0
