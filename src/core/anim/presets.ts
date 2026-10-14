@@ -249,7 +249,24 @@ const REGISTRY = {
       // Same contract as `marquee`'s: zero is a layer that never arrives and a
       // negative rate is a direction, which `from`/`to` already express.
       if (speed <= 0) throw new Error(`preset "${p.kind}": "speed" must be > 0 px/sec, got ${speed}`)
-      tr.duration = Math.hypot(to[0] - from[0], to[1] - from[1]) / speed
+      const distance = Math.hypot(to[0] - from[0], to[1] - from[1])
+      // The derived twin of `overrides()`' `duration <= 0` rejection, and for
+      // the same reason: `localTime` divides by `duration`, so a zero is not a
+      // degenerate animation but a division by zero. A positive `speed` over a
+      // zero-length move derives exactly that, and nothing downstream could
+      // tell it apart from an authored `duration: 0`. Reachable from the
+      // defaults alone — `{kind: 'move', speed: 60}` is `[0,0]` → `[0,0]` —
+      // so it names the endpoints rather than the speed, which is where the
+      // mistake is.
+      if (distance <= 0) {
+        throw new Error(
+          `preset "${p.kind}": "speed" derives the duration from the distance between ` +
+          `"from" and "to", which must be > 0 — both are ` +
+          `[${from[0]}, ${from[1]}], so the move goes nowhere and the derived ` +
+          'duration is 0. Drop "speed", or move the layer somewhere.',
+        )
+      }
+      tr.duration = distance / speed
     }
     return overrides(tr, p)
   },

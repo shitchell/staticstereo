@@ -212,13 +212,23 @@ describe('recorded parameter defaults', () => {
     // means "do not derive a duration at all", which no number expresses — so
     // a probe value has to visibly change the compiled track.
     const probes: Record<string, unknown> = { scalar: 1, pair: [1, 1] }
+    // Extra parameters a probe needs to be *legal*, not merely meaningful. A
+    // bare `move` runs [0,0] → [0,0], and `speed` over a zero-length move is
+    // rejected outright: it derives `duration: 0`, which `localTime` divides
+    // by. Probing against a move that actually travels asks the same question
+    // — "is omitting `speed` equivalent to some value of it?" — in the only
+    // place the parameter is allowed to exist.
+    const probeBase: Partial<Record<PresetKind, Record<string, unknown>>> = {
+      move: { to: [10, 0] },
+    }
     let seen = 0
     for (const kind of Object.keys(PRESET_PARAMS) as PresetKind[]) {
       for (const d of PRESET_PARAMS[kind]) {
         if (d.unit === 'enum' || d.default.from !== 'none') continue
         seen++
-        const bare = compilePreset({ kind }, CTX)
-        const probed = compilePreset({ kind, [d.name]: probes[d.shape] }, CTX)
+        const base = { kind, ...probeBase[kind] }
+        const bare = compilePreset(base, CTX)
+        const probed = compilePreset({ ...base, [d.name]: probes[d.shape] }, CTX)
         expect(probed, `${kind}.${d.name} has a default after all`).not.toEqual(bare)
       }
     }

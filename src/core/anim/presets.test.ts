@@ -167,6 +167,27 @@ describe('presets implemented from prose spec', () => {
       .toThrow(/> 0 px\/sec/)
   })
 
+  it('move rejects a speed over a zero-length move, naming the endpoints', () => {
+    // `speed` derives `duration` from the distance travelled, so a move that
+    // goes nowhere derives `duration: 0` — and `localTime` divides by it,
+    // giving `±Infinity` and then a track pinned to one endpoint. An
+    // author-written `duration: 0` is already rejected by `overrides()`; the
+    // derived path had no equivalent check, and `speed` is new in this phase
+    // so this hole is ours. Defaults make it reachable without writing any
+    // endpoint at all: `{kind: 'move', speed: 60}` is `[0,0]` → `[0,0]`.
+    for (const p of [
+      { kind: 'move', speed: 60 },
+      { kind: 'move', from: [10, 20], to: [10, 20], speed: 60 },
+    ]) {
+      expect(() => compilePreset(p, ctx), JSON.stringify(p)).toThrow(/must be > 0/)
+      expect(() => compilePreset(p, ctx), JSON.stringify(p)).toThrow(/"from"/)
+    }
+    // The guard is on the distance, not on `speed`, so a move that does travel
+    // is untouched however small the trip.
+    expect(compilePreset({ kind: 'move', to: [0, 1], speed: 60 }, ctx).duration)
+      .toBeCloseTo(1 / 60, 12)
+  })
+
   // UPDATED FOR THE PLATE/STAGE SPLIT: the two horizontal directions gained
   // their margin, the two vertical ones did not, because margins are x-only
   // (§10.2). Both halves matter — a blanket "add the margin" would push a
