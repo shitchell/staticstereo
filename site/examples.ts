@@ -101,10 +101,19 @@ export const EXAMPLES: Example[] = [
           // 20-character float, which marginally helps the link-size budget
           // these scenes live under.
           //
-          // What let the drift go unnoticed is unchanged and still worth
-          // knowing: the travel is 1872.33px at 160px/s = 11.7s against a 6s
-          // scene, so the demo plays the first half of one cycle and never
-          // reaches the far endpoint. Whether that was intended is not
+          // What let the drift go unnoticed is unchanged, and it is stronger
+          // than "unnoticed": `to` cancels out of every rendered position.
+          // Linear ease plus `duration = travel / speed` makes the position
+          // `from - speed*s` for the whole of the move, so while the scene
+          // ends inside the move a wrong far endpoint is not merely unreached
+          // — it is unobservable. That was measured frame by frame on
+          // `examples/scrolling-text.yaml`, whose comment carries the check:
+          // two wildly different `to` values render byte-identically there.
+          // Recomputed at this commit — a snapshot of a derived quantity
+          // rather than a property of this entry, so recompute before citing
+          // it: travel 1872.3299560546875px at 160px/s derives
+          // 11.702062225341797s against a 6s scene, so the demo plays the
+          // first half of one cycle. Whether that was intended is not
           // recorded; an author raising `speed` is the one who would see it.
           anim: {
             kind: 'move', from: ['offRight', 0], to: ['offLeft', 0], speed: 160, repeat: 'loop',
