@@ -511,11 +511,29 @@ describe.skipIf(!freshPlayer)('the player still resolves once nested a directory
  * being written: planting `import { periodWindow } from './diagnostics.js'`
  * in `site/player.ts` left `describeReadout`'s prose out of `dist-player/`
  * entirely, so a needle taken from that function would have missed a real
- * leak. Each needle below therefore sits either in a module-level constant
- * (`examples.ts`, `controls.ts`) or in the argument guard of the export the
- * editor actually imports the module *for* — `readSegment`, `measureInk`,
- * `stageGuideStyle`, `depthToRgba`. The same limitation applies to the
- * `yuv444p` probe above and is inherent to the technique, not to this list.
+ * leak. Each needle below therefore sits in the argument guard, or the body,
+ * of an export the editor actually imports the module *for* — `readSegment`,
+ * `measureInk`, `stageGuideStyle`, `depthToRgba`, `reduce`.
+ *
+ * **A module-level constant does not qualify, and this file used to say it
+ * did.** The mitigation above originally read "either in a module-level
+ * constant (`examples.ts`, `controls.ts`) or in the argument guard of …",
+ * which is wrong in exactly the way it was trying to guard against: rollup
+ * shakes an unreferenced constant away precisely as it shakes an unreferenced
+ * function away. Measured — plant `import { reduce } from './controls.js'`
+ * in `site/player.ts`, use it, and rebuild: the editor's whole reducer is in
+ * `dist-player/`, `CUSTOM_TRACK`'s `(custom track)` is **not** (nothing
+ * reachable from `reduce` refers to it; only `presetNote` and `site/main.ts`
+ * do), and the suite reports 50 files, 1147 passed. The criterion named the
+ * reducer by name and the needle meant to cover it covered `presetNote`
+ * instead. `(custom track)` is kept — it is still a true statement about the
+ * preset notes — and `set an animator`, which is inside `reduce`'s own
+ * `layerAnim` arm, is what covers the reducer.
+ *
+ * The same limitation applies to the `yuv444p` probe above and is inherent to
+ * the technique, not to this list: a needle proves something about the
+ * *function holding it*, so it has to be chosen from the code you actually
+ * mean to exclude, and "the module it lives in" is not a safe proxy.
  *
  * ## Two-sided, and the second side is not optional
  *
@@ -564,11 +582,19 @@ const EDITOR_NEEDLES: readonly EditorNeedle[] = [
   // The caption of one of the bundled examples — the example gallery is an
   // authoring affordance with no meaning in an embed.
   { needle: 'STATIC ON THE STEREO', source: 'site/examples.ts' },
-  // `CUSTOM_TRACK`, the editor reducer's sentinel for a hand-written track.
-  // `controls.ts` also re-exports the frame grid, which the player *does*
-  // need — it gets it from `site/transport.ts` instead, and this needle is
-  // what proves it did not take the reducer along with it.
+  // `CUSTOM_TRACK`, the sentinel `presetNote` prints for a hand-written
+  // track. NOT the reducer's — that attribution was the error the docblock
+  // above records, and it is the needle below that covers `reduce`. Kept
+  // because it is still true of `presetNote`, which the player also has no
+  // business carrying.
   { needle: '(custom track)', source: 'site/controls.ts' },
+  // `reduce`'s own `layerAnim` arm — the third argument of its `requireLayer`
+  // call, so it is inside the editor reducer's body rather than merely in the
+  // same file. This is the needle the criterion actually asked for.
+  // `controls.ts` also re-exports the frame grid, which the player *does*
+  // need — it gets it from `site/transport.ts` instead, and this is what
+  // proves it did not take the reducer along with it.
+  { needle: 'set an animator', source: 'site/controls.ts' },
 ]
 
 /** Which files under `dir` contain `needle`, as repo-relative paths. */
@@ -584,8 +610,15 @@ describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () =>
     // an empty or accidentally-filtered list would pass all of them in
     // silence. The floor is the real count, with no slack: a needle deleted
     // because its message was reworded has to be replaced, not dropped.
-    expect(EDITOR_NEEDLES.length).toBeGreaterThanOrEqual(7)
-    expect(new Set(EDITOR_NEEDLES.map(n => n.source)).size).toBe(EDITOR_NEEDLES.length)
+    expect(EDITOR_NEEDLES.length).toBeGreaterThanOrEqual(8)
+    // Needles are distinct, which is what the source-uniqueness check used to
+    // stand in for. It is no longer the same statement: `controls.ts` now
+    // carries two, one for `presetNote` and one for `reduce`, because a
+    // needle covers the *function* holding it rather than the module. So the
+    // two claims are made separately — no duplicate needles, and still a
+    // needle for every editor-only module.
+    expect(new Set(EDITOR_NEEDLES.map(n => n.needle)).size).toBe(EDITOR_NEEDLES.length)
+    expect(new Set(EDITOR_NEEDLES.map(n => n.source)).size).toBeGreaterThanOrEqual(7)
   })
 
   it('finds every needle in the editor bundle — the grep works', () => {
