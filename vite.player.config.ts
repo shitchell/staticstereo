@@ -55,6 +55,20 @@ import { defineConfig, type Plugin } from 'vite'
  * `root` is `site`, and `site/index.html` is already the **editor's** entry.
  * So the source keeps its distinguishing name and the *output* is renamed, by
  * {@link directoryIndexEntry} below.
+ *
+ * ## P3: DO NOT RENAME `site/player.html`, even once that collision is gone
+ *
+ * P3 lifts the player into the editor shell and reworks `site/index.html`, so
+ * the collision above stops being a reason and the rename starts looking like
+ * tidying up. It is not: **the output is already `index.html`**, and the
+ * source name is this plugin's `from` operand
+ * (`directoryIndexEntry('player.html', 'index.html')`). Renaming the source
+ * leaves that argument naming a file the bundle no longer contains, and the
+ * plugin then does what it is written to do — it **throws**, with "no
+ * player.html in the bundle". The build fails rather than silently 404ing,
+ * which is the right failure, but it is a build failure whose cause is two
+ * files away from its message. One line of warning here, or a confusing
+ * afternoon there.
  */
 
 /**

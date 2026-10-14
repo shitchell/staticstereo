@@ -34,6 +34,28 @@
  * somebody else's page that their link does not describe, and a viewer has no
  * way to tell a substituted scene from the one the author meant.
  *
+ * ### One input throws, and the claim above is otherwise measured
+ *
+ * The honest statement is "total over every input a browser can produce", not
+ * "total". There is exactly one known exception: a `container` whose `width`
+ * is a **throwing getter** propagates, because `input.container?.width` is read
+ * outside the `try`. No browser produces that — a detached or `display: none`
+ * element measures `0`, which is handled and reported as
+ * `container-unmeasured` — and it is left rather than wrapped, because a `try`
+ * around the whole body would convert a programming error in a *caller* into a
+ * notice claiming something about the user's link.
+ *
+ * What is measured, independently twice: a fuzz of **24 hashes × 12 containers
+ * × 9 dprs × 9 searches = 23,328 cases produced zero throws**, every result
+ * carrying a notices array and a finite {@link PlayerPlan.devicePerBackingScale}.
+ * The container list included `undefined`, `null`, `{}`, string lengths, `NaN`,
+ * `Infinity` and negatives; the hashes included truncations, a future version,
+ * valid base64 that is not JSON, and JSON that is not a scene; the searches
+ * included `fit=constructor` and `smooth=__proto__`. So totality holds over
+ * everything anyone has been able to reach — it is just not *literally*
+ * universal, and a docblock that said "never throws" without this paragraph
+ * would be claiming more than has been shown.
+ *
  * ## What is NOT decided here
  *
  * Playback. `site/transport.ts` and `site/transportdriver.ts` own time, and a

@@ -88,7 +88,36 @@ const MOUNT_ID = 'player'
 /** Where notices are shown. Below the plate — design §8.3; see the markup. */
 const NOTICES_ID = 'notices'
 
-/** Fail loudly and immediately if the markup and this file disagree. */
+/**
+ * Fail loudly and immediately if the markup and this file disagree.
+ *
+ * ## This is a RUNTIME check where the editor has a BUILD-time one
+ *
+ * Recorded as the obvious next guard, not fixed in P2.
+ *
+ * `site/markup.test.ts` reads `site/index.html` and holds the editor's half of
+ * exactly this contract — every id the editor's shell resolves exists in the
+ * markup — so for the editor an id that drifts is a red test. There is no
+ * equivalent for the player: nothing reads `site/player.html`, and
+ * `site/player.ts` has **no test file at all**. So the two ids above
+ * ({@link MOUNT_ID}, {@link NOTICES_ID}) are checked by this throw, on the
+ * viewer's machine, in an `<iframe>` on somebody else's page — which is the
+ * worst available place to discover a typo, and the one case the file header's
+ * failure policy cannot cover, because it happens before there is anywhere to
+ * put a notice.
+ *
+ * The guard that closes it is a `markup.test.ts` for the player's entry and
+ * costs about what the editor's did: parse the HTML, collect the ids, and
+ * assert this file's two constants are among them. Both ends are already
+ * named constants, which is the seam it needs.
+ *
+ * Worth noting what that would and would not buy, so it is not oversold: it
+ * catches the markup and this file parting company, which is the whole of what
+ * `markup.test.ts` catches for the editor. It would not exercise any of the
+ * rest of this file — design §12 excludes component DOM from testing and the
+ * environment has neither jsdom nor happy-dom, so `applyChrome`'s
+ * `createElement` calls stay unexercised either way.
+ */
 function el<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id)
   if (!node) throw new Error(`site/player.html is missing #${id}`)

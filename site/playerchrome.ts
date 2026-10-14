@@ -403,6 +403,44 @@ export interface FlowViolation {
  * A missing canvas or transport is itself reported. Every other rule here is
  * of the form "nothing does X", so without this an empty wrapper — the exact
  * shape a half-finished renderer produces — would be perfectly conformant.
+ *
+ * ## §8.3 IS NOT ENFORCED. Read this before trusting the green suite.
+ *
+ * Three different statements are in play and they are easy to run together:
+ *
+ * - **Proved here.** Document order. No in-flow sibling precedes the canvas's
+ *   branch at any level, and the transport is a following sibling or out of
+ *   flow. That is a property of the tree, and it is exactly what this function
+ *   returns.
+ * - **Proved elsewhere, for the sheets we own.** No axis reversal: no `order:`
+ *   declaration and no reversed flex or grid axis in any stylesheet the player
+ *   entry links, which is what would undo document order at paint time without
+ *   touching the tree. `site/chromedom.test.ts` holds that, discovered from
+ *   the entry rather than hard-coded, with positive controls.
+ * - **Proved nowhere.** The box model. This function has no CSS vocabulary by
+ *   rule (see the file header) and so cannot see padding, margins,
+ *   pseudo-element boxes, `align-*`, or a line box.
+ *
+ * The third is not a theoretical gap, and the demonstration is the §8.3 defect
+ * itself rather than a contrived one. Measured: `padding-top: 0.5px` on
+ * `.stst-player` plus `.stst-player::before { content: ""; display: block }`
+ * added to `site/player.css` — a fractional-offset block box sitting directly
+ * above the canvas, which is the precise thing whose measurement took edge-row
+ * disagreement from 13 device px to 445 — rebuilt and run, and the **entire
+ * suite stayed green at 60 files / 1329 passed / 0 skipped.** Nothing was red
+ * and nothing warned.
+ *
+ * And a fourth, outside anyone's reach: the player's deliverable is an
+ * `<iframe src>` on a page we will never see (R14). A host page's stylesheet
+ * cannot reach inside the frame, so the embed case is safe by the frame
+ * boundary rather than by anything here — but the same cannot be said of P3,
+ * which lifts this player into the editor shell where the shell's own sheet
+ * **is** in the same document and is not one of the sheets the greps above
+ * read.
+ *
+ * So: an empty array from this function means the tree is in the right order.
+ * It does not mean the canvas's origin is where §8.3 requires, and no
+ * assertion in this phase means that either.
  */
 export function flowViolations(root: ChromeNode): FlowViolation[] {
   const found: FlowViolation[] = []

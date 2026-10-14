@@ -206,6 +206,45 @@ export function pause(state: TransportState, nowMs: number, scene: Scene): Trans
  * Playing stays playing — a scrub during playback is a jump, not a stop — and
  * re-anchoring at `nowMs` is what makes it one: `timeAt` at that same `nowMs`
  * returns the sought time, with no elapsed interval to account for.
+ *
+ * ## P3 MUST DECIDE: a seek into the final inter-frame gap. Unpinned either way.
+ *
+ * Recorded here rather than in a separate note because P3 lifts this module
+ * into the editor store, so this is the file that phase opens.
+ *
+ * (Also note, for whoever writes that note: the no-DOM guard in
+ * `transport.test.ts` greps the **raw** source rather than a comment-stripped
+ * copy, unlike the equivalents in `playerchrome.ts` and `chromedom.test.ts`.
+ * So the prose in this file cannot spell the identifiers the guard forbids,
+ * which is the hazard `chromedom.test.ts` records from the other direction.)
+ *
+ * This function uses {@link snapLoopTime}, so an **in-range** seek past the
+ * last frame — anywhere in the gap between the last frame's sample time and
+ * `loopDuration` — can land on **frame 0**. Measured on a 2 s 12 fps scene
+ * (last frame 1.9167 s, span 2 s): `seek(…, 1.99)` anchors at **0** while
+ * `snapTime(…, 1.99)` is **1.9167**, and the two agree again at 1.95.
+ * {@link snapTime} over the same input returns the **last frame**, and
+ * `transport.test.ts` documents that as
+ * the deliberate rule for `snapTime`: *"the scrubber's rule, where dragging to
+ * the end must show the end"*. Both rules are right about the thing they were
+ * written for; they are opposite, and they meet in the scrubber.
+ *
+ * **Nothing pins `seek` there.** No test in this phase samples a seek inside
+ * that gap, so a change in either direction is unguarded — which is the reason
+ * this is a note and not an assertion: pinning today's answer would freeze a
+ * decision nobody has taken, and the circular snap is here for playback
+ * continuity, not because the scrubber's end-of-track behaviour was considered.
+ *
+ * The choice P3 owns is between two shapes, and it is a UI decision:
+ *
+ *  - the scrubber calls `seek`, and dragging to the far end of the track wraps
+ *    visibly to the first frame; or
+ *  - the scrubber calls `snapTime` and anchors the transport separately, so
+ *    the end of the drag shows the end of the scene and playback keeps its own
+ *    circular rule.
+ *
+ * Whichever is chosen, **assert it on `seek`** — the gap is the only place the
+ * two disagree, so it is the only sample that can hold the answer.
  */
 export function seek(
   state: TransportState,
