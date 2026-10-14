@@ -1,6 +1,8 @@
-import { resolveEasing } from './easing.js'
+import { EASINGS, resolveEasing } from './easing.js'
 import { IDENTITY } from '../types.js'
-import type { Anim, AssertNever, Easing, Key, Preset, Track, Transform } from '../types.js'
+import type {
+  Anim, AssertNever, Easing, Key, NamedEasing, Preset, Track, Transform,
+} from '../types.js'
 import type { PresetCtx } from './presets.js'
 
 /**
@@ -17,6 +19,54 @@ export type Channel = typeof CHANNELS[number]
 // the codebase would notice. Same guard as `STEREO_KEYS` in `types.ts`.
 type _NoChannelMissing = AssertNever<Exclude<keyof Transform, Channel>>
 type _NoChannelExtra = AssertNever<Exclude<Channel, keyof Transform>>
+
+/**
+ * Solvers built from `cubic-bezier(...)` strings, keyed by the string.
+ *
+ * **This cache is about the render loop, not about microbenchmarks.**
+ * `channelAt` runs once per animated channel per layer per frame, and
+ * `resolveEasing` on a bezier does a regex match, a split, four `Number()`
+ * conversions, and then allocates a closure over six precomputed
+ * coefficients. None of that can vary between frames: the easing is a
+ * property of the track, and the track does not change while the scene
+ * renders. Resolving per call would mean building and discarding one solver
+ * per channel per layer per frame.
+ *
+ * Keyed by the string rather than by the `Track` so that two layers sharing
+ * an easing share a solver, and so a `WeakMap` is not needed to avoid
+ * retaining tracks.
+ *
+ * Unbounded, deliberately. The keys are easing strings written by a scene
+ * author, so the population is the number of *distinct curves in the scene
+ * file* — a handful. An eviction policy here would be machinery guarding
+ * against a scene nobody writes.
+ */
+const BEZIER_SOLVERS = new Map<string, (t: number) => number>()
+
+/**
+ * The function an easing denotes, memoised for the bezier form.
+ *
+ * **The named path must not get slower**, and that is why the record lookup
+ * comes first instead of everything going through the map. The five named
+ * curves are what every scene in the repo uses today; routing them through a
+ * `Map.get` would add a hash lookup per channel per layer per frame to every
+ * existing scene in exchange for nothing — they are already plain functions
+ * with nothing to build. So: property lookup for the named curves, exactly as
+ * before, and the cache only on the path that would otherwise allocate.
+ *
+ * Exported for the test that pins both halves of that: same instance back for
+ * a repeated bezier, and `EASINGS`' own function for a named one.
+ */
+export function easingFor(ease: Easing): (t: number) => number {
+  const named = EASINGS[ease as NamedEasing]
+  if (named !== undefined) return named
+  let solver = BEZIER_SOLVERS.get(ease)
+  if (solver === undefined) {
+    solver = resolveEasing(ease)
+    BEZIER_SOLVERS.set(ease, solver)
+  }
+  return solver
+}
 
 /** Map wall-clock seconds to this track's normalised local time, honouring repeat. */
 function localTime(tr: Track, seconds: number, sceneDuration: number): number {
@@ -53,12 +103,12 @@ function channelAt(keys: Key[], ch: Channel, u: number, ease: Easing): number | 
   const a = pts[i]!, b = pts[i + 1]!
   const span = b.t - a.t
   const local = span <= 0 ? 0 : (u - a.t) / span
-  // The resolver, not `EASINGS[ease]`. This is the **fourth** easing
+  // `easingFor`, not `EASINGS[ease]`. This is the **fourth** easing
   // touchpoint and the only one that is not a validator: it is the actual
   // runtime resolution path, it never checked anything, and indexing a record
   // keyed by the five named curves with a widened `Easing` yields `undefined`
   // for a bezier string — a TypeError one line later, in the render loop.
-  const e = resolveEasing(ease)(local)
+  const e = easingFor(ease)(local)
   return a[ch]! + (b[ch]! - a[ch]!) * e
 }
 

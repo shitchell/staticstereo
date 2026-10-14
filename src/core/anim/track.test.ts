@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
-import { evalTrack, composeAnim } from './track.js'
+import { easingFor, evalTrack, composeAnim } from './track.js'
+import { cubicBezier } from './bezier.js'
+import { EASINGS } from './easing.js'
 import { CHANNELS } from '../index.js'
 import { IDENTITY, type Track } from '../types.js'
 
@@ -60,6 +62,60 @@ describe('evalTrack', () => {
     expect(evalTrack(windowed, 0.5, 4).x).toBe(0)      // before start -> first key
     expect(evalTrack(windowed, 2.0, 4).x).toBeCloseTo(50)
     expect(evalTrack(windowed, 3.5, 4).x).toBe(100)    // after end -> last key
+  })
+})
+
+/**
+ * The fourth easing touchpoint.
+ *
+ * The other three are validators; this one is the runtime resolution path and
+ * it never validated anything — `EASINGS[ease]` straight into a call. A
+ * widened `Easing` makes that `undefined` for every bezier string, one line
+ * before it is invoked.
+ */
+describe('evalTrack easing resolution', () => {
+  const BEZIER = 'cubic-bezier(.17,.67,.83,.67)' as const
+
+  it('evaluates a cubic-bezier ease to that curve\'s values', () => {
+    // Asserted against the solver's own output rather than against decimals,
+    // so this pins the *wiring* — that the track's string reaches
+    // `cubicBezier` with its four numbers in order — and leaves the curve's
+    // correctness to `bezier.test.ts`. A test carrying its own interpolated
+    // numbers would re-derive the curve and then agree with itself.
+    const f = cubicBezier(0.17, 0.67, 0.83, 0.67)
+    const tr: Track = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }], ease: BEZIER }
+    for (let i = 0; i <= 20; i++) {
+      const u = i / 20
+      expect(evalTrack(tr, u, 1).x, `u=${u}`).toBeCloseTo(100 * f(u), 10)
+    }
+  })
+
+  it('builds a solver once per easing string, not once per call', () => {
+    // `evalTrack` runs per layer per frame. Resolving on every call would put
+    // a regex parse, four `Number()` conversions and a closure allocation
+    // inside the render loop, for a function that cannot vary between frames
+    // — the easing is a property of the track, not of the time.
+    expect(easingFor(BEZIER)).toBe(easingFor(BEZIER))
+    // Not one global solver handed to everyone: distinct curves are distinct.
+    expect(easingFor(BEZIER)).not.toBe(easingFor('cubic-bezier(.1,.2,.3,.4)'))
+  })
+
+  it('leaves the named path a direct lookup', () => {
+    // The named curves must not pay for the bezier cache. Identity against
+    // `EASINGS` is what says so: a `Map` round-trip for `linear` would still
+    // return a correct function, and would still be a map lookup added to
+    // every layer of every frame of every existing scene.
+    for (const [name, fn] of Object.entries(EASINGS)) {
+      expect(easingFor(name as keyof typeof EASINGS), name).toBe(fn)
+    }
+  })
+
+  it('throws on an easing it cannot resolve', () => {
+    // The validators keep this unreachable from a scene file. It stays loud
+    // anyway: a silent `linear` here renders every frame with the wrong
+    // motion and leaves nothing behind to find.
+    const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }], ease: 'wobble' } as unknown as Track
+    expect(() => evalTrack(tr, 0.5, 1)).toThrow(/easing/)
   })
 })
 
