@@ -67,6 +67,64 @@ const CSS = readFileSync(CSS_PATH, 'utf8')
 /** The stylesheet with comments stripped — same reason, same trap. */
 const CSS_CODE = CSS.replace(/\/\*[\s\S]*?\*\//g, '')
 
+/* ---------------------------------- every sheet the player page actually loads */
+
+/**
+ * **One stylesheet is not the set of stylesheets.**
+ *
+ * Everything below used to read `PLAYER_STYLESHEET` and nothing else, which
+ * was true when it was written and stopped being true when `playerpage.css`
+ * was added. The consequence was precise rather than theoretical: that second
+ * sheet is the one that sets `body { display: flex; flex-direction: column }`,
+ * so the single file a `column-reverse` edit would plausibly be made in was
+ * exactly the file the reordering greps did not read — and `order:`, a
+ * reversed axis and a stray `pointer-events` would all have stayed green in
+ * it.
+ *
+ * Discovered from the entry, not hard-coded, and that distinction is the
+ * whole fix. Naming `playerpage.css` here would repair today's instance and
+ * leave the mechanism exactly as fragile for the third sheet, which is the
+ * same mistake one iteration later.
+ */
+function linkedStylesheets(html: string): string[] {
+  return [...html.matchAll(/<link\b([^>]*)>/g)]
+    .map(m => m[1]!)
+    // Attribute order is not fixed by anything, so `rel` and `href` are
+    // matched independently rather than in one positional pattern.
+    .filter(attrs => /\brel\s*=\s*["']stylesheet["']/i.test(attrs))
+    .map(attrs => /\bhref\s*=\s*["']([^"']+)["']/i.exec(attrs)?.[1])
+    .filter((href): href is string => href !== undefined)
+}
+
+const ENTRY_HTML = readFileSync(new URL('./player.html', import.meta.url), 'utf8')
+
+/** Each linked sheet: its filename, its text, and its text with comments stripped. */
+const PLAYER_SHEETS = linkedStylesheets(ENTRY_HTML).map(href => {
+  const name = href.replace(/^\.\//, '')
+  const text = readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
+  return { name, text, code: text.replace(/\/\*[\s\S]*?\*\//g, '') }
+})
+
+describe('the stylesheets under test are the ones the page loads', () => {
+  it('discovered them from the entry, rather than matching nothing and passing', () => {
+    // The vacuity floor, and it is the load-bearing assertion of this block:
+    // every sweep that follows is a loop over `PLAYER_SHEETS`, so a parser
+    // that found nothing would prove every absence at once.
+    expect(PLAYER_SHEETS.length).toBeGreaterThanOrEqual(2)
+    expect(PLAYER_SHEETS.map(s => s.name)).toContain(PLAYER_STYLESHEET)
+    for (const sheet of PLAYER_SHEETS) {
+      expect(sheet.code.length, sheet.name).toBeGreaterThan(50)
+    }
+    // Positive control: the parser really does read `rel`, and really does
+    // find a sheet it has never been told about.
+    expect(
+      linkedStylesheets(
+        '<link rel="preload" href="./a.css"><link href="./invented-tomorrow.css" rel="stylesheet">',
+      ),
+    ).toEqual(['./invented-tomorrow.css'])
+  })
+})
+
 interface Rule { readonly selector: string; readonly body: string }
 
 function rulesOf(css: string): Rule[] {
@@ -305,8 +363,13 @@ describe('the stylesheet says the same thing the tree says', () => {
   })
 
   it('declares pointer-events for the transport and the controls, and agrees', () => {
+    // Across every linked sheet, not only the component's: a second sheet
+    // with an opinion about `.stst-transport` is exactly the "two artifacts
+    // claim one property and specificity decides" problem, and reading one
+    // file is what makes it invisible.
     const declared = new Map(
-      declarationsOf(CSS_CODE, 'pointer-events').map(d => [d.selector, d.value]),
+      PLAYER_SHEETS.flatMap(s => declarationsOf(s.code, 'pointer-events'))
+        .map(d => [d.selector, d.value]),
     )
     expect(declared.get(`.${CLASS_TRANSPORT}`)).toBe('none')
     expect(declared.get(`.${CLASS_CONTROL}`)).toBe('auto')
@@ -323,8 +386,12 @@ describe('the stylesheet says the same thing the tree says', () => {
     // A strip spanning the plate that ate every click aimed at it is design
     // §8.2's corrected mistake; a third rule setting `pointer-events: none` on
     // an ancestor would restore it with the tree still perfectly conformant.
-    const selectors = declarationsOf(CSS_CODE, 'pointer-events').map(d => d.selector).sort()
-    expect(selectors).toEqual([`.${CLASS_CONTROL}`, `.${CLASS_TRANSPORT}`].sort())
+    const selectors = PLAYER_SHEETS
+      .flatMap(s => declarationsOf(s.code, 'pointer-events').map(d => `${s.name} ${d.selector}`))
+      .sort()
+    expect(selectors).toEqual(
+      [`${PLAYER_STYLESHEET} .${CLASS_CONTROL}`, `${PLAYER_STYLESHEET} .${CLASS_TRANSPORT}`].sort(),
+    )
     // Positive control: the predicate really does see an extra declaration.
     expect(
       declarationsOf(`${CSS_CODE}\n.${CLASS_WRAPPER} { pointer-events: none }`, 'pointer-events')
@@ -373,7 +440,13 @@ describe('no CSS reordering, because §8.3 is about the realised position', () =
    * about where the canvas ends up, not about where it is written.
    */
   it('contains no order property anywhere', () => {
-    expect(hasOrderProperty(CSS_CODE)).toBe(false)
+    // "Anywhere" means every sheet the page loads. `playerpage.css` is the
+    // one that makes the body a flex column, so it is the one an `order:` on
+    // `#player` or `#notices` would most naturally be written in — and until
+    // this loop it was the one sheet not read.
+    for (const sheet of PLAYER_SHEETS) {
+      expect(hasOrderProperty(sheet.code), sheet.name).toBe(false)
+    }
     // Positive controls, including the near-miss that must NOT trip it.
     expect(hasOrderProperty(`.a { order: -1 }`)).toBe(true)
     expect(hasOrderProperty(`.a { color: red; order:2; }`)).toBe(true)
@@ -381,7 +454,9 @@ describe('no CSS reordering, because §8.3 is about the realised position', () =
   })
 
   it('reverses no flex or grid axis anywhere', () => {
-    expect(hasReversedAxis(CSS_CODE)).toBe(false)
+    for (const sheet of PLAYER_SHEETS) {
+      expect(hasReversedAxis(sheet.code), sheet.name).toBe(false)
+    }
     expect(hasReversedAxis(`.a { flex-direction: column-reverse }`)).toBe(true)
     expect(hasReversedAxis(`.a { flex-flow: row-reverse wrap }`)).toBe(true)
     expect(hasReversedAxis(`.a { grid-auto-flow: column }`)).toBe(false)
