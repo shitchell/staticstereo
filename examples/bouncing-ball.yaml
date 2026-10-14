@@ -1,7 +1,7 @@
 # A ball crossing the frame while bouncing.
 #
-# Two animators on ONE layer: `slide` and `bounce` compose, so their
-# translations sum -- which is why there is no `slide-with-bounce` preset.
+# Two animators on ONE layer: `move` and `bounce` compose, so their
+# translations sum -- which is why there is no `move-with-bounce` preset.
 #
 # Note the ball is a `shape`, not a PNG. Every example here is authorable in
 # text so a reviewer can read the scene in a diff.
@@ -27,5 +27,5 @@ layers:
     at: [140, 190]
     depth: 1.0
     anim:
-      - {kind: slide, from: [0, 0], to: [520, 0]}
+      - {kind: move, from: [0, 0], to: [520, 0]}
       - {kind: bounce, height: 150, duration: 1.0}
