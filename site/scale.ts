@@ -872,6 +872,17 @@ export interface RescalePlan {
    * panel an upscale and pixelate a picture that is in fact being halved.
    */
   readonly displayScale: number
+  /**
+   * **Device px drawn ÷ backing-store px** — `fit.scale`, carried under a name
+   * that says both spaces.
+   *
+   * This is the ratio the browser resamples by and therefore the one
+   * `imageRenderingFor` in `site/smooth.ts` takes. It is a field rather than a
+   * division at the call site for the reason {@link displayScale} was: the one
+   * place that bridges fit and smoothing should not have to re-derive a ratio
+   * whose two readings differ by a factor nobody can see at dpr 1.
+   */
+  readonly devicePerBackingScale: number
 }
 
 /**
@@ -894,6 +905,16 @@ export interface RerenderPlan {
    * field with one meaning whatever the mode.
    */
   readonly displayScale: number
+  /**
+   * **`1`, always** — the same quantity as {@link RescalePlan.devicePerBackingScale}
+   * and the mode's defining choice, stated in the space it is a choice about.
+   *
+   * `renderFit`'s contract is `cssWidth * dpr === backingWidth` exactly, so one
+   * backing pixel lands on one device pixel at every `dpr`. The CSS-px reading
+   * of the same plan is `1 / dpr` and moves; this one does not, which is the
+   * clearest single demonstration that they are not interchangeable.
+   */
+  readonly devicePerBackingScale: number
 }
 
 /** What {@link planFit} returns. Discriminated on `kind`. */
@@ -925,6 +946,7 @@ export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
     backingWidth: backing.width,
     backingHeight: backing.height,
     displayScale: fit.scale / ratio,
+    devicePerBackingScale: fit.scale,
   })
   switch (mode) {
     case 'snap':
@@ -941,7 +963,13 @@ export function planFit(mode: FitMode, input: PlanFitInput): FitPlan {
     }
     case 'render': {
       const plan = renderFit(input)
-      return { kind: 'rerender', mode: 'render', plan, displayScale: 1 / ratio }
+      return {
+        kind: 'rerender',
+        mode: 'render',
+        plan,
+        displayScale: 1 / ratio,
+        devicePerBackingScale: 1,
+      }
     }
     default: {
       // `mode` is `never` here, and stops being `never` the moment a mode is

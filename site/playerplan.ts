@@ -210,6 +210,22 @@ export interface PlayerPlan {
    * telling anyone, which is a defect only ever found by eye.
    */
   readonly displayScale: number
+  /**
+   * **Device px drawn ÷ backing-store px.** The ratio `imageRenderingFor`
+   * takes, and the one the browser actually resamples by.
+   *
+   * Read from `FitPlan.devicePerBackingScale` and never recomputed here, for
+   * the reason {@link displayScale}'s own note gives: the two ratios differ by
+   * exactly `dpr` and `scale.ts` carries both so that this call site does not
+   * have to choose by doing arithmetic.
+   *
+   * With no fit plan it is `1`: nothing is being drawn, so nothing is being
+   * resampled, and one backing pixel per device pixel is the honest statement
+   * of that — the same statement a re-render makes, in the same space. Defined
+   * rather than absent because a CSS property set from `undefined` is a silent
+   * no-op, which stops pixelating without telling anyone.
+   */
+  readonly devicePerBackingScale: number
   /** What `?smooth=` asked for. */
   readonly smooth: SmoothMode
   /** The CSS `image-rendering` value for this plan. */
@@ -424,6 +440,7 @@ export function playerPlan(input: PlayerPlanInput): PlayerPlan {
   }
 
   const displayScale = fit?.displayScale ?? 1 / dpr
+  const devicePerBackingScale = fit?.devicePerBackingScale ?? 1
   // One `framingOf`, not two: the chrome and the reported framing must be the
   // same answer, and two calls to a function with no reason to disagree is
   // still two places for a later edit to make them disagree.
@@ -434,8 +451,9 @@ export function playerPlan(input: PlayerPlanInput): PlayerPlan {
     requestedFit,
     fit,
     displayScale,
+    devicePerBackingScale,
     smooth,
-    imageRendering: imageRenderingFor(smooth, displayScale),
+    imageRendering: imageRenderingFor(smooth, devicePerBackingScale),
     chrome: chromeSpec(framing),
     notices,
   }

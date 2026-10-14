@@ -147,18 +147,42 @@ export function parseSmooth(search: string): SmoothMode {
  * which are not downscales at all — they are a container with no size or an
  * arithmetic error upstream. None of those is a reason to start blending.
  */
-function isDownscale(displayScale: number): boolean {
-  return displayScale > 0 && displayScale < 1
+function isDownscale(devicePerBackingPx: number): boolean {
+  return devicePerBackingPx > 0 && devicePerBackingPx < 1
 }
 
 /**
- * The CSS `image-rendering` value for a mode at a given display scale.
+ * The CSS `image-rendering` value for a mode at a given resampling ratio.
  *
- * `displayScale` is **CSS px shown ÷ backing-store px** — the output of the fit
- * arithmetic, measured between two of the four pixel spaces this project
- * tracks. The backing store is the plate at `noiseScale` (default 2), so a
- * 1930-backing-px plate laid out at 965 CSS px is `0.5`, not `1`. Below 1 the
- * browser is throwing information away; above 1 it is inventing it.
+ * `devicePerBackingPx` is **device px drawn ÷ backing-store px** — `Fit.scale`,
+ * named in both of the two pixel spaces it spans because getting it wrong here
+ * is invisible. The backing store is the plate at `noiseScale` (default 2).
+ * Below 1 the browser is throwing information away; above 1 it is inventing it.
+ *
+ * ## Not the CSS-px ratio. This was argued the other way and was wrong.
+ *
+ * This parameter was `displayScale` — **CSS px shown ÷ backing-store px**, the
+ * same quantity divided by `dpr` — and the argument for it, written out at
+ * `site/scale.ts`'s `RescalePlan` and repeated in two further places, was that
+ * handing this function `Fit.scale` "would call a 1x plate on a dpr-2 panel an
+ * upscale and pixelate a picture that is in fact being halved". The picture is
+ * not being halved. At `displayScale` 1 on a dpr-2 panel each backing pixel
+ * covers a **2×2 block of device pixels**: it is being doubled, and
+ * `pixelated` is exactly right for it.
+ *
+ * The browser does not resample into CSS px. CSS px are a layout unit; the
+ * resampling step `image-rendering` hints at is backing store → **device
+ * grid**, so the ratio that decides it is the device one and nothing else. The
+ * consequence of the old reading was that at dpr 2 every CSS ratio in (0.5, 1)
+ * — which includes every 1× snap plan and every re-render, the two modes whose
+ * entire purpose is pixel-exactness — was a genuine device upscale being
+ * blended, which is the one outcome the "Up, pixelated" rule below exists to
+ * prevent. It is a no-op at dpr 1, so the whole suite passed over it.
+ *
+ * Recorded rather than quietly corrected because the direction of this ratio is
+ * a question somebody has now got wrong once in writing. A reader who finds
+ * only the rule has no reason to check it; a reader who finds the rule and the
+ * refuted alternative has.
  *
  * The policy is design §8.1's: "smooth when downscaling (R20's accepted
  * 'softening and blurring'), `pixelated` when upscaling, where integer factors
@@ -190,9 +214,9 @@ function isDownscale(displayScale: number): boolean {
  */
 export function imageRenderingFor(
   mode: SmoothMode,
-  displayScale: number,
+  devicePerBackingPx: number,
 ): 'auto' | 'pixelated' {
   if (mode === 'on') return 'auto'
   if (mode === 'off') return 'pixelated'
-  return isDownscale(displayScale) ? 'auto' : 'pixelated'
+  return isDownscale(devicePerBackingPx) ? 'auto' : 'pixelated'
 }

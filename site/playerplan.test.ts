@@ -256,6 +256,34 @@ function displayScaleFromDefinition(plan: ReturnType<typeof playerPlan>): number
     : fit.plan.cssWidth / fit.plan.backingWidth
 }
 
+/**
+ * **Device px ÷ backing-store px** — the ratio the browser actually resamples
+ * by, and therefore the one `imageRenderingFor` is given.
+ *
+ * Recomputed from the definition for the same reason as
+ * {@link displayScaleFromDefinition}, and never read back out of the plan's own
+ * `devicePerBackingScale`, which would make the assertion `x === x`. The route
+ * taken here crosses three of the four named pixel spaces one step at a time —
+ * the **CSS px** width the plan asks for, multiplied by the **dpr the caller
+ * supplied** to reach **device px**, over the **backing-store px** it was
+ * computed against — so a `dpr` dropped or applied twice anywhere inside
+ * `scale.ts` surfaces here as a mismatch rather than as a soft picture.
+ *
+ * Only valid for a finite positive `dpr`, which is why the sweep that uses it
+ * passes its own `dpr` rather than reading the plan's: for an unusable `dpr`
+ * the plan coerces to 1 and the caller's number is not the one in play.
+ */
+function devicePerBackingFromDefinition(
+  plan: ReturnType<typeof playerPlan>,
+  dpr: number,
+): number {
+  const fit = plan.fit
+  if (fit === undefined) throw new Error('no fit plan to measure')
+  const cssWidth = fit.kind === 'rescale' ? fit.fit.cssWidth : fit.plan.cssWidth
+  const backingWidth = fit.kind === 'rescale' ? fit.backingWidth : fit.plan.backingWidth
+  return (cssWidth * dpr) / backingWidth
+}
+
 describe('the image-rendering hint', () => {
   const BOXES = [
     { width: 1, height: 1 },
@@ -271,6 +299,7 @@ describe('the image-rendering hint', () => {
 
   it('matches the smoothing policy at every container size and fractional dpr', () => {
     let checked = 0
+    let reversedByDpr = 0
     for (const container of BOXES) {
       for (const dpr of DPRS) {
         for (const smooth of QUERIES) {
@@ -278,9 +307,20 @@ describe('the image-rendering hint', () => {
             const search = `${smooth === '' ? '?' : `${smooth}&`}fit=${mode}`
             const plan = playerPlan(at({ search, container, dpr }))
             const where = `${mode} ${container.width}x${container.height} @${dpr} ${smooth}`
-            const ratio = displayScaleFromDefinition(plan)
-            expect(plan.displayScale, where).toBeCloseTo(ratio, 10)
-            expect(plan.imageRendering, where).toBe(imageRenderingFor(parseSmooth(search), ratio))
+            const cssRatio = displayScaleFromDefinition(plan)
+            const deviceRatio = devicePerBackingFromDefinition(plan, dpr)
+            // Both ratios are still carried and they still differ by exactly
+            // `dpr`. That relation is the entire content of the mistake this
+            // sweep exists for, so it is asserted rather than assumed.
+            expect(plan.displayScale, where).toBeCloseTo(cssRatio, 10)
+            expect(plan.devicePerBackingScale, where).toBeCloseTo(deviceRatio, 10)
+            expect(deviceRatio, where).toBeCloseTo(cssRatio * dpr, 10)
+            // ...and the hint is decided in DEVICE px, which is the space the
+            // browser resamples in. Handing `imageRenderingFor` the CSS ratio
+            // instead is what this line fails on.
+            expect(plan.imageRendering, where)
+              .toBe(imageRenderingFor(parseSmooth(search), deviceRatio))
+            if (cssRatio < 1 && deviceRatio >= 1) reversedByDpr++
             checked++
           }
         }
@@ -289,19 +329,67 @@ describe('the image-rendering hint', () => {
     // Vacuity floor: a loop that stopped iterating would assert nothing.
     expect(checked).toBe(BOXES.length * DPRS.length * QUERIES.length * MODES.length)
     expect(checked).toBeGreaterThan(400)
+    // A second floor, on the band that discriminates the two readings rather
+    // than on the sweep as a whole. `cssRatio < 1 <= deviceRatio` is exactly
+    // the set of points where the CSS reading says "downscale, blend" and the
+    // device reading says "1:1 or larger, leave the dots alone"; it is empty
+    // at dpr 1 by construction, which is why a suite with no fractional dpr in
+    // it passed over this defect for the whole phase. If `DPRS` ever loses its
+    // above-1 entries the sweep still runs and still proves nothing, and this
+    // is the line that says so.
+    expect(reversedByDpr).toBeGreaterThan(0)
   })
 
-  it('is a CSS-px ratio, so dpr genuinely changes it', () => {
-    // The discriminating case. At dpr 2 a `render` plan shows one backing pixel
-    // per DEVICE pixel, which is half a CSS pixel — a downscale, and `auto`
-    // must smooth it. Reading `Fit.scale` instead would report 1 and pixelate.
+  /**
+   * **The discriminating case, inverted — and the comment it replaces was a
+   * green test asserting the defect.**
+   *
+   * What stood here read: "At dpr 2 a `render` plan shows one backing pixel per
+   * DEVICE pixel, which is half a CSS pixel — a downscale, and `auto` must
+   * smooth it. Reading `Fit.scale` instead would report 1 and pixelate." Every
+   * clause of that is arithmetically true and the conclusion is backwards. The
+   * browser does not resample in CSS px; it resamples backing store onto the
+   * device grid, and in that space a re-render is 1:1 at every dpr. `render` is
+   * the one mode whose whole purpose is pixel-exactness — `renderFit` sizes the
+   * backing store so that `cssWidth * dpr === backingWidth` — so asking the
+   * browser to interpolate it is precisely the blur the mode exists to prevent.
+   *
+   * Kept as a rewrite rather than deleted because the direction of this ratio
+   * was argued once, in writing, and got the wrong answer; a reader who finds
+   * only the corrected rule has no reason to check it, and a reader who finds
+   * the record of the earlier mistake does.
+   */
+  it('pixelates a dpr-2 render plan, because a re-render is 1:1 in DEVICE px', () => {
     const one = playerPlan(at({ search: '?fit=render', dpr: 1 }))
     const two = playerPlan(at({ search: '?fit=render', dpr: 2 }))
+    // dpr genuinely changes the CSS-px ratio. That much was never in doubt...
     expect(one.displayScale).toBeCloseTo(1, 10)
     expect(two.displayScale).toBeCloseTo(0.5, 10)
     expect(two.displayScale).toBeCloseTo(one.displayScale / 2, 10)
+    // ...and it is exactly why the CSS-px ratio is the wrong thing to hint
+    // with: the ratio the browser resamples by does not move at all.
+    expect(one.devicePerBackingScale).toBeCloseTo(1, 10)
+    expect(two.devicePerBackingScale).toBeCloseTo(1, 10)
     expect(one.imageRendering).toBe('pixelated')
-    expect(two.imageRendering).toBe('auto')
+    expect(two.imageRendering).toBe('pixelated')
+  })
+
+  it('never smooths a snap plan, at any dpr, because snap never downscales', () => {
+    // `fitScale` floors at 1 and returns an integer, so a snap plan is a 1x or
+    // an exact n-times upscale in device px and nothing else. Under the CSS
+    // reading a 1x snap on a dpr-2 panel read as 0.5 and got blended, which is
+    // the same defect as the render case wearing the other mode's name.
+    let checked = 0
+    for (const dpr of DPRS) {
+      for (const container of BOXES) {
+        const plan = playerPlan(at({ search: '?fit=snap', container, dpr }))
+        const where = `${container.width}x${container.height} @${dpr}`
+        expect(plan.devicePerBackingScale, where).toBeGreaterThanOrEqual(1)
+        expect(plan.imageRendering, where).toBe('pixelated')
+        checked++
+      }
+    }
+    expect(checked).toBe(DPRS.length * BOXES.length)
   })
 
   it('is defined even when there is nothing to draw', () => {
@@ -311,6 +399,7 @@ describe('the image-rendering hint', () => {
       const plan = playerPlan(at({ hash }))
       expect(plan.fit, hash).toBeUndefined()
       expect(Number.isFinite(plan.displayScale), hash).toBe(true)
+      expect(Number.isFinite(plan.devicePerBackingScale), hash).toBe(true)
       expect(['auto', 'pixelated']).toContain(plan.imageRendering)
     }
   })

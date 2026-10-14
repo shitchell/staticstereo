@@ -7,6 +7,7 @@ import {
   parseSmooth,
 } from './smooth.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
+import { planFit } from './scale.js'
 import { validateScene } from './scene.js'
 import type { Scene } from '../src/core/types.js'
 
@@ -138,6 +139,26 @@ describe('imageRenderingFor', () => {
   const DEGENERATE = [1, 0, -0, -1, -0.5, Number.NaN, Infinity, -Infinity]
   const ALL = [...DOWN, ...UP, ...DEGENERATE]
 
+  /**
+   * **`dpr` is a dimension of this policy even though it is not an argument.**
+   *
+   * The matrix below was mode × scale, two arguments and two loops, which is
+   * the shape the function's signature invites. It is also the shape that
+   * cannot see the defect this block was extended for: the ratio reaching this
+   * function is produced by `scale.ts`, which works in four pixel spaces, and
+   * whether it arrives as **CSS px ÷ backing-store px** or as **device px ÷
+   * backing-store px** is a choice made at the call site, not here. The two
+   * differ by exactly `dpr` — so at dpr 1 they are the same number and every
+   * test in a suite with no second dpr in it passes either way.
+   *
+   * The band that separates them is `cssRatio < 1 <= cssRatio * dpr`: a
+   * genuine 1:1 or a genuine device upscale that the CSS reading calls a
+   * downscale and blends. It is **empty at dpr 1 by construction**, which is
+   * why it survived a phase of green runs.
+   */
+  const CSS_RATIOS = [0.1, 0.4, 0.5, 0.6, 2 / 3, 0.75, 0.8, 0.9, 1, 1.5, 2]
+  const DPRS = [1, 1.25, 1.5, 2, 2.5, 3]
+
   it('is total: every mode and every scale yields one of the two legal values', () => {
     // A CSS property with an undefined value is a silent no-op, so a hole here
     // would not throw — it would just quietly stop pixelating.
@@ -201,6 +222,42 @@ describe('imageRenderingFor', () => {
     expect(imageRenderingFor('auto', Infinity)).toBe('pixelated')
   })
 
+  it('decides in DEVICE px, so the same CSS ratio reverses with dpr', () => {
+    // The unit-space half of the dpr dimension: given a CSS-px ratio and a
+    // dpr, the answer follows the DEVICE ratio and nothing else. This half is
+    // a statement of the contract and cannot go red on its own — the function
+    // body never changed, only what it is handed. The half that *can* go red
+    // is the bridge block below, which reads the ratio off a real fit plan.
+    let checked = 0
+    let reversedByDpr = 0
+    let reversedAtDprOne = 0
+    for (const cssPerBackingPx of CSS_RATIOS) {
+      for (const dpr of DPRS) {
+        const devicePerBackingPx = cssPerBackingPx * dpr
+        const where = `css ${cssPerBackingPx} @ dpr ${dpr} = device ${devicePerBackingPx}`
+        expect(imageRenderingFor('auto', devicePerBackingPx), where)
+          .toBe(devicePerBackingPx < 1 ? 'auto' : 'pixelated')
+        if (cssPerBackingPx < 1 && devicePerBackingPx >= 1) {
+          // The band. Under the CSS reading every one of these blends adjacent
+          // columns of random dots at a scale where nearest-neighbour is
+          // exactly lossless, which is the one thing R20 does not accept.
+          expect(imageRenderingFor('auto', devicePerBackingPx), where).toBe('pixelated')
+          reversedByDpr++
+          if (dpr === 1) reversedAtDprOne++
+        }
+        checked++
+      }
+    }
+    expect(checked).toBe(CSS_RATIOS.length * DPRS.length)
+    // Vacuity floor on the band itself, not just on the loop: a `DPRS` that
+    // lost its above-1 entries would still sweep and would still prove nothing.
+    expect(reversedByDpr).toBeGreaterThan(8)
+    // ...and the finding behind the finding, as an assertion: at dpr 1 the two
+    // readings are the same number, so no matrix that holds dpr at 1 can tell
+    // them apart however many scales it sweeps.
+    expect(reversedAtDprOne).toBe(0)
+  })
+
   it('agrees with parseSmooth on the default, which is the composed behaviour', () => {
     // The pairing a caller actually writes: parse the URL, then ask the policy.
     // Pinned so that changing either half alone shows up here.
@@ -208,6 +265,103 @@ describe('imageRenderingFor', () => {
     expect(imageRenderingFor(parseSmooth(''), 2)).toBe('pixelated')
     expect(imageRenderingFor(parseSmooth('?smooth=on'), 2)).toBe('auto')
     expect(imageRenderingFor(parseSmooth('?smooth=off'), 0.5)).toBe('pixelated')
+  })
+})
+
+/**
+ * **Which ratio reaches `imageRenderingFor`, measured over real fit plans.**
+ *
+ * `imageRenderingFor` takes two arguments and neither is a `dpr`, so a matrix
+ * over its own signature can never see the mistake: the pixel space is chosen
+ * one layer up, where `scale.ts` turns a container and a dpr into a plan. This
+ * block reads the ratio off that plan and is therefore the half of the dpr
+ * dimension that can actually fail.
+ *
+ * The scene and `planFit` are imported rather than stubbed because the number
+ * under test is the one the fit arithmetic really produces, margins and
+ * `noiseScale` and integer flooring included. A hand-written ratio would be a
+ * test of this file's own multiplication.
+ */
+describe('the ratio imageRenderingFor is given', () => {
+  const BOXES: readonly (readonly [number, number])[] = [
+    [200, 100],
+    [480, 270],
+    [640, 360],
+    [800, 600],
+    [1280, 720],
+    [1920, 1080],
+    [4000, 3000],
+  ]
+  const BRIDGE_DPRS = [1, 1.25, 1.5, 2, 3]
+  const MODES = ['contain', 'snap', 'render'] as const
+
+  it('is the plan’s device-per-backing ratio, which dpr 1 cannot distinguish', () => {
+    let checked = 0
+    let reversedByDpr = 0
+    let reversedAtDprOne = 0
+    for (const [availableWidth, availableHeight] of BOXES) {
+      for (const dpr of BRIDGE_DPRS) {
+        for (const mode of MODES) {
+          const plan = planFit(mode, { scene: SCENE, availableWidth, availableHeight, dpr })
+          const where = `${mode} ${availableWidth}x${availableHeight} @${dpr}`
+          const backingWidth = plan.kind === 'rescale' ? plan.backingWidth : plan.plan.backingWidth
+          const cssWidth = plan.kind === 'rescale' ? plan.fit.cssWidth : plan.plan.cssWidth
+          // CSS px → device px (× the dpr the caller supplied) → over the
+          // backing store. Three named spaces, never read back out of the
+          // field under test.
+          expect(plan.devicePerBackingScale, where).toBeCloseTo((cssWidth * dpr) / backingWidth, 9)
+          // The two readings, and the hint that follows from the right one.
+          expect(plan.displayScale, where).toBeCloseTo(plan.devicePerBackingScale / dpr, 9)
+          expect(imageRenderingFor('auto', plan.devicePerBackingScale), where)
+            .toBe(plan.devicePerBackingScale < 1 ? 'auto' : 'pixelated')
+          if (
+            imageRenderingFor('auto', plan.displayScale) !==
+            imageRenderingFor('auto', plan.devicePerBackingScale)
+          ) {
+            // Every disagreement runs the same way round — the CSS reading
+            // calls a device 1:1-or-upscale a downscale and asks the browser
+            // to blend it. There is no case where it errs toward pixelating.
+            expect(imageRenderingFor('auto', plan.displayScale), where).toBe('auto')
+            expect(imageRenderingFor('auto', plan.devicePerBackingScale), where).toBe('pixelated')
+            reversedByDpr++
+            if (dpr === 1) reversedAtDprOne++
+          }
+          checked++
+        }
+      }
+    }
+    expect(checked).toBe(BOXES.length * BRIDGE_DPRS.length * MODES.length)
+    // The band is non-empty, so this sweep really does discriminate...
+    expect(reversedByDpr).toBeGreaterThan(0)
+    // ...and it is empty at dpr 1, which is the whole reason a green suite
+    // could sit on top of the wrong ratio for a phase.
+    expect(reversedAtDprOne).toBe(0)
+  })
+
+  it('is exactly 1 for every render plan, at every dpr', () => {
+    // `renderFit`'s own contract: "`cssWidth * dpr === backingWidth` exactly".
+    // One backing pixel per DEVICE pixel is the mode's defining choice, so the
+    // ratio the browser would resample by does not move with dpr at all — and
+    // `pixelated` at exactly 1:1 is this module's argued pick.
+    for (const [availableWidth, availableHeight] of BOXES) {
+      for (const dpr of BRIDGE_DPRS) {
+        const plan = planFit('render', { scene: SCENE, availableWidth, availableHeight, dpr })
+        const where = `${availableWidth}x${availableHeight} @${dpr}`
+        expect(plan.devicePerBackingScale, where).toBe(1)
+        expect(imageRenderingFor('auto', plan.devicePerBackingScale), where).toBe('pixelated')
+      }
+    }
+  })
+
+  it('is never below 1 for a snap plan, which floors at 1 by contract', () => {
+    for (const [availableWidth, availableHeight] of BOXES) {
+      for (const dpr of BRIDGE_DPRS) {
+        const plan = planFit('snap', { scene: SCENE, availableWidth, availableHeight, dpr })
+        const where = `${availableWidth}x${availableHeight} @${dpr}`
+        expect(plan.devicePerBackingScale, where).toBeGreaterThanOrEqual(1)
+        expect(imageRenderingFor('auto', plan.devicePerBackingScale), where).toBe('pixelated')
+      }
+    }
   })
 })
 
