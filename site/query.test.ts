@@ -11,7 +11,7 @@ import {
 } from './query.js'
 import { PRESENT_PARAM, isPresenting } from './present.js'
 import { SMOOTH_PARAM, parseSmooth } from './smooth.js'
-import { FIT_PARAM, parseFit } from './fit.js'
+import { DEFAULT_FIT, FIT_PARAM, parseFit } from './fit.js'
 
 /**
  * The one query-string parse policy, and the assertion that there is only one
@@ -220,8 +220,13 @@ describe('both boolean parsers honour the one table', () => {
     // is a three-way enum with no boolean reading, so every spelling in the
     // table is an unknown value to it and falls back — which is the proof that
     // sharing the table did not leak it into every parser in the directory.
+    //
+    // `DEFAULT_FIT` and not the literal `'contain'`, which stood here. The
+    // guarantee is "it falls back to the default", not "it answers contain";
+    // the adjacent assertions in this file and in `fit.test.ts` already read
+    // the constant, so the literal was inconsistent as well as value-pinned.
     for (const [spelling] of BOOLEAN_SPELLINGS) {
-      expect(parseFit(`?${FIT_PARAM}=${spelling}`), spelling).toBe('contain')
+      expect(parseFit(`?${FIT_PARAM}=${spelling}`), spelling).toBe(DEFAULT_FIT)
     }
   })
 })
