@@ -215,6 +215,25 @@ describe('imageRenderingFor', () => {
    * genuine 1:1 or a genuine device upscale that the CSS reading calls a
    * downscale and blends. It is **empty at dpr 1 by construction**, which is
    * why it survived a phase of green runs.
+   *
+   * ## Which test discharges "put `dpr` in the smoothing matrix", and which does not
+   *
+   * Recorded because the two are adjacent and the wrong one looks like the
+   * guard. **The requirement is discharged by `describe('the ratio
+   * imageRenderingFor is given')` below**, which reads the ratio off real
+   * `planFit` plans and is therefore the only thing here that a wrong choice of
+   * pixel space can redden.
+   *
+   * The `documents …` test in this block is **not** a guard and is marked as
+   * such in its own name. It derives its input from the rule it then checks
+   * (`devicePerBackingPx = cssPerBackingPx * dpr`, then asserts the function
+   * agrees), so it restates `imageRenderingFor`'s contract in the unit space
+   * rather than testing anything: a verifier ran three separate REDs against it,
+   * including a **full rollback of the production fix**, and it stayed green
+   * through all three. It is kept for the arithmetic it spells out — a reader
+   * who has to work out by hand why a 0.75x CSS ratio is a device *upscale* at
+   * dpr 1.5 is a reader who will get it wrong again — and it is named so that
+   * nobody mistakes it for coverage.
    */
   const CSS_RATIOS = [0.1, 0.4, 0.5, 0.6, 2 / 3, 0.75, 0.8, 0.9, 1, 1.5, 2]
   const DPRS = [1, 1.25, 1.5, 2, 2.5, 3]
@@ -282,12 +301,22 @@ describe('imageRenderingFor', () => {
     expect(imageRenderingFor('auto', Infinity)).toBe('pixelated')
   })
 
-  it('decides in DEVICE px, so the same CSS ratio reverses with dpr', () => {
-    // The unit-space half of the dpr dimension: given a CSS-px ratio and a
-    // dpr, the answer follows the DEVICE ratio and nothing else. This half is
-    // a statement of the contract and cannot go red on its own — the function
-    // body never changed, only what it is handed. The half that *can* go red
-    // is the bridge block below, which reads the ratio off a real fit plan.
+  it('documents (cannot fail): the same CSS ratio reverses with dpr', () => {
+    // **DOCUMENTATION, NOT A GUARD — see the block docblock above.** The input
+    // is derived from the rule this then checks, so the assertion restates
+    // `imageRenderingFor`'s contract in the unit space and cannot go red for
+    // any input: the function body never changed, only what it is handed. A
+    // verifier confirmed it, three times over, including under a full rollback
+    // of the production fix.
+    //
+    // What discharges the requirement is `describe('the ratio
+    // imageRenderingFor is given')` below, which reads the ratio off real fit
+    // plans. What this spells out is the arithmetic — why a 0.75x CSS ratio is
+    // a device UPSCALE at dpr 1.5 — which is the step somebody got wrong in
+    // writing and would otherwise have to re-derive from the policy alone.
+    //
+    // The two counters at the end are the exception: they are assertions about
+    // the SWEEP rather than about the function, and they can fail. See there.
     let checked = 0
     let reversedByDpr = 0
     let reversedAtDprOne = 0
