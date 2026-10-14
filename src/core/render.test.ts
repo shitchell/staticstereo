@@ -115,7 +115,7 @@ describe('timing policy (design §4.1)', () => {
     const scene = slabScene()
     expect(isStill(scene)).toBe(true)
     // Never 0: a zero-width window pins every track at its t=0 pose, which for
-    // `marquee` is off-screen, so the still would render completely empty.
+    // The scrolling layer is off-screen, so the still would render empty.
     expect(stillTime(scene)).toBe(0.5)
     expect(frameTimes(scene)).toEqual([0.5])
   })
@@ -527,32 +527,41 @@ describe('renderFrames', () => {
   })
 })
 
-describe('a still of a marquee scene (design §4.1)', () => {
+describe('a still of a scrolling scene (design §4.1)', () => {
   const TEXT = 'HELLO123'
   const SIZE = 16
   /** The fake canvas's own metric, so the expectation tracks the fake. */
   const contentW = TEXT.length * SIZE * FAKE_CHAR_ASPECT
   /**
-   * The marquee's travel, now margin to margin rather than stage edge to stage
-   * edge (§10.5). Expressed from the geometry rather than hardcoded, so this
-   * test says what it depends on: had it kept `W + contentW`, the derived
-   * duration would be 1.17s and the "midpoint" sample would land somewhere
-   * other than the middle of the travel.
+   * The travel, margin to margin rather than stage edge to stage edge
+   * (§10.5). Expressed from the geometry rather than hardcoded, so this test
+   * says what it depends on: had it kept `W + contentW`, the derived duration
+   * would be 1.17s and the "midpoint" sample would land somewhere other than
+   * the middle of the travel.
+   *
+   * These two endpoints were the deleted `marquee`'s, computed from the
+   * compile context. §4.2b deleted it, so the scene says them out loud; a
+   * `move` with a `speed` and `repeat: loop` is the same animation.
    */
-  const travel = (W + MARGINS.right) - -(contentW + MARGINS.left)
-  /** Pick a speed that makes the marquee's own window exactly 1s, the still's. */
+  const from = W + MARGINS.right
+  const to = -(contentW + MARGINS.left)
+  const travel = from - to
+  /** Pick a speed that makes the scroll's own window exactly 1s, the still's. */
   const speed = travel
 
   const scene: Scene = {
     size: [W, H],
     stereo: { ...SEP, noiseScale: 1, seed: 3 },
     layers: [
-      { type: 'text', text: TEXT, size: SIZE, depth: 1, anim: { kind: 'marquee', speed } },
+      {
+        type: 'text', text: TEXT, size: SIZE, depth: 1,
+        anim: { kind: 'move', from: [from, 0], to: [to, 0], speed, repeat: 'loop' },
+      },
     ],
   }
 
   /** Where the text sits at u = 0.5, in STAGE px, clear of the glyph edges. */
-  const x0 = (W + MARGINS.right) - travel * 0.5
+  const x0 = from - travel * 0.5
   const band: [number, number] = [Math.ceil(x0) + 12, Math.floor(x0 + contentW) - 12]
   const textRow = 8 // text is drawn from the top, so it spans y in [0, 16)
 
@@ -575,7 +584,7 @@ describe('a still of a marquee scene (design §4.1)', () => {
 
   it('would render completely empty at t = 0, which is why the midpoint is the default', async () => {
     const measured = measure(await renderFrame(scene, 0, fakeCanvas()))
-    // Pure background: the marquee's t=0 pose is fully off the right edge of
+    // Pure background: the scroll's t=0 pose is fully off the right edge of
     // the PLATE, which is now `W + marginRight` rather than `W` — the text's
     // left edge lands exactly on the plate's last column.
     expect(measured.period).toBe(SEP.sepFar)
@@ -588,11 +597,12 @@ describe('a still of a marquee scene (design §4.1)', () => {
     // column of the plate — dead strips included — carries the text.
     //
     // Honest note: this assertion is **insensitive to the margin terms**, and
-    // that is itself the finding. Reverting `marquee` to `+sceneW` keeps it
-    // green, because a layer positioned outside the stage is not rasterised at
-    // all — the margins are edge-extensions of the stage, not a second place to
-    // draw. See `PresetCtx.marginLeft`. What it does catch is a marquee whose
-    // t=0 pose is on-stage at all, which is the property §4.1 depends on.
+    // that is itself the finding. Dropping `MARGINS.right` from `from` keeps
+    // it green, because a layer positioned outside the stage is not rasterised
+    // at all — the margins are edge-extensions of the stage, not a second
+    // place to draw. See `PresetCtx.marginLeft`. What it does catch is a
+    // scroll whose t=0 pose is on-stage at all, which is the property §4.1
+    // depends on.
     const frame = await renderFrame(scene, 0, fakeCanvas())
     const empty = await renderFrame({ ...scene, layers: [] }, 0, fakeCanvas())
     expect(frame.width).toBe(empty.width)

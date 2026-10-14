@@ -128,7 +128,7 @@ describe('reduce', () => {
     const snapshot = JSON.stringify(before)
     reduce(before, { type: 'stereo', patch: { seed: 9 } })
     reduce(before, { type: 'time', seconds: 1 })
-    reduce(before, { type: 'layerAnim', index: 0, anim: { kind: 'bob' } })
+    reduce(before, { type: 'layerAnim', index: 0, anim: { kind: 'push' } })
     expect(JSON.stringify(before)).toBe(snapshot)
   })
 
@@ -142,8 +142,8 @@ describe('reduce', () => {
   })
 
   it('sets and clears a layer animator', () => {
-    let s = reduce(initialState(ANIM), { type: 'layerAnim', index: 0, anim: { kind: 'bob', amount: 20 } })
-    expect(s.scene.layers[0]?.anim).toEqual({ kind: 'bob', amount: 20 })
+    let s = reduce(initialState(ANIM), { type: 'layerAnim', index: 0, anim: { kind: 'push', to: 0.2 } })
+    expect(s.scene.layers[0]?.anim).toEqual({ kind: 'push', to: 0.2 })
     s = reduce(s, { type: 'layerAnim', index: 0, anim: undefined })
     expect(s.scene.layers[0] && 'anim' in s.scene.layers[0]).toBe(false)
   })
@@ -182,11 +182,11 @@ describe('reduce', () => {
 
     it('patches only the named fields, leaving the rest of the layer alone', () => {
       const s = reduce(
-        initialState({ ...mixed(), layers: [{ type: 'text', text: 'A', size: 90, weight: 'bold', anim: { kind: 'bob' } }] }),
+        initialState({ ...mixed(), layers: [{ type: 'text', text: 'A', size: 90, weight: 'bold', anim: { kind: 'push' } }] }),
         { type: 'layerText', index: 0, patch: { size: 48 } },
       )
       expect(s.scene.layers[0]).toEqual({
-        type: 'text', text: 'A', size: 48, weight: 'bold', anim: { kind: 'bob' },
+        type: 'text', text: 'A', size: 48, weight: 'bold', anim: { kind: 'push' },
       })
     })
 
@@ -348,7 +348,7 @@ describe('presetNote', () => {
     expect(note).toContain('to')
     expect(note).toMatch(/nothing/)
     // The generic note must not be what a `move` user sees.
-    expect(note).not.toBe(presetNote('bob', 1))
+    expect(note).not.toBe(presetNote('push', 1))
   })
 
   it('explains a hand-written track rather than offering to discard it silently', () => {

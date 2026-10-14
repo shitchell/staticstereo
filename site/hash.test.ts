@@ -16,7 +16,7 @@ const SCENE: Scene = {
   duration: 2,
   freezeNoise: false,
   stereo: { sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7 },
-  layers: [{ type: 'text', text: 'HELLO', size: 60, depth: 0.6, anim: { kind: 'marquee', speed: 60 } }],
+  layers: [{ type: 'text', text: 'HELLO', size: 60, depth: 0.6, anim: { kind: 'move', to: [100, 0], speed: 60 } }],
 }
 
 describe('base64url', () => {

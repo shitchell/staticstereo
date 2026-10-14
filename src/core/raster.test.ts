@@ -259,7 +259,19 @@ describe('rasterDepth layer transform', () => {
   })
 })
 
-describe('rasterDepth text measurement', () => {
+/**
+ * **The measurement half of this is gone and cannot be restored from a scene
+ * file.** It used to drive a `marquee`, whose endpoints the rasteriser
+ * computed from the `measureText` result it puts in `PresetCtx.contentW`, so
+ * a rasteriser that stopped measuring produced a visibly different depth map
+ * here. §4.2b deleted `marquee` and `slide-in`, and they were the only
+ * consumers of `contentW`/`contentH`/`marginLeft`/`marginRight` — nothing in
+ * the registry reads them now, so no scene can observe the measurement and
+ * `raster.ts:247` is currently unwitnessed. P6's UI templates are where that
+ * coverage comes back; until then this pins the *geometry* only, with the
+ * endpoints written out exactly as the preset derived them.
+ */
+describe('rasterDepth over-wide text geometry', () => {
   const CHARS = 100
   const SIZE = 10
   const STAGE_W = 40
@@ -273,16 +285,15 @@ describe('rasterDepth text measurement', () => {
   const MARGINS = marginsFor(SEP_FAR, 'shift') // { left: 10, right: 5 }
 
   /**
-   * `marquee` travels from `+sceneW + marginRight` to `-(contentW +
-   * marginLeft)` (design §10.5). Both assertions below fail if `contentW` is
-   * not a real `measureText` result: with contentW = 0 the travel collapses to
-   * 55px and the midpoint leaves most of the stage empty instead of covered.
+   * The endpoints the deleted `marquee` computed: `+sceneW + marginRight` to
+   * `-(contentW + marginLeft)` (design §10.5). Written out as a `move` rather
+   * than derived by a preset, because no preset derives them any more.
    */
   const FROM = STAGE_W + MARGINS.right
   const TO = -(CONTENT_W + MARGINS.left)
   const TRAVEL = FROM - TO
 
-  function marqueeScene(): Scene {
+  function scrollScene(): Scene {
     return {
       size: [STAGE_W, 10],
       duration: 1,
@@ -290,15 +301,17 @@ describe('rasterDepth text measurement', () => {
       layers: [
         {
           type: 'text', text: 'X'.repeat(CHARS), size: SIZE, at: [0, 0], depth: 1,
-          // speed chosen so the preset's derived duration is exactly 1s
-          anim: { kind: 'marquee', speed: TRAVEL },
+          // speed chosen so the derived duration is exactly 1s
+          anim: {
+            kind: 'move', from: [FROM, 0], to: [TO, 0], speed: TRAVEL, repeat: 'loop',
+          },
         },
       ],
     }
   }
 
   it('spans the whole frame mid-travel when the text is wider than the scene', async () => {
-    const d = await rasterDepth(marqueeScene(), 0.5, fakeCanvas())
+    const d = await rasterDepth(scrollScene(), 0.5, fakeCanvas())
     for (const v of d) expect(v).toBeCloseTo(1, 6)
   })
 
@@ -307,7 +320,7 @@ describe('rasterDepth text measurement', () => {
     // the expectation stays on the column it was written for while the travel
     // itself is derived from the geometry.
     const u = (FROM - (12.8 - CONTENT_W)) / TRAVEL
-    const d = await rasterDepth(marqueeScene(), u, fakeCanvas())
+    const d = await rasterDepth(scrollScene(), u, fakeCanvas())
     expect(at(d, STAGE_W, 12, 5)).toBeCloseTo(1, 6)
     expect(at(d, STAGE_W, 13, 5)).toBe(0)
     expect(at(d, STAGE_W, 39, 5)).toBe(0)
@@ -336,8 +349,9 @@ describe('rasterDepth scene duration', () => {
   }
 
   // Design §4.1: a zero-width window pins every track at its t=0 pose (or, for
-  // `repeat: 'once'`, at its end pose) — which for `marquee` renders nothing at
-  // all. An absent duration therefore means 1 second, never 0.
+  // `repeat: 'once'`, at its end pose) — which for a scroll that starts
+  // off-plate renders nothing at all. An absent duration therefore means 1
+  // second, never 0.
   it('treats an absent duration as 1 second', async () => {
     const d = await rasterDepth(moveScene(), 0.5, fakeCanvas())
     expect(at(d, 80, 20, 0)).toBeCloseTo(1, 6) // halfway through a 1s move

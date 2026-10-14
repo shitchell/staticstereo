@@ -49,13 +49,16 @@ export const EXAMPLES: Example[] = [
     },
   },
   {
-    id: 'marquee',
-    label: 'MARQUEE — scrolling text wider than the frame',
+    id: 'scroll',
+    label: 'SCROLL — text wider than the frame, crossing it',
     note:
-      'The track travels the whole PLATE — from +stageW + rightMargin to ' +
-      '-(contentW + leftMargin), with contentW measured from the real text ' +
-      'metrics — so an over-wide string crosses the whole emitted image at the ' +
-      'given speed and leaves completely, instead of parking its tail on screen.',
+      'A move with a speed and repeat: loop. The endpoints travel the whole ' +
+      'PLATE rather than the stage — from +stageW + rightMargin to ' +
+      '-(contentW + leftMargin) — so the string crosses the whole emitted ' +
+      'image at the given speed and leaves completely, instead of parking its ' +
+      'tail on screen. This was the `marquee` preset, which computed those two ' +
+      'numbers for you; the verb vocabulary has five entries now and a scroll ' +
+      'is written out. Edit `to` if you change the text.',
     scene: {
       size: SIZE,
       fps: 12,
@@ -67,7 +70,12 @@ export const EXAMPLES: Example[] = [
           size: 96,
           at: [0, 130],
           depth: 0.7,
-          anim: { kind: 'marquee', speed: 160 },
+          // 640 stage + 55 right margin; the string measures ~1050px at this
+          // size and weight, plus a 110px left margin. Written out because no
+          // preset derives them any more (design §4.2b).
+          anim: {
+            kind: 'move', from: [695, 0], to: [-1160, 0], speed: 160, repeat: 'loop',
+          },
         },
       ],
     },
@@ -76,9 +84,11 @@ export const EXAMPLES: Example[] = [
     id: 'bounce',
     label: 'BOUNCE — a ball crossing the frame',
     note:
-      'Two animators on one layer: move and bounce compose, so the translations ' +
-      'sum. Easing is per-segment in v1, which is why the rise bounces as well as ' +
-      'the fall (design §4.1).',
+      'Two animators on one layer: a move and a raw keyframe track compose, so ' +
+      'the translations sum. The arc is three keys, which no two-key verb can ' +
+      'express, so it is written longhand — exactly what the bounce preset used ' +
+      'to emit. Easing is per-segment in v1, which is why the rise bounces as ' +
+      'well as the fall (design §4.1).',
     scene: {
       size: SIZE,
       fps: 12,
@@ -92,7 +102,10 @@ export const EXAMPLES: Example[] = [
           depth: 1,
           anim: [
             { kind: 'move', from: [-60, 0], to: [700, 0], repeat: 'loop' },
-            { kind: 'bounce', height: 180, duration: 1 },
+            {
+              keys: [{ t: 0, y: 0 }, { t: 0.5, y: -180 }, { t: 1, y: 0 }],
+              ease: 'easeOutBounce', repeat: 'loop', duration: 1,
+            },
           ],
         },
       ],

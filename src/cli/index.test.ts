@@ -5,7 +5,7 @@ import { mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { run } from './index.js'
-import { DEFAULT_STEREO, dominantPeriod, marginsFor } from '../core/index.js'
+import { DEFAULT_STEREO, dominantPeriod, marginsFor, PRESETS } from '../core/index.js'
 import type { Margins } from '../core/index.js'
 import { decodeGif } from '../shared/gif.js'
 
@@ -107,14 +107,23 @@ const SLAB_SCENE =
   'layers:\n' +
   `  - {type: shape, shape: rect, at: [${SLAB_X}, 0], w: ${W - SLAB_X}, h: ${H}, depth: 1}\n`
 
-/** A scene whose only layer is off-screen at t=0 — design §4.1's trap. */
-const MARQUEE_SCENE =
+/**
+ * A scene whose only layer is off-screen at t=0 — design §4.1's trap.
+ *
+ * Written as a `move` rather than the `marquee` it used to be (§4.2b deleted
+ * that kind). The endpoints are chosen rather than measured: `+W` is off the
+ * right edge of a 240px stage whatever the text measures, and `-200` is well
+ * left of the stage for a 16px `HELLO`. The old `marquee` derived them from
+ * `contentW`, which this test never needed — it only needs "empty at t=0,
+ * covered at the midpoint".
+ */
+const SCROLL_SCENE =
   `size: [${W}, ${H}]\n` +
   'fps: 12\n' +
   'duration: 1\n' +
   `stereo: {sepFar: ${SEP.sepFar}, sepNear: ${SEP.sepNear}, noiseScale: 1, seed: 7}\n` +
   'layers:\n' +
-  '  - {type: text, text: HELLO, size: 16, depth: 1, anim: {kind: marquee, speed: 400}}\n'
+  `  - {type: text, text: HELLO, size: 16, depth: 1, anim: {kind: move, from: [${W}, 0], to: [-200, 0]}}\n`
 
 async function scene(body: string, name = 'scene.yaml'): Promise<{ dir: string; path: string }> {
   const d = await dir()
@@ -200,8 +209,8 @@ describe('stst still', () => {
     expect(r.out).toBe('')
   })
 
-  it('samples the scene midpoint, so a still of a marquee is not empty (§4.1)', async () => {
-    const { dir: d, path } = await scene(MARQUEE_SCENE)
+  it('samples the scene midpoint, so a still of a scrolling scene is not empty (§4.1)', async () => {
+    const { dir: d, path } = await scene(SCROLL_SCENE)
     const depth = join(d, 'depth.png')
     const r = await cli(['still', path, '-o', join(d, 'mid.png'), '--depth-map', depth])
     expect(r.code).toBe(0)
@@ -213,7 +222,7 @@ describe('stst still', () => {
   })
 
   it('--at-time 0 shows the same scene as empty, which is why 0 is not the default', async () => {
-    const { dir: d, path } = await scene(MARQUEE_SCENE)
+    const { dir: d, path } = await scene(SCROLL_SCENE)
     const depth = join(d, 'depth.png')
     await cli(['still', path, '-o', join(d, 'zero.png'), '--depth-map', depth, '--at-time', '0'])
 
@@ -524,7 +533,9 @@ describe('stst error reporting', () => {
     const r = await cli(['still', path, '-o', join(d, 'out.png')])
     expect(r.code).toBe(1)
     expect(r.err).toMatch(/unknown animation preset "zoom"/)
-    expect(r.err).toMatch(/marquee/)
+    // Swept over the registry, not one hardcoded kind: naming a single kind
+    // is how this assertion kept passing while saying nothing.
+    for (const kind of Object.keys(PRESETS)) expect(r.err).toMatch(kind)
     expectClean(r.err)
   })
 

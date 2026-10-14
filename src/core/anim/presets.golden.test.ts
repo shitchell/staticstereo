@@ -2,9 +2,9 @@
  * The preset golden corpus — a **temporary refactor instrument**, not a
  * permanent pin.
  *
- * `PRESETS` is being rewritten: `slide` has become `move` and `emerge` has
- * become `push`; `marquee`/`bounce`/`bob`/`slide-in` are deleted (design §4.2b).
- * The first two are specified as *renames*, and nothing else in the suite can
+ * `PRESETS` has been rewritten: `slide` became `move` and `emerge` became
+ * `push`; `marquee`/`bounce`/`bob`/`slide-in` are deleted (design §4.2b).
+ * The first two were specified as *renames*, and nothing else in the suite can
  * tell a rename from a rewrite — `presets.test.ts` asserts behaviour in the
  * shape of "ends up off the plate", "returns to its start height", which a
  * subtly different arithmetic would still satisfy. So this file captures the
@@ -13,9 +13,13 @@
  *
  * **This is the one sanctioned exception to "assert on structure, not on
  * values".** The renames have landed and this fixture is the evidence that
- * they were renames; the legacy kinds it also covers have *not* been deleted
- * yet, so it survives to the phase gate and its removal after that is a
- * separate decision, not an automatic consequence of the rename.
+ * they were renames. The four deleted kinds' cases were removed in the commit
+ * that deleted them — **that commit's diff is the record of what they
+ * compiled to**, and it is the reference P6 rebuilds them from as UI
+ * templates. Do not re-derive them from this file; they are not here.
+ *
+ * The corpus survives to the phase gate; retiring it after that is a separate
+ * decision, not an automatic consequence of the rename.
  *
  * **It pins the compiled `Track` as JSON, not exactly.** `JSON.stringify(-0)`
  * is `"0"`, so a signed zero can neither be recorded here nor detected by the
@@ -62,23 +66,15 @@ const REGEN =
  * captured as a bare invocation only.
  */
 const FULL: Record<string, Record<string, unknown>> = {
-  bob: { amount: 17 },                        // default 8
-  bounce: { height: 42 },                     // default 100
   flip: { axis: 'x' },                        // default 'y'
-  marquee: { speed: 137 },                    // default 60
   move: { from: [-13, 7], to: [250, -40] },   // defaults [0,0], [0,0]
   push: { from: 0.2, to: 0.85 },              // defaults 0 and ctx.layerDepth
   rotate: { from: -30, to: 210, axis: 'x' },  // defaults 0, 0, 'z'
   scale: { from: 0.25, to: 3.5 },             // defaults 1 and 1
-  'slide-in': { from: 'bottom' },             // default 'left'
 }
 
 /**
- * Cases beyond the three every kind gets. `bounce` reads `height` *or* `h`
- * (`presets.ts:266`) because the design doc and the implementation plan
- * disagreed on the name; the alias is a real input path and gets its own case,
- * with a value distinct from the `height` case so that the two cannot pass by
- * being accidentally interchangeable.
+ * Cases beyond the three every kind gets.
  *
  * `move`'s `speed` is here rather than in `FULL` on purpose. `FULL` feeds
  * `move/params` and `move/params+overrides`, whose outputs are the recorded
@@ -101,15 +97,14 @@ const FULL: Record<string, Record<string, unknown>> = {
  * recorded output can absorb a mistake.
  */
 const EXTRA: Record<string, { label: string, params: Record<string, unknown> }[]> = {
-  bounce: [{ label: 'h-alias', params: { h: 63 } }],
   move: [{ label: 'speed', params: { from: [0, 0], to: [300, 400], speed: 25 } }],
   scale: [{ label: 'bezier-ease', params: { ease: 'cubic-bezier(.17,.67,.83,.67)' } }],
 }
 
 /**
- * `easeIn` is the one easing no preset defaults to (the six defaults are
- * `linear`, `easeOut`, `easeOutBounce` and `easeInOut`), so a single constant
- * is non-default for every kind.
+ * `easeIn` is the one easing no preset defaults to (the five defaults are
+ * `linear` four times and `easeOut` for `push`), so a single constant is
+ * non-default for every kind.
  */
 const OVERRIDE_EASE = 'easeIn'
 /** Both default to *absent*, so any finite value is a non-default. */
@@ -124,10 +119,12 @@ interface Case {
 }
 
 /**
- * `repeat` has no value that is non-default for all six kinds — `once`, `loop`
- * and `pingpong` are each some preset's default — so derive it from the kind's
- * own bare compile instead of hardcoding one that collides for `bob`. A
- * collision would leave the overrides case unable to prove `overrides()` ran.
+ * Derived from the kind's own bare compile rather than hardcoded. All five
+ * surviving verbs default to `once`, so a literal would do today — but that
+ * was not true while `bounce` (`loop`) and `bob` (`pingpong`) were
+ * registered, and a collision leaves the overrides case unable to prove
+ * `overrides()` ran at all. Deriving it is what made the deletion safe, and
+ * it is what will keep it safe when P6's templates come back.
  */
 function overrideRepeat(kind: string): string {
   return compilePreset({ kind }, GOLDEN_CTX).repeat === 'pingpong' ? 'loop' : 'pingpong'

@@ -356,7 +356,7 @@ export interface Scene {
    * Seconds. Omit for a still, in which case it is treated as 1 — NOT 0.
    *
    * Zero would collapse every track's window and pin all animators at their
-   * t=0 pose, which for `marquee` is fully off-screen: a still of a scrolling
+   * t=0 pose, which for a scroll is fully off-screen: a still of a scrolling
    * scene would render completely empty. Stills therefore also take an explicit
    * sample time, defaulting to the midpoint rather than 0, so an animated scene
    * stills to something visible.

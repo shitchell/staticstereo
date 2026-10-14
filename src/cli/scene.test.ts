@@ -14,6 +14,7 @@ import {
   textScene,
   validateScene,
 } from './scene.js'
+import { PRESETS } from '../core/anim/presets.js'
 import { CHANNELS } from '../core/index.js'
 import type { Scene } from '../core/index.js'
 
@@ -97,9 +98,15 @@ describe('validateScene — scene fields', () => {
       'size: [800, 450]\nfps: 12\nduration: 4\nfreezeNoise: false\n' +
       'stereo: {sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7}\n' +
       'layers:\n' +
-      '  - {type: text, text: HELLO, size: 90, depth: 0.6, anim: {kind: marquee, speed: 60}}\n' +
-      '  - {type: image, src: ball.png, depth: 1.0, anim: {kind: bounce, height: 200}}\n' +
-      '  - {type: gif, src: walk.gif, loop: loop, depth: 1.0, anim: {kind: slide-in, from: left}}\n' +
+      // The design doc wrote these three as `marquee`, `bounce` and
+      // `slide-in`; §4.2b deleted all three, so they are spelled with the
+      // verbs and the raw track they were sugar for.
+      '  - {type: text, text: HELLO, size: 90, depth: 0.6, ' +
+      'anim: {kind: move, from: [855, 0], to: [-600, 0], speed: 60, repeat: loop}}\n' +
+      '  - {type: image, src: ball.png, depth: 1.0, anim: ' +
+      '{keys: [{t: 0, y: 0}, {t: 0.5, y: -200}, {t: 1, y: 0}], ease: easeOutBounce, repeat: loop}}\n' +
+      '  - {type: gif, src: walk.gif, loop: loop, depth: 1.0, ' +
+      'anim: {kind: move, from: [-300, 0], to: [0, 0], ease: easeOut}}\n' +
       '  - {type: shape, shape: circle, at: [400, 225], r: 40, depth: 0.8}\n',
     )
     expect(s.layers).toHaveLength(4)
@@ -267,18 +274,21 @@ describe('validateScene — layers', () => {
 
   it('propagates the preset registry error for an unknown anim kind, with the path', () => {
     const msg = checkFails(
-      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {kind: marque}}\n',
+      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {kind: mvoe}}\n',
     )
     expect(msg).toMatch(/layers\[0\]\.anim/)
     // The registry's own wording, listing the valid kinds — not a replacement.
-    expect(msg).toMatch(/unknown animation preset "marque"/)
-    expect(msg).toMatch(/marquee/)
+    expect(msg).toMatch(/unknown animation preset "mvoe"/)
+    // Swept over the registry rather than naming one kind: a list that names
+    // a single kind is how this test survived `marquee` being deleted in a
+    // state where it no longer proved anything.
+    for (const kind of Object.keys(PRESETS)) expect(msg).toMatch(kind)
   })
 
   it('accepts a raw track and a list of animators', () => {
     const s = check(
       'size: [40, 20]\nlayers:\n' +
-      '  - {type: text, text: HI, anim: [{kind: marquee}, {keys: [{t: 0, y: 0}, {t: 1, y: 5}]}]}\n',
+      '  - {type: text, text: HI, anim: [{kind: move}, {keys: [{t: 0, y: 0}, {t: 1, y: 5}]}]}\n',
     )
     expect(s.layers).toHaveLength(1)
   })
@@ -311,7 +321,7 @@ describe('validateScene — layers', () => {
       'size: [40, 20]\nlayers:\n' +
       '  - {type: text, text: A, anim: {keys: [{t: 0}, {t: 1, x: 5}], ' +
       'ease: "cubic-bezier(.17,.67,.83,.67)"}}\n' +
-      '  - {type: text, text: B, anim: {kind: bob, ease: "cubic-bezier(0, 0, 1, 1)"}}\n'
+      '  - {type: text, text: B, anim: {kind: scale, ease: "cubic-bezier(0, 0, 1, 1)"}}\n'
     const scene = check(yaml)
     const track = scene.layers[0]!.anim as { ease: string }
     expect(track.ease).toBe('cubic-bezier(.17,.67,.83,.67)')

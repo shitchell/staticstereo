@@ -4,10 +4,6 @@ import { composeAnim, evalTrack } from './track.js'
 import { CTX as ctx } from '../testing/ctx.fixture.js'
 import type { Track } from '../types.js'
 
-/** Fully off the plate on each side, in stage coordinates (§10). */
-const OFF_LEFT = -(ctx.contentW + ctx.marginLeft)   // -1310
-const OFF_RIGHT = ctx.sceneW + ctx.marginRight      // 855
-
 /**
  * Absolute depth a layer actually ends up at: tracks emit additive OFFSETS, so
  * asserting a track's raw `depth` channel tests the wrong number. The old
@@ -19,46 +15,17 @@ function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: nu
 }
 
 describe('presets', () => {
-  it('registers the v1 set', () => {
+  it('registers the five verbs and nothing else', () => {
+    // Design §4.2b: `PRESETS` holds the verb vocabulary, full stop. The four
+    // kinds that used to sit alongside it — `marquee`, `bounce`, `bob`,
+    // `slide-in` — were *compositions* of these, which is why each is
+    // expressible as an ordinary `Anim`: `marquee` is a `move` with a `speed`
+    // and `repeat: loop`, `bounce` and `bob` are three-key tracks. P6 rebuilds
+    // them as UI templates that emit exactly that; the golden fixture's
+    // history is the reference for what they compiled to.
     expect(Object.keys(PRESETS).sort()).toEqual(
-      ['bob', 'bounce', 'flip', 'marquee', 'move', 'push', 'rotate', 'scale', 'slide-in'],
+      ['flip', 'move', 'push', 'rotate', 'scale'],
     )
-  })
-
-  // UPDATED FOR THE PLATE/STAGE SPLIT (§10). The endpoints used to be
-  // `-contentW` and `+sceneW`, which are off the *stage* but still inside the
-  // *plate* that is emitted; the travel now runs margin to margin, so the track
-  // is expressed against the image that is actually written out. The
-  // assertions are exact rather than inequalities so that losing a margin term
-  // fails here. (§10.5's own justification for this — "text pops in at the
-  // stage edge" — is NOT what happens under a stage-only rasteriser; see
-  // `PresetCtx.marginLeft` for the measurement.)
-  it('marquee carries over-wide content fully off the left edge of the PLATE', () => {
-    // 1200px of text across an 800px stage with a 110px left margin must end at
-    // -1310, not -1200 and certainly not 0, or the tail never leaves the plate.
-    const tr = compilePreset({ kind: 'marquee', speed: 100 }, ctx)
-    const end = evalTrack({ ...tr, repeat: 'once' }, 1e6, 1)
-    expect(end.x).toBe(OFF_LEFT)
-    expect(end.x).toBeLessThan(-ctx.contentW)
-  })
-
-  it('marquee starts fully off the right edge of the PLATE', () => {
-    const tr = compilePreset({ kind: 'marquee', speed: 100 }, ctx)
-    expect(evalTrack(tr, 0, 1).x).toBe(OFF_RIGHT)
-    expect(evalTrack(tr, 0, 1).x).toBeGreaterThan(ctx.sceneW)
-  })
-
-  it('marquee endpoints reduce to the pre-margin values when margins are 0', () => {
-    // Pins the relationship rather than only the arithmetic: with no dead space
-    // there is nothing to traverse and the old endpoints are correct.
-    const tr = compilePreset({ kind: 'marquee', speed: 100 },
-      { ...ctx, marginLeft: 0, marginRight: 0 })
-    expect(evalTrack(tr, 0, 1).x).toBe(ctx.sceneW)
-    expect(evalTrack({ ...tr, repeat: 'once' }, 1e6, 1).x).toBe(-ctx.contentW)
-  })
-
-  it('marquee loops by default', () => {
-    expect(compilePreset({ kind: 'marquee' }, ctx).repeat).toBe('loop')
   })
 
   it('push rises from 0 to the layer depth and never touches opacity', () => {
@@ -96,23 +63,23 @@ describe('presets', () => {
     expect(absDepth(tr, 1, 1)).toBeCloseTo(0.5)
   })
 
-  it('bounce returns to its start height', () => {
-    const tr = compilePreset({ kind: 'bounce', height: 200 }, ctx)
-    expect(evalTrack(tr, 0, 1).y).toBeCloseTo(evalTrack(tr, 1, 1).y)
-  })
-
   it('throws a helpful error for an unknown preset', () => {
     expect(() => compilePreset({ kind: 'nope' }, ctx))
       .toThrow(/unknown animation preset "nope"/i)
   })
 })
 
-// Not in the implementation plan: `slide` — since renamed to `move` — plus
-// `slide-in` and `bob` were specified in prose with no test behind them, so
-// these pin the spec's wording.
+// Not in the implementation plan: `slide` — since renamed to `move` — was
+// specified in prose with no test behind it, so these pin the spec's wording.
 describe('presets implemented from prose spec', () => {
   it('unknown-preset error lists the valid kinds', () => {
-    expect(() => compilePreset({ kind: 'nope' }, ctx)).toThrow(/slide-in/)
+    // One registered kind is enough to prove the list is being built from the
+    // registry rather than hardcoded; `presets.test.ts`'s first test pins the
+    // list itself. `slide-in` used to be the probe here, which is exactly why
+    // a probe naming one kind is the wrong shape for a shrinking registry.
+    for (const kind of Object.keys(PRESETS)) {
+      expect(() => compilePreset({ kind: 'nope' }, ctx)).toThrow(kind)
+    }
   })
 
   it('move runs from its from pair to its to pair, once', () => {
@@ -124,9 +91,10 @@ describe('presets implemented from prose spec', () => {
     expect(end.y).toBeCloseTo(50)
   })
 
-  // `speed` is `marquee`'s one distinct capability, moved onto `move` (design
-  // §4.2b). `marquee` derives its duration from a one-axis `abs(from - to)`;
-  // `move` travels in two, so the generalisation is the Euclidean distance.
+  // `speed` was `marquee`'s one distinct capability, moved onto `move` (design
+  // §4.2b) — which is what let `marquee` be deleted. `marquee` derived its
+  // duration from a one-axis `abs(from - to)`; `move` travels in two, so the
+  // generalisation is the Euclidean distance.
   it('move derives its duration from speed, over the 2-D distance', () => {
     // 3-4-5: the distance is 5× the speed's unit, so `duration` is exactly 5
     // and a hypot computed on one axis only would give 3 or 4 instead.
@@ -160,7 +128,7 @@ describe('presets implemented from prose spec', () => {
     )).toThrow(/duration/)
   })
 
-  it('move rejects a non-positive speed, as marquee does', () => {
+  it('move rejects a non-positive speed', () => {
     expect(() => compilePreset({ kind: 'move', to: [30, 40], speed: 0 }, ctx))
       .toThrow(/> 0 px\/sec/)
     expect(() => compilePreset({ kind: 'move', to: [30, 40], speed: -5 }, ctx))
@@ -186,42 +154,6 @@ describe('presets implemented from prose spec', () => {
     // is untouched however small the trip.
     expect(compilePreset({ kind: 'move', to: [0, 1], speed: 60 }, ctx).duration)
       .toBeCloseTo(1 / 60, 12)
-  })
-
-  // UPDATED FOR THE PLATE/STAGE SPLIT: the two horizontal directions gained
-  // their margin, the two vertical ones did not, because margins are x-only
-  // (§10.2). Both halves matter — a blanket "add the margin" would push a
-  // `from: 'top'` entry a plate-margin's worth above the frame for no reason.
-  it('slide-in enters from off-PLATE horizontally, off-frame vertically, and rests at 0', () => {
-    for (const [from, channel, offset] of [
-      ['left', 'x', OFF_LEFT],
-      ['right', 'x', OFF_RIGHT],
-      ['top', 'y', -ctx.contentH],
-      ['bottom', 'y', ctx.sceneH],
-    ] as const) {
-      const tr = compilePreset({ kind: 'slide-in', from }, ctx)
-      expect(evalTrack(tr, 0, 1)[channel]).toBe(offset)
-      expect(evalTrack(tr, 1, 1)[channel]).toBe(0)
-    }
-  })
-
-  it('slide-in only keys the axis it enters on, so bob can own the other', () => {
-    const tr = compilePreset({ kind: 'slide-in', from: 'left' }, ctx)
-    expect(evalTrack(tr, 0.5, 1).y).toBe(0)
-    expect(JSON.stringify(tr)).not.toContain('"y"')
-  })
-
-  it('bob wobbles a small amount and returns to 0', () => {
-    const tr = compilePreset({ kind: 'bob', amount: 10 }, ctx)
-    expect(tr.repeat).toBe('pingpong')
-    expect(evalTrack(tr, 0, 1).y).toBe(0)
-    expect(evalTrack(tr, 0.5, 1).y).toBeCloseTo(-10)
-    expect(evalTrack(tr, 1, 1).y).toBe(0)
-  })
-
-  it('bounce accepts the design doc\'s `h` as well as the plan\'s `height`', () => {
-    expect(evalTrack(compilePreset({ kind: 'bounce', h: 60 }, ctx), 0.5, 1).y).toBeCloseTo(-60)
-    expect(evalTrack(compilePreset({ kind: 'bounce', height: 60 }, ctx), 0.5, 1).y).toBeCloseTo(-60)
   })
 
   it('every preset honours ease/repeat/start/duration overrides', () => {
@@ -251,33 +183,25 @@ describe('presets implemented from prose spec', () => {
     // longer describes what is accepted. Left alone it tells an author that a
     // perfectly valid `cubic-bezier(...)` is invalid — and then lists five
     // alternatives, none of which is what they wanted.
-    expect(() => compilePreset({ kind: 'bob', ease: 'elastic' }, ctx))
+    expect(() => compilePreset({ kind: 'move', ease: 'elastic' }, ctx))
       .toThrow(/cubic-bezier/)
     // A malformed bezier is still a rejection, and still names the form.
-    expect(() => compilePreset({ kind: 'bob', ease: 'cubic-bezier(0,0,1)' }, ctx))
+    expect(() => compilePreset({ kind: 'move', ease: 'cubic-bezier(0,0,1)' }, ctx))
       .toThrow(/cubic-bezier/)
     // Out-of-range x is rejected at the validator rather than reaching the
     // solver, which throws from inside the render loop.
-    expect(() => compilePreset({ kind: 'bob', ease: 'cubic-bezier(2,0,1,1)' }, ctx))
+    expect(() => compilePreset({ kind: 'move', ease: 'cubic-bezier(2,0,1,1)' }, ctx))
       .toThrow(/unknown easing/)
   })
 
   it('rejects malformed params instead of quietly using the default', () => {
     expect(() => compilePreset({ kind: 'move', to: 'nope' }, ctx)).toThrow(/\[x, y\] number pair/)
-    expect(() => compilePreset({ kind: 'slide-in', from: 'sideways' }, ctx)).toThrow(/must be one of/)
-    expect(() => compilePreset({ kind: 'marquee', speed: 0 }, ctx)).toThrow(/> 0 px\/sec/)
-    expect(() => compilePreset({ kind: 'bob', ease: 'elastic' }, ctx)).toThrow(/unknown easing/)
-    expect(() => compilePreset({ kind: 'bob', repeat: 'forever' }, ctx)).toThrow(/unknown repeat/)
+    expect(() => compilePreset({ kind: 'rotate', axis: 'sideways' }, ctx)).toThrow(/must be one of/)
+    expect(() => compilePreset({ kind: 'move', to: [1, 0], speed: 0 }, ctx)).toThrow(/> 0 px\/sec/)
+    expect(() => compilePreset({ kind: 'move', ease: 'elastic' }, ctx)).toThrow(/unknown easing/)
+    expect(() => compilePreset({ kind: 'move', repeat: 'forever' }, ctx)).toThrow(/unknown repeat/)
   })
 
-  it('marquee duration follows speed over the full travel distance', () => {
-    // 800px of stage + 1200px of content + 165px of margins = 2165px at
-    // 100px/s. The margins lengthen the travel, so a `speed` keeps meaning
-    // px/sec rather than silently scrolling faster to cover more ground.
-    expect(compilePreset({ kind: 'marquee', speed: 100 }, ctx).duration)
-      .toBeCloseTo((OFF_RIGHT - OFF_LEFT) / 100)
-    expect(OFF_RIGHT - OFF_LEFT).toBe(2165)
-  })
 })
 
 /**
@@ -313,9 +237,8 @@ describe('rotate', () => {
   })
 
   it('keys only its own axis, so two rotate animators compose', () => {
-    // Same property `slide-in` has on x/y: an unkeyed channel must stay absent
-    // rather than be pinned to 0, or a second animator on that channel is
-    // overridden instead of summed.
+    // An unkeyed channel must stay absent rather than be pinned to 0, or a
+    // second animator on that channel is overridden instead of summed.
     const tr = compilePreset({ kind: 'rotate', from: 10, to: 20, axis: 'y' }, ctx)
     expect(JSON.stringify(tr)).not.toContain('rotateX')
     expect(JSON.stringify(tr)).not.toContain('"rotate"')

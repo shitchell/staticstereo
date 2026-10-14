@@ -78,8 +78,8 @@ export function createRasterCache(): RasterCache {
 /**
  * Scene duration in seconds, never 0.
  *
- * Design §4.1: a zero-width window pins every track at one endpoint — for
- * `marquee` that is fully off-screen, so a still of a scrolling scene renders
+ * Design §4.1: a zero-width window pins every track at one endpoint — for a
+ * scroll that is fully off-screen, so a still of a scrolling scene renders
  * completely empty. An explicit `0` is treated the same as an absent value
  * rather than honoured, because the only thing honouring it can produce is
  * that empty frame.
@@ -241,8 +241,14 @@ async function prepare(
       const font = [layer.weight, `${size}px`, layer.font ?? DEFAULT_FONT_FAMILY]
         .filter(Boolean)
         .join(' ')
-      // Measure before drawing: `marquee` travels to `-contentW`, so an unmeasured
-      // (or zero) width leaves the tail of an over-wide string parked on screen.
+      // Measured and handed to presets as `PresetCtx.contentW`. **No preset
+      // reads it today** — `marquee` and `slide-in` were the only two and
+      // §4.2b deleted them — so this is currently measured for a consumer
+      // that does not exist, and nothing can observe a regression in it. It
+      // stays because the UI templates P6 rebuilds those kinds as are exactly
+      // that consumer, and because an unmeasured (or zero) width is what
+      // leaves the tail of an over-wide string parked on screen. See
+      // `raster.test.ts`'s `rasterDepth over-wide text geometry`.
       scratch.font = font
       const contentW = scratch.measureText(layer.text).width
       return {

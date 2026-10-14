@@ -175,12 +175,15 @@ const noCompiler: AnimCompiler = preset => {
 /**
  * Compose one or many animators into a single transform.
  * Translations/rotations sum; scales multiply; depth sums (then the caller clamps).
- * This is what makes [marquee, bob] work without a marquee-with-bob preset.
+ * This is what lets `[{kind: 'move'}, <a three-key bounce track>]` work
+ * without a move-with-bounce preset — and it is why §4.2b could narrow the
+ * registry to five verbs: a composition does not need a name.
  *
- * `ctx` carries the scene/content measurements presets need (marquee's travel
- * distance depends on the measured content width). It is optional only because
- * an anim built entirely from raw tracks does not need it; a preset without it
- * throws rather than guessing a size.
+ * `ctx` carries the scene/content measurements a preset may need. Only
+ * `layerDepth` is read today (by `push`); the measurements and margins are
+ * there for the UI templates P6 restores. It is optional only because an anim
+ * built entirely from raw tracks does not need it; a preset without it throws
+ * rather than guessing a size.
  */
 export function composeAnim(
   anim: Anim | undefined, seconds: number, sceneDuration: number,

@@ -66,7 +66,7 @@ export type ParamUnit = typeof PARAM_UNITS[number]
 
 /**
  * Scalar or `[x, y]` pair. P2 must be able to tell `move.from` (a pair of
- * scene-pixel offsets, both of which scale) from `marquee.speed` (one scalar)
+ * scene-pixel offsets, both of which scale) from `move.speed` (one scalar)
  * without inspecting a scene that happens to use them, so the arity is part of
  * the descriptor rather than something discovered at the value.
  */
@@ -170,7 +170,7 @@ export type ParamDescriptor = NumericParam | EnumParam
 
 /**
  * Wrap a literal default. The constructors below take the raw value and wrap
- * it here, so the table reads as `SCENE_PX('amount', 8)` rather than carrying
+ * it here, so the table reads as `DEGREES('from', 0)` rather than carrying
  * the tag at every entry — the tag is for consumers, not for authors.
  */
 const value = <V>(v: V): ValueDefault<V> => ({ from: 'value', value: v })
@@ -180,9 +180,6 @@ const SCENE_PX_PAIR = (name: string, def: readonly [number, number]): NumericPar
 
 const DEPTH = (name: string, def: NumericDefault): NumericParam =>
   ({ name, unit: 'depth', shape: 'scalar', default: def })
-
-const SCENE_PX = (name: string, def: number): NumericParam =>
-  ({ name, unit: 'scenePx', shape: 'scalar', default: value(def) })
 
 /** A rate in scene pixels per second. See `NumericParam.per`. */
 const SCENE_PX_PER_SECOND = (name: string, def: NumericDefault): NumericParam =>
@@ -213,9 +210,10 @@ const MULTIPLIER = (name: string, def: number): NumericParam =>
  * in P2. Same mechanism as `CHANNELS`' `AssertNever` guard and `STEREO_KEYS`.
  *
  * Parameter names are read off the `PresetFn` bodies rather than off the
- * design table, because the bodies are what runs — `bounce` accepts both
- * `height` and the design doc's `h`, and a consumer that scaled only the first
- * would leave half the scenes in the corpus wrong.
+ * design table, because the bodies are what runs. The now-deleted `bounce`
+ * was the standing proof: it accepted both `height` and the design doc's
+ * `h`, the table said so, and a consumer that had trusted the design table
+ * alone would have scaled only the first and left half the corpus wrong.
  *
  * So are the defaults. Every one of them is checked against behaviour by
  * `params.test.ts`, which compiles each preset bare and again with the
@@ -253,20 +251,6 @@ export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
     // these two enums is a design decision, not an oversight.
     { name: 'axis', unit: 'enum', values: ['x', 'y'], default: value('y') },
   ],
-  'slide-in': [
-    // The edge entered from, not a distance: the offset is computed from the
-    // measured content and the plate margins, so there is nothing here for a
-    // resize to scale.
-    {
-      name: 'from',
-      unit: 'enum',
-      values: ['left', 'right', 'top', 'bottom'],
-      default: value('left'),
-    },
-  ],
-  // Unlike `move.speed` this one *is* a default: `marquee` always derives its
-  // duration from a rate, so the rate has a value when the author omits it.
-  marquee: [SCENE_PX_PER_SECOND('speed', value(60))],
   // Absolute depths in 0..1, not offsets — `push` subtracts `ctx.layerDepth`
   // itself. Depth is a normalised quantity and does not scale with the frame.
   push: [
@@ -276,10 +260,4 @@ export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
     // and is why `CtxDefault` exists.
     DEPTH('to', { from: 'ctx', key: 'layerDepth' }),
   ],
-  // `h` is a real second spelling of `height` (the design doc and the
-  // implementation plan disagreed), so it is described rather than hidden.
-  // Both carry the same default because the reader falls back to 100 either
-  // way; they are one parameter with two names, not two parameters.
-  bounce: [SCENE_PX('height', 100), SCENE_PX('h', 100)],
-  bob: [SCENE_PX('amount', 8)],
 }

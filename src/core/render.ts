@@ -250,7 +250,7 @@ function positive(v: number | undefined): boolean {
  * The time a still samples the scene at, in seconds.
  *
  * The **midpoint**, not 0 (design §4.1). With an absent duration treated as
- * 1 second — never 0 — this is 0.5s. Sampling t=0 renders a `marquee` scene
+ * 1 second — never 0 — this is 0.5s. Sampling t=0 renders a scrolling scene
  * completely empty, because the text is legitimately off-screen right at the
  * start of its travel; `render.test.ts` pins both halves of that.
  *

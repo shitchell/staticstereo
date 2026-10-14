@@ -162,22 +162,22 @@ describe('composeAnim preset wiring', () => {
   }
 
   it('throws rather than silently dropping a preset when no compiler is passed', () => {
-    expect(() => composeAnim({ kind: 'marquee' }, 0, 1, ctx))
+    expect(() => composeAnim({ kind: 'move' }, 0, 1, ctx))
       .toThrow(/no preset compiler/i)
   })
 
   it('throws when a preset is used but no PresetCtx is passed', () => {
-    expect(() => composeAnim({ kind: 'marquee' }, 0, 1, undefined, () => ({ keys: [] })))
+    expect(() => composeAnim({ kind: 'move' }, 0, 1, undefined, () => ({ keys: [] })))
       .toThrow(/needs a PresetCtx/i)
   })
 
   it('threads the ctx through to the compiler', () => {
     const seen: unknown[] = []
-    composeAnim({ kind: 'marquee' }, 0, 1, ctx, (p, c) => {
+    composeAnim({ kind: 'move' }, 0, 1, ctx, (p, c) => {
       seen.push([p.kind, c])
       return { keys: [{ t: 0, x: c.contentW }] }
     })
-    expect(seen).toEqual([['marquee', ctx]])
+    expect(seen).toEqual([['move', ctx]])
   })
 
   it('composes a raw track and a compiled preset together', () => {

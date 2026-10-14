@@ -420,7 +420,7 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
 
   if (a['keys'] === undefined) {
     fail(
-      `${path} must be a preset ({kind: marquee, ...}) or a keyframe track ` +
+      `${path} must be a preset ({kind: move, ...}) or a keyframe track ` +
       `({keys: [...]}), but it has neither "kind" nor "keys"`,
     )
   }
@@ -533,12 +533,14 @@ export type MeasureText = (text: string, font: string) => number
  * Build the one-layer scene behind `stst still --text HELLO`.
  *
  * **It supplies its own `at`, centred.** Design §3 defaults `at` to `[0, 0]`
- * for text layers and says so deliberately: `marquee` and `slide-in` compute
- * off-frame positions as `-contentW` / `+sceneW`, which are only off-frame if
- * the layer's own origin is the top-left corner. That default is right for
- * scene files and wrong for a one-shot still, which would render in the corner.
- * So the centring lives *here*, in the CLI, where there are no presets to break
- * — and `--at` still overrides it.
+ * for text layers and says so deliberately: an off-frame pose is written as
+ * `-contentW` / `+sceneW`, which is only off-frame if the layer's own origin
+ * is the top-left corner. (The two presets that computed those, `marquee` and
+ * `slide-in`, are gone under §4.2b, but the convention they relied on is
+ * still the one a hand-written scroll uses — see
+ * `examples/scrolling-text.yaml`.) That default is right for scene files and
+ * wrong for a one-shot still, which would render in the corner. So the
+ * centring lives *here*, in the CLI — and `--at` still overrides it.
  *
  * The type is also shrunk to fit when it would overflow the canvas, but only
  * when the size was *not* given explicitly: `--font-size 200` is an

@@ -88,7 +88,7 @@ describe('recorded parameter units', () => {
   it('move travels in scene pixels, on both axes', () => {
     // `from`/`to` are `[x, y]` offsets from the layer's resting `at`, so both
     // components are distances and both scale under `fit=render`. The pair
-    // shape is the half P2 cannot guess: `marquee.speed` is also `scenePx` and
+    // shape is the half P2 cannot guess: `move.speed` is also `scenePx` and
     // is a single number.
     for (const name of ['from', 'to']) {
       const d = numeric('move', name)

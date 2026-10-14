@@ -154,8 +154,9 @@ export function presetNote(kind: string, layerCount: number): string {
       '{"kind": "move", "from": [-60, 0], "to": [700, 0]} in the scene JSON below.'
   }
   return 'Presets compile to keyframe tracks, so anything here can also be written out ' +
-    'longhand in the scene JSON. bob and bounce take their period from the scene ' +
-    'duration unless you give them their own.'
+    'longhand in the scene JSON — and a longhand track is where anything the five ' +
+    'verbs cannot say goes, such as a three-key bounce. A track takes its period ' +
+    'from the scene duration unless you give it its own.'
 }
 
 /** `frameTimes`, re-exported through here so the page has one import for the grid. */

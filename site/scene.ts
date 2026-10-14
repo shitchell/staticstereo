@@ -231,7 +231,7 @@ function validateAnimOne(v: unknown, path: string): Track | Record<string, unkno
     return { ...v }
   }
   fail(
-    `${path} must be either a preset ({kind: "marquee", ...}) or a keyframe ` +
+    `${path} must be either a preset ({kind: "move", ...}) or a keyframe ` +
     `track ({keys: [...]}), got ${JSON.stringify(v)}`,
   )
 }

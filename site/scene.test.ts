@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { validateScene } from './scene.js'
-import { CHANNELS } from '../src/core/index.js'
+import { CHANNELS, PRESETS } from '../src/core/index.js'
 import type { Track } from '../src/core/types.js'
 
 /**
@@ -130,7 +130,7 @@ describe('validateScene', () => {
       message = (err as Error).message
     }
     expect(message).toMatch(/wobble/)
-    expect(message).toMatch(/marquee/)
+    for (const kind of Object.keys(PRESETS)) expect(message).toMatch(kind)
     expect(message).toMatch(/layers\[0\]\.anim/)
   })
 
@@ -138,7 +138,7 @@ describe('validateScene', () => {
     const scene = validateScene({
       size: [8, 8],
       layers: [
-        { type: 'text', text: 'A', anim: [{ kind: 'marquee' }, { kind: 'bob' }] },
+        { type: 'text', text: 'A', anim: [{ kind: 'move' }, { kind: 'push' }] },
         { type: 'text', text: 'B', anim: { keys: [{ t: 0, y: 0 }, { t: 1, y: 10 }], ease: 'linear' } },
         { type: 'text', text: 'C', anim: { kind: 'push' } },
       ],
@@ -159,7 +159,7 @@ describe('validateScene', () => {
           type: 'text', text: 'A',
           anim: { keys: [{ t: 0 }, { t: 1, x: 5 }], ease: 'cubic-bezier(.17,.67,.83,.67)' },
         },
-        { type: 'text', text: 'B', anim: { kind: 'bob', ease: 'cubic-bezier(0, 0, 1, 1)' } },
+        { type: 'text', text: 'B', anim: { kind: 'scale', ease: 'cubic-bezier(0, 0, 1, 1)' } },
       ],
     })
     expect((scene.layers[0]!.anim as Track).ease).toBe('cubic-bezier(.17,.67,.83,.67)')

@@ -272,7 +272,7 @@ describe('soloLayerScene', () => {
     stereo: { sepFar: 120 },
     layers: [
       { type: 'shape', shape: 'rect', w: 10, h: 10 },
-      { type: 'text', text: 'HI', size: 90, anim: { kind: 'bob' } },
+      { type: 'text', text: 'HI', size: 90, anim: { kind: 'push' } },
     ],
   }
 
