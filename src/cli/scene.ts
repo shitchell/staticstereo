@@ -24,8 +24,8 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { EASINGS, PRESETS, compilePreset, resolveStereo, STEREO_KEYS } from '../core/index.js'
-import type { Layer, Scene } from '../core/index.js'
+import { CHANNELS, EASINGS, PRESETS, compilePreset, resolveStereo, STEREO_KEYS } from '../core/index.js'
+import type { AssertNever, Channel, Layer, Scene } from '../core/index.js'
 import { UsageError } from './args.js'
 import type { CliArgs } from './args.js'
 
@@ -102,7 +102,22 @@ const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {
   draw: ['fn'],
 }
 const TRACK_KEYS = ['keys', 'ease', 'repeat', 'start', 'duration'] as const
-const KEY_CHANNELS = ['t', 'x', 'y', 'depth', 'scale', 'rotate'] as const
+/**
+ * What may appear in a keyframe: the animatable channels plus `t`, which is
+ * the keyframe's own time and so is not a `Transform` channel.
+ *
+ * Derived rather than written out. The hand-written list this replaces had
+ * fallen a release behind `CHANNELS` and omitted `rotateX`/`rotateY`, so the
+ * CLI rejected by name two channels `evalTrack` interpolates — a scene the
+ * renderer handles perfectly well refused to load. Exported for the test that
+ * pins the derivation.
+ */
+export const KEY_CHANNELS = ['t', ...CHANNELS] as const
+type KeyChannel = typeof KEY_CHANNELS[number]
+// The guard, not the spread, is what keeps this honest: it fails the build if
+// anyone writes the list out again, in either direction.
+type _NoKeyChannelMissing = AssertNever<Exclude<Channel, KeyChannel>>
+type _NoKeyChannelExtra = AssertNever<Exclude<KeyChannel, Channel | 't'>>
 const REPEATS = ['once', 'loop', 'pingpong'] as const
 
 /**

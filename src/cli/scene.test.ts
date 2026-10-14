@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { parseArgs } from './args.js'
 import type { CliArgs } from './args.js'
 import {
+  KEY_CHANNELS,
   TEXT_FONT_FAMILY,
   TEXT_FONT_WEIGHT,
   applyOverrides,
@@ -13,6 +14,7 @@ import {
   textScene,
   validateScene,
 } from './scene.js'
+import { CHANNELS } from '../core/index.js'
 import type { Scene } from '../core/index.js'
 
 /** The smallest scene that is actually valid, as a YAML string. */
@@ -276,6 +278,23 @@ describe('validateScene — layers', () => {
     const msg = checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {x: 1}}\n')
     expect(msg).toMatch(/anim/)
     expect(msg).toMatch(/kind|keys/)
+  })
+
+  // `KEY_CHANNELS` was a hand-written copy of the channel list that predated
+  // `rotateX`/`rotateY`, so the CLI rejected as unknown two channels the
+  // animator interpolates perfectly well. Deriving it from `CHANNELS` is what
+  // makes that class of drift impossible, so the test pins the derivation as
+  // well as the symptom.
+  it('accepts every animatable channel in a keyframe, including the axis rotations', () => {
+    const s = check(
+      'size: [40, 20]\nlayers:\n' +
+      '  - {type: text, text: HI, anim: {keys: [{t: 0, rotateX: 0, rotateY: 0}, {t: 1, rotateX: 1, rotateY: 2}]}}\n',
+    )
+    expect(s.layers).toHaveLength(1)
+  })
+
+  it('derives its keyframe channels from CHANNELS, plus the keyframe time', () => {
+    expect(new Set(KEY_CHANNELS)).toEqual(new Set(['t', ...CHANNELS]))
   })
 })
 
