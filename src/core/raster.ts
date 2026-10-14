@@ -128,7 +128,7 @@ export async function rasterDepth(
 
   for (const layer of scene.layers) {
     const prep = await prepare(layer, scene, seconds, sceneDuration, canvas, scratch, cache)
-    // Hoisted because presets need it too, not only the compositor: `emerge`
+    // Hoisted because presets need it too, not only the compositor: `push`
     // expresses an absolute depth range as an offset and cannot do that without
     // knowing the base it is offsetting from.
     const layerDepth = layer.depth ?? 1

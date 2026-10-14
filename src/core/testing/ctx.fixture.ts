@@ -19,7 +19,7 @@ export const CTX: PresetCtx = {
 /**
  * The same measurements with a **non-trivial** `layerDepth`.
  *
- * `emerge` compiles its absolute depths as `value − ctx.layerDepth`, and `to`
+ * `push` compiles its absolute depths as `value − ctx.layerDepth`, and `to`
  * *defaults* to `ctx.layerDepth`. At `layerDepth: 1` both the subtrahend and
  * that default are 1, which is also the identity for enough arithmetic that a
  * golden captured there would not witness the term at all — `0.6` makes the

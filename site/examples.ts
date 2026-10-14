@@ -26,8 +26,8 @@ const SIZE: [number, number] = [640, 360]
 
 export const EXAMPLES: Example[] = [
   {
-    id: 'emerge',
-    label: 'EMERGE — text rising out of the noise',
+    id: 'push',
+    label: 'PUSH — text rising out of the noise',
     note:
       'There is no transparency in depth space, so a fade-in is motion in depth. ' +
       'Watch the depth panel: the word brightens from black, which is it rising ' +
@@ -43,7 +43,7 @@ export const EXAMPLES: Example[] = [
           size: 120,
           at: [120, 120],
           depth: 1,
-          anim: { kind: 'emerge' },
+          anim: { kind: 'push' },
         },
       ],
     },

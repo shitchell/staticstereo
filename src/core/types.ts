@@ -178,7 +178,7 @@ type _NoStereoKeyExtra = AssertNever<Exclude<StereoKey, keyof StereoOpts>>
 /**
  * What an animator can move. Deliberately has no `opacity`: there is no
  * meaningful transparency in depth space, so fading is expressed as motion in
- * `depth` (the `emerge` preset) instead.
+ * `depth` (the `push` preset) instead.
  *
  * **This is a sampled pose, not an animation.** Duration, easing and endpoints
  * live on {@link Track} and on the preset that compiled it; a `Transform` is

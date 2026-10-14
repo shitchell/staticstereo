@@ -202,79 +202,6 @@
       }
     },
     {
-      "kind": "emerge",
-      "label": "bare",
-      "input": {
-        "kind": "emerge"
-      },
-      "output": {
-        "keys": [
-          {
-            "t": 0,
-            "depth": -0.6
-          },
-          {
-            "t": 1,
-            "depth": 0
-          }
-        ],
-        "ease": "easeOut",
-        "repeat": "once"
-      }
-    },
-    {
-      "kind": "emerge",
-      "label": "params",
-      "input": {
-        "kind": "emerge",
-        "from": 0.2,
-        "to": 0.85
-      },
-      "output": {
-        "keys": [
-          {
-            "t": 0,
-            "depth": -0.39999999999999997
-          },
-          {
-            "t": 1,
-            "depth": 0.25
-          }
-        ],
-        "ease": "easeOut",
-        "repeat": "once"
-      }
-    },
-    {
-      "kind": "emerge",
-      "label": "params+overrides",
-      "input": {
-        "kind": "emerge",
-        "from": 0.2,
-        "to": 0.85,
-        "ease": "easeIn",
-        "repeat": "pingpong",
-        "start": 2.5,
-        "duration": 3.75
-      },
-      "output": {
-        "keys": [
-          {
-            "t": 0,
-            "depth": -0.39999999999999997
-          },
-          {
-            "t": 1,
-            "depth": 0.25
-          }
-        ],
-        "ease": "easeIn",
-        "repeat": "pingpong",
-        "start": 2.5,
-        "duration": 3.75
-      }
-    },
-    {
       "kind": "marquee",
       "label": "bare",
       "input": {
@@ -430,6 +357,79 @@
             "t": 1,
             "x": 250,
             "y": -40
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "push",
+      "label": "bare",
+      "input": {
+        "kind": "push"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.6
+          },
+          {
+            "t": 1,
+            "depth": 0
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "push",
+      "label": "params",
+      "input": {
+        "kind": "push",
+        "from": 0.2,
+        "to": 0.85
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.39999999999999997
+          },
+          {
+            "t": 1,
+            "depth": 0.25
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "push",
+      "label": "params+overrides",
+      "input": {
+        "kind": "push",
+        "from": 0.2,
+        "to": 0.85,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.39999999999999997
+          },
+          {
+            "t": 1,
+            "depth": 0.25
           }
         ],
         "ease": "easeIn",

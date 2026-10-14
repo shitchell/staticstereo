@@ -122,7 +122,7 @@ export const CUSTOM_TRACK = '(custom track)'
  * to `[{t: 0, x: 0, y: 0}, {t: 1, x: 0, y: 0}]` — a track that animates
  * precisely nothing. Verified against core with a correct `PresetCtx`; every
  * other preset has a usable bare default (`slide-in` enters from `-contentW`,
- * `marquee` defaults to 60 px/sec, `bounce` to 100px, `bob` to 8px, `emerge`
+ * `marquee` defaults to 60 px/sec, `bounce` to 100px, `bob` to 8px, `push`
  * rises to the layer's own depth).
  *
  * The dropdown cannot carry parameters — those live in the scene JSON — so

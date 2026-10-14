@@ -140,7 +140,7 @@ describe('validateScene', () => {
       layers: [
         { type: 'text', text: 'A', anim: [{ kind: 'marquee' }, { kind: 'bob' }] },
         { type: 'text', text: 'B', anim: { keys: [{ t: 0, y: 0 }, { t: 1, y: 10 }], ease: 'linear' } },
-        { type: 'text', text: 'C', anim: { kind: 'emerge' } },
+        { type: 'text', text: 'C', anim: { kind: 'push' } },
       ],
     })
     expect(scene.layers).toHaveLength(3)

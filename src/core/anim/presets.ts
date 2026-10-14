@@ -3,7 +3,7 @@
  * one evaluator (`evalTrack`) and raw tracks are not a parallel mechanism — see
  * the design doc, §4.
  *
- * Nothing here animates opacity. Fading is motion in `depth` (`emerge`).
+ * Nothing here animates opacity. Fading is motion in `depth` (`push`).
  */
 import { EASINGS } from './easing.js'
 import type { Easing, Preset, Track } from '../types.js'
@@ -60,9 +60,9 @@ export interface PresetCtx {
   /**
    * The layer's own base depth, before any animator offset.
    *
-   * `emerge` needs this and cannot work without it. Transforms are *additive*
-   * offsets, but the design specifies emerge as rising "from 0 to target" —
-   * an absolute range. Without knowing the base depth, emerge keyed 0→1 as an
+   * `push` needs this and cannot work without it. Transforms are *additive*
+   * offsets, but the design specifies this verb as rising "from 0 to target" —
+   * an absolute range. Without knowing the base depth, it keyed 0→1 as an
    * offset, so a layer at the default depth of 1 animated 1→2, clamped, and sat
    * perfectly static: the designated depth-space stand-in for a fade did
    * nothing at all.
@@ -160,7 +160,7 @@ function overrides(tr: Track, p: Preset): Track {
  *
  * Note what is *not* here: default durations. A track with no `duration` runs
  * for the remainder of the scene, which is the right default for one-shot
- * motion (`move`, `emerge`) and the reason `bounce`/`bob` take a `duration`
+ * motion (`move`, `push`) and the reason `bounce`/`bob` take a `duration`
  * when you want a faster cycle than once-per-scene. `marquee` is the one
  * exception: its duration is derived from `speed`, because a scroll rate in
  * px/sec is the thing an author actually wants to control.
@@ -242,7 +242,7 @@ export const PRESETS: Record<string, PresetFn> = {
   /** Rise out of the background. The depth-space stand-in for a fade-in. */
   /**
    * Rise out of the background. `from`/`to` are **absolute** depths — `to`
-   * defaults to the layer's own depth, so `{kind: 'emerge'}` means "come up
+   * defaults to the layer's own depth, so `{kind: 'push'}` means "come up
    * from the noise to wherever this layer lives".
    *
    * Keys are emitted as offsets relative to the layer's base depth, because
@@ -250,7 +250,7 @@ export const PRESETS: Record<string, PresetFn> = {
    * exactly the bug this replaced: a layer at depth 1 animated 1→2 and clamped
    * to a static surface.
    */
-  emerge: (p, ctx) => overrides({
+  push: (p, ctx) => overrides({
     keys: [
       { t: 0, depth: num(p, 'from', 0) - ctx.layerDepth },
       { t: 1, depth: num(p, 'to', ctx.layerDepth) - ctx.layerDepth },

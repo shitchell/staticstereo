@@ -10,7 +10,7 @@ const OFF_RIGHT = ctx.sceneW + ctx.marginRight      // 855
 /**
  * Absolute depth a layer actually ends up at: tracks emit additive OFFSETS, so
  * asserting a track's raw `depth` channel tests the wrong number. The old
- * emerge test asserted raw offsets and passed only because it happened to use
+ * push test asserted raw offsets and passed only because it happened to use
  * a layer depth of 1.
  */
 function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: number) {
@@ -20,7 +20,7 @@ function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: nu
 describe('presets', () => {
   it('registers the v1 set', () => {
     expect(Object.keys(PRESETS).sort()).toEqual(
-      ['bob', 'bounce', 'emerge', 'marquee', 'move', 'slide-in'],
+      ['bob', 'bounce', 'marquee', 'move', 'push', 'slide-in'],
     )
   })
 
@@ -60,36 +60,37 @@ describe('presets', () => {
     expect(compilePreset({ kind: 'marquee' }, ctx).repeat).toBe('loop')
   })
 
-  it('emerge rises from 0 to the layer depth and never touches opacity', () => {
-    const tr = compilePreset({ kind: 'emerge' }, ctx)
+  it('push rises from 0 to the layer depth and never touches opacity', () => {
+    const tr = compilePreset({ kind: 'push' }, ctx)
     expect(absDepth(tr, 0, 1)).toBeCloseTo(0)
     expect(absDepth(tr, 1, 1)).toBeCloseTo(1)
     expect(JSON.stringify(tr)).not.toContain('opacity')
   })
 
-  // REGRESSION. emerge previously keyed absolute 0 -> 1 into an ADDITIVE
-  // offset, so a layer at the default depth of 1 animated 1 -> 2, clamped, and
-  // sat completely static -- the design's own stand-in for a fade did nothing.
+  // REGRESSION. This preset (then named `emerge`) previously keyed absolute
+  // 0 -> 1 into an ADDITIVE offset, so a layer at the default depth of 1
+  // animated 1 -> 2, clamped, and sat completely static -- the design's own
+  // stand-in for a fade did nothing.
   // A layer at 0.6 saturated by t=0.25. Only depth: 0 ever worked.
-  it('emerge actually moves for a layer at the default depth', () => {
-    const tr = compilePreset({ kind: 'emerge' }, ctx)
+  it('push actually moves for a layer at the default depth', () => {
+    const tr = compilePreset({ kind: 'push' }, ctx)
     const samples = [0, 0.25, 0.5, 0.75, 1].map(t => absDepth(tr, t, 1))
     expect(new Set(samples.map(v => v.toFixed(3))).size).toBeGreaterThan(3)
     expect(Math.max(...samples)).toBeCloseTo(1)
     expect(Math.min(...samples)).toBeCloseTo(0)
   })
 
-  it('emerge targets a non-default layer depth without saturating', () => {
+  it('push targets a non-default layer depth without saturating', () => {
     const c = { ...ctx, layerDepth: 0.6 }
-    const tr = compilePreset({ kind: 'emerge' }, c)
+    const tr = compilePreset({ kind: 'push' }, c)
     expect(absDepth(tr, 0, 0.6)).toBeCloseTo(0)
     expect(absDepth(tr, 1, 0.6)).toBeCloseTo(0.6)
     expect(absDepth(tr, 0.25, 0.6)).toBeLessThan(0.6)
     expect(absDepth(tr, 0.25, 0.6)).toBeGreaterThan(0)
   })
 
-  it('emerge honours an explicit absolute to/from', () => {
-    const tr = compilePreset({ kind: 'emerge', from: 0.2, to: 0.5 }, ctx)
+  it('push honours an explicit absolute to/from', () => {
+    const tr = compilePreset({ kind: 'push', from: 0.2, to: 0.5 }, ctx)
     expect(absDepth(tr, 0, 1)).toBeCloseTo(0.2)
     expect(absDepth(tr, 1, 1)).toBeCloseTo(0.5)
   })

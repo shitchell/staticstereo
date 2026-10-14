@@ -2,8 +2,8 @@
  * The preset golden corpus — a **temporary refactor instrument**, not a
  * permanent pin.
  *
- * `PRESETS` is being rewritten: `slide` has become `move`, `emerge` becomes
- * `push`, and `marquee`/`bounce`/`bob`/`slide-in` are deleted (design §4.2b).
+ * `PRESETS` is being rewritten: `slide` has become `move` and `emerge` has
+ * become `push`; `marquee`/`bounce`/`bob`/`slide-in` are deleted (design §4.2b).
  * The first two are specified as *renames*, and nothing else in the suite can
  * tell a rename from a rewrite — `presets.test.ts` asserts behaviour in the
  * shape of "ends up off the plate", "returns to its start height", which a
@@ -55,9 +55,9 @@ const REGEN =
 const FULL: Record<string, Record<string, unknown>> = {
   bob: { amount: 17 },                        // default 8
   bounce: { height: 42 },                     // default 100
-  emerge: { from: 0.2, to: 0.85 },            // defaults 0 and ctx.layerDepth
   marquee: { speed: 137 },                    // default 60
   move: { from: [-13, 7], to: [250, -40] },   // defaults [0,0], [0,0]
+  push: { from: 0.2, to: 0.85 },              // defaults 0 and ctx.layerDepth
   'slide-in': { from: 'bottom' },             // default 'left'
 }
 
