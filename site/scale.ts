@@ -869,9 +869,22 @@ export interface RenderFit {
  * rasteriser as `scene.size` and as `canvas.width`/`height`. Before this bound
  * existed there was none — the floor at a one-pixel scene is a *lower* bound
  * and `clamped` reported only that — so a 1e6 CSS px container asked the
- * default scene for a `sceneScale` of **781078**, i.e. a 500-megapixel-wide
- * stage. This is a resource bound, not a quality judgement: nothing about the
- * picture is wrong at 781078x, there is simply no machine that will draw it.
+ * committed 640x360 default scene for a `sceneScale` of **781.078125**, which
+ * is a stage **499890 scene px** wide: 500000 plate px once the margins are
+ * added, and **1000000 backing-store px** at `noiseScale` 2. Half a megapixel
+ * of width, and a gigapixel of area at that height. This is a resource bound,
+ * not a quality judgement: nothing about the picture is wrong at 781x, there is
+ * simply no machine that will allocate it.
+ *
+ * (Two numbers in that sentence were wrong when this constant landed and are
+ * corrected here. It read "a `sceneScale` of **781078**, i.e. a
+ * 500-megapixel-wide stage" — the same digit string with the decimal point
+ * dropped, three orders of magnitude out. 781249.828125 is the uncapped solve
+ * for a 1e**9** container, not a 1e6 one. And "megapixel-wide" is not a width
+ * in any of the four pixel spaces, which is what invariant 7 is about: a width
+ * has to be stated in scene px, plate px, backing-store px or device px, and
+ * the three that matter here are given above. Both figures re-measured against
+ * `plateLayoutOf`, which reports `{left: 55, right: 55}` for this scene.)
  *
  * ## Why the bound is a scene multiplier and not a pixel count
  *
