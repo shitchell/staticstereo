@@ -219,15 +219,23 @@ describe('presets implemented from prose spec', () => {
  * `ctx.fixture.ts` precisely because they are unequal: a resolution that added
  * the wrong margin, or the same one twice, would pass against a symmetric
  * fixture. Note while reading that `110 = 2 × 55`, so an assertion that would
- * also hold with the margins doubled or halved is not pinning what it claims;
- * every one below is checked against both, and against substituting either
- * cross-axis measurement.
+ * also hold with the margins doubled or halved is not pinning what it claims.
  *
- * **Two of them are not checked against the margins being swapped, because no
- * fixture can check them** — the swap is invisible to those two algebraically
- * rather than by an accident of `{110, 55}`. See `spans the whole plate plus
- * the content`, which records the measurement and why editing the fixture
- * would not help.
+ * **Measured, so that the next reader does not have to take it.** Six of the
+ * nine tests below assert a resolved value; the other three assert a
+ * *rejection* (`rejects a token in the other axis's slot`, `still rejects
+ * garbage`, `is a move parameter only`) and are insensitive to this arithmetic
+ * by design, so they are outside the count. Of the six:
+ *
+ * - doubling both margin terms reddens 6/6, halving them 6/6
+ * - `sceneH` for `sceneW` reddens 6/6; `contentH` for `contentW` reddens 5/6,
+ *   the exception being `takes a token in one slot and a number in the other`,
+ *   which exercises `offRight` and `offTop` and never `offLeft`
+ * - **swapping the two margins reddens only 4/6.** The two survivors —
+ *   `spans the whole plate plus the content` and `resolves before speed` —
+ *   are swap-insensitive algebraically, not by an accident of `{110, 55}`, so
+ *   no fixture can close it. `spans the whole plate` carries the algebra and
+ *   the rest of the measurement; read it before editing the fixture.
  */
 describe('move off-stage endpoints', () => {
   /**
