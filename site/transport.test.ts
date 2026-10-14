@@ -52,13 +52,38 @@ const EDITOR_MODULES = [
  * survived review; "unlikely" and "guarded" are not the same property, and the
  * comment above it was being read as the second.
  *
- * A strict superset of the two patterns it replaces — the same `./`-prefix
- * match, widened to all three quote characters and to `import`/`require` with
- * or without the call parentheses. Nothing it used to reject is now accepted.
+ * **The `./` anchor was the second half of the same mistake, and it was still
+ * open after the first fix.** Widening the quoting left the pattern anchored on
+ * a literal `./`, so a module reached by any other relative spelling walked
+ * through all three bans while the test's own name said "by any spelling".
+ * Measured: `import { reduce } from "../site/controls.js"` — a resolvable
+ * import of the editor's entire reducer — planted in `transport.ts` left this
+ * file and `transportdriver.test.ts` at **35 passed, exit 0**.
+ *
+ * That is the failure the first fix's own commit message warned about one
+ * paragraph above the defect: "'unlikely' and 'guarded' are not the same
+ * property, and the comment above it was being read as the second." Prettier
+ * would not write `../site/controls.js` for a sibling either.
+ *
+ * So the prefix is `.` or `..` and any number of path segments may intervene
+ * before the module name. The trailing `(?![\w-])` is what keeps the widening
+ * from buying false positives: without it `./maintenance.js` matches `main`,
+ * and with path segments allowed the surface for that kind of collision is much
+ * larger than it was. It rejects nothing a real specifier spells —
+ * `./controls.js` and `./controls` both continue past the name on a
+ * non-word character.
+ *
+ * A strict superset of the patterns it replaces, in both widenings: all three
+ * quote characters, `import`/`require` with or without call parentheses, and
+ * any relative path. Nothing it used to reject is now accepted. What it still
+ * does not see is a non-relative specifier — a bare package name or a path
+ * alias — and neither resolves in this repo, which is why the line is drawn
+ * there and not further out.
  */
 function importsAnyOf(source: string, modules: readonly string[]): boolean {
   return new RegExp(
-    `(?:\\bfrom|\\bimport|\\brequire)\\s*\\(?\\s*['"\`]\\.\\/(?:${modules.join('|')})`,
+    `(?:\\bfrom|\\bimport|\\brequire)\\s*\\(?\\s*['"\`]\\.{1,2}\\/(?:[\\w.-]+\\/)*` +
+    `(?:${modules.join('|')})(?![\\w-])`,
   ).test(source)
 }
 
@@ -103,6 +128,11 @@ describe('the frame grid, moved here from controls.ts', () => {
       `const m = await import('./controls.js')`,
       'const m = await import(`./controls.js`)',
       `const m = require("./controls.js")`,
+      // The measured one for the *path* hole, as opposed to the quoting hole
+      // above: a resolvable import of the editor's whole reducer that the
+      // `./`-anchored pattern walked straight through.
+      `import { reduce } from "../site/controls.js"`,
+      `import { reduce } from '../../site/controls.js'`,
     ]) {
       expect(importsAnyOf(spelling, ['controls']), spelling).toBe(true)
     }
@@ -383,6 +413,11 @@ describe('the transport state machine', () => {
     expect(importsAnyOf(SOURCE, EDITOR_MODULES)).toBe(false)
     for (const name of EDITOR_MODULES) {
       expect(importsAnyOf(`import { x } from "./${name}.js"`, EDITOR_MODULES), name).toBe(true)
+      // ...and by a path that is not a bare sibling, which is the hole the
+      // `./`-anchored pattern had. One per module, because a ban that is shut
+      // for `controls` and open for the other six is the same defect narrowed.
+      expect(importsAnyOf(`import { x } from "../site/${name}.js"`, EDITOR_MODULES), name)
+        .toBe(true)
     }
     expect(EDITOR_MODULES).toHaveLength(7)
     // Vacuity floor.

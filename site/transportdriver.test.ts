@@ -29,9 +29,20 @@ const SOURCE = readFileSync(new URL('./transportdriver.ts', import.meta.url), 'u
  * both site validators silently drop channels. Repairing two of three copies
  * of a guard reproduces it exactly.
  *
- * A strict superset of the pattern it replaces: same `./`-prefix match,
- * widened to all three quote characters and to `import`/`require` with or
- * without the call parentheses.
+ * **And the `./` anchor was the other half of the same hole.** Widening the
+ * quoting left the pattern anchored on a literal `./`, so a module reached by
+ * any other relative spelling walked through while the ban's name claimed
+ * every spelling was covered. Measured:
+ * `import { reduce } from "../site/controls.js"` planted in `transport.ts` left
+ * this file and `transport.test.ts` at **35 passed, exit 0**. The prefix is now
+ * `.` or `..` with any number of intervening path segments; the trailing
+ * `(?![\w-])` is what stops the widened pattern buying false positives such as
+ * `./maintenance.js` matching `main`.
+ *
+ * A strict superset of the pattern it replaces, in both widenings: all three
+ * quote characters, `import`/`require` with or without call parentheses, and
+ * any relative path. Full rationale in `transport.test.ts`, which carries the
+ * other copy of this predicate.
  */
 const EDITOR_MODULES = [
   'controls', 'main', 'examples', 'legibility', 'diagnostics', 'depthmap', 'stageguide',
@@ -39,7 +50,8 @@ const EDITOR_MODULES = [
 
 function importsAnyOf(source: string, modules: readonly string[]): boolean {
   return new RegExp(
-    `(?:\\bfrom|\\bimport|\\brequire)\\s*\\(?\\s*['"\`]\\.\\/(?:${modules.join('|')})`,
+    `(?:\\bfrom|\\bimport|\\brequire)\\s*\\(?\\s*['"\`]\\.{1,2}\\/(?:[\\w.-]+\\/)*` +
+    `(?:${modules.join('|')})(?![\\w-])`,
   ).test(source)
 }
 
@@ -295,8 +307,14 @@ describe('runTransport', () => {
     // through, one per editor module so a shortened list cannot hide.
     for (const name of EDITOR_MODULES) {
       expect(importsAnyOf(`import { x } from "./${name}.js"`, EDITOR_MODULES), name).toBe(true)
+      // ...and by a path that is not a bare sibling — the hole the
+      // `./`-anchored pattern had, measured on `../site/controls.js`.
+      expect(importsAnyOf(`import { x } from "../site/${name}.js"`, EDITOR_MODULES), name)
+        .toBe(true)
     }
     expect(importsAnyOf(`const m = await import('./controls.js')`, EDITOR_MODULES)).toBe(true)
+    expect(importsAnyOf(`import { reduce } from "../site/controls.js"`, EDITOR_MODULES))
+      .toBe(true)
     // ...and still a ban on the editor, not on relative imports as such.
     expect(importsAnyOf(`import { timeAt } from './transport.js'`, EDITOR_MODULES)).toBe(false)
     expect(EDITOR_MODULES).toHaveLength(7)
