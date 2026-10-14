@@ -10,10 +10,11 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, relative, resolve } from 'node:path'
+import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
   CLASS_CONTROL,
@@ -458,6 +459,21 @@ describe('the Pages workflow publishes the player, not only the page', () => {
   /** Every `run:` command in the workflow, as one string each. */
   const runs = [...workflow.matchAll(/^[\s-]*run:\s*(.+)$/gm)].map(m => m[1]!.trim())
 
+  /**
+   * The step(s) that put `dist-player/` inside `dist-site/`.
+   *
+   * Hoisted to the block because two tests need it now: the one that asserts
+   * such a step exists, and the one that **executes** it twice to assert it is
+   * re-runnable. Matched on the two path operands and not on `cp -r`: `rsync`,
+   * `mv`, or a `mkdir -p` first are all equally correct, and a guard that
+   * pinned one spelling of a copy would go red for a change that fixed
+   * nothing. Executing it is how the idempotence is checked without pinning
+   * the spelling.
+   */
+  const nesting = runs.filter(
+    r => r.includes('dist-player') && r.includes(`dist-site/${PLAYER_DEPLOY_DIR}`),
+  )
+
   it('parsed the workflow, rather than matching nothing and passing', () => {
     // The vacuity floor. Every assertion below is a search over `runs`, and a
     // regex that stopped matching would make the *ordering* check below pass
@@ -477,17 +493,98 @@ describe('the Pages workflow publishes the player, not only the page', () => {
   })
 
   it('copies the player output underneath that directory', () => {
-    // Matched on the two path operands and not on `cp -r`: `rsync`, `mv`, or a
-    // `mkdir -p` first are all equally correct, and a guard that pins one
-    // spelling of a copy would go red for a change that fixed nothing.
-    const nesting = runs.filter(
-      r => r.includes('dist-player') && r.includes(`dist-site/${PLAYER_DEPLOY_DIR}`),
-    )
+    // See `nesting` above for why it is matched on the path operands.
     expect(
       nesting,
       'no step in pages.yml puts dist-player/ inside dist-site/, so the player is built, ' +
       'tested, and then published at no URL',
     ).not.toEqual([])
+  })
+
+  it('does that copy re-runnably, which is asserted by running it twice', () => {
+    /**
+     * `c46b9bb`'s headline criterion was that this step is **idempotent**, and
+     * it shipped with no test: the nesting assertion above deliberately matches
+     * on the two path operands rather than on `cp -r`, which the old broken
+     * spelling satisfies just as well. So the property the commit existed to
+     * establish was the one thing nothing checked.
+     *
+     * The step's own command is **executed** rather than pattern-matched, which
+     * is the whole point. `dist.test.ts`'s recorded reason for not pinning the
+     * copy — "a guard that pins one spelling of a copy would go red for a
+     * change that fixed nothing" — argues against matching a *spelling*, and
+     * running the command is not matching a spelling: `rsync`, `mv`, a `mkdir
+     * -p` first or any future rewrite is free to replace it and this still
+     * tests the property. It is the only form available that does, because
+     * idempotence is a statement about what happens the second time and no
+     * amount of reading the text can see that.
+     *
+     * The real failure, for the record, since this is what the criterion was
+     * about: `cp -r dist-player dist-site/player` is correct exactly once.
+     * Coreutils `cp -r SRC DIR` copies SRC *into* DIR when DIR already exists,
+     * so a second run leaves the player at `dist-site/player/dist-player/`. CI
+     * always starts from a clean checkout so it never bit a deploy; it bit
+     * somebody reproducing the deploy locally twice.
+     *
+     * Run in a scratch tree with `cwd` set, never in the repo. The fixture is
+     * the deploy's real starting state and not an empty directory, because
+     * `dist-site/` already existing is the precondition the whole defect turns
+     * on.
+     */
+    const run = (command: string, times: number): Record<string, string> => {
+      const scratch = mkdtempSync(join(tmpdir(), 'stst-nest-'))
+      try {
+        mkdirSync(join(scratch, 'dist-player', 'assets'), { recursive: true })
+        writeFileSync(join(scratch, 'dist-player', PLAYER_ENTRY), '<!-- the player -->')
+        writeFileSync(join(scratch, 'dist-player', 'assets', 'player.js'), 'the player bundle')
+        mkdirSync(join(scratch, 'dist-site'), { recursive: true })
+        writeFileSync(join(scratch, 'dist-site', 'index.html'), '<!-- the editor -->')
+        // `bash -c` because that is the shell a GitHub Actions `run:` gets on
+        // `ubuntu-latest`, so the one-liner is executed as CI executes it.
+        for (let i = 0; i < times; i += 1) {
+          execFileSync('bash', ['-c', command], { cwd: scratch, stdio: 'pipe' })
+        }
+        const uploaded = join(scratch, 'dist-site')
+        return Object.fromEntries(
+          filesUnder(uploaded)
+            .map(f => [relative(uploaded, f).split(sep).join('/'), readFileSync(f, 'utf8')]),
+        )
+      } finally {
+        rmSync(scratch, { recursive: true, force: true })
+      }
+    }
+
+    // One step, so there is no ambiguity about which command was run. The
+    // assertion above only requires at least one.
+    expect(nesting, 'more than one step does the nesting').toHaveLength(1)
+    const command = nesting[0]!
+
+    const once = run(command, 1)
+    // It nested at all — the floor, without which "unchanged by a second run"
+    // is satisfied by a command that does nothing.
+    expect(Object.keys(once).sort(), 'the step copied no player into dist-site/').toEqual([
+      'index.html',
+      `${PLAYER_DEPLOY_DIR}/assets/player.js`,
+      `${PLAYER_DEPLOY_DIR}/${PLAYER_ENTRY}`,
+    ])
+    expect(
+      run(command, 2),
+      'running the nesting step twice does not leave the tree it left once, so the deploy is ' +
+      'not reproducible: a second run nests the player inside itself',
+    ).toEqual(once)
+
+    // The positive control, and it is the real historical spelling rather than
+    // a synthetic one: correct on the first run, wrong on the second. Without
+    // it this test would pass for `cp -r dist-player/. dist-site/player/`
+    // with the `mkdir -p` dropped, and for anything else idempotent that
+    // happens also to be idempotently wrong.
+    const broken = `cp -r dist-player dist-site/${PLAYER_DEPLOY_DIR}`
+    expect(run(broken, 1), 'the old spelling was correct once; that is why it survived')
+      .toEqual(once)
+    expect(
+      run(broken, 2),
+      'the old spelling has become idempotent, so this control no longer discriminates',
+    ).not.toEqual(once)
   })
 
   it('does the nesting after the suite, which is not a matter of taste', () => {
