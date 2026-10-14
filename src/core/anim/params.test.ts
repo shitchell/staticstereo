@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest'
 import { PRESET_PARAMS } from './params.js'
-import type { NumericParam } from './params.js'
+import type { NumericParam, ParamDescriptor } from './params.js'
 import { PRESETS, compilePreset } from './presets.js'
-import type { PresetKind } from './presets.js'
-import { CTX } from '../testing/ctx.fixture.js'
+import type { PresetCtx, PresetKind } from './presets.js'
+import { CTX, GOLDEN_CTX } from '../testing/ctx.fixture.js'
 
 /**
  * Look one parameter up by name and insist it carries a physical quantity.
@@ -119,5 +119,123 @@ describe('recorded parameter units', () => {
       expect(d.shape, name).toBe('scalar')
       expect(d.per, name).toBeUndefined()
     }
+  })
+})
+
+/**
+ * The recorded defaults, checked against behaviour rather than believed.
+ *
+ * A table that merely *claims* a default is worth nothing — it is a second
+ * copy of a fact whose first copy is the `PresetFn` body, and two copies of a
+ * number drift. These tests make the table a *checked* copy: the claim is
+ * worth exactly as much as the assertion that it still matches what the
+ * function does, which is the same deal `recorded parameter units` above
+ * strikes for units.
+ *
+ * Everything below runs under **two** contexts whose `layerDepth` differs.
+ * That is not redundancy: it is the only thing that distinguishes a default of
+ * "0.6" from a default of "wherever this layer sits". A literal recorded for
+ * `push.to` passes under one ctx and fails under the other.
+ */
+const CONTEXTS: ReadonlyArray<readonly [string, PresetCtx]> = [
+  ['CTX (layerDepth 1)', CTX],
+  ['GOLDEN_CTX (layerDepth 0.6)', GOLDEN_CTX],
+]
+
+/** What an author would have to write to get the recorded default explicitly. */
+function explicitly(d: ParamDescriptor, ctx: PresetCtx): unknown {
+  switch (d.default.from) {
+    case 'value': return d.default.value
+    case 'ctx': return ctx[d.default.key]
+    case 'none': throw new Error(`${d.name} has no default to spell out`)
+  }
+}
+
+describe('recorded parameter defaults', () => {
+  it('records a default for every parameter of every registered kind', () => {
+    // Without this a later phase cannot render a control with an initial
+    // value, so it reads the defaults back out of the `PresetFn` bodies —
+    // exactly the reverse-engineering §6a exists to stop.
+    for (const [kind, params] of Object.entries(PRESET_PARAMS)) {
+      for (const d of params) {
+        expect(['value', 'ctx', 'none'], `${kind}.${d.name}`).toContain(d.default?.from)
+      }
+    }
+  })
+
+  it('spells the default in the shape the descriptor claims', () => {
+    for (const [kind, params] of Object.entries(PRESET_PARAMS)) {
+      for (const d of params) {
+        const where = `${kind}.${d.name}`
+        if (d.unit === 'enum') {
+          // An enum default outside its own value list is a control whose
+          // initial selection is not one of its options.
+          expect(d.default.from, where).toBe('value')
+          expect(d.values, where).toContain(explicitly(d, CTX))
+          continue
+        }
+        if (d.default.from !== 'value') continue
+        if (d.shape === 'pair') {
+          expect(d.default.value, where).toHaveLength(2)
+          for (const n of d.default.value as readonly number[]) {
+            expect(Number.isFinite(n), where).toBe(true)
+          }
+        } else {
+          expect(Number.isFinite(d.default.value), where).toBe(true)
+        }
+      }
+    }
+  })
+
+  for (const [label, ctx] of CONTEXTS) {
+    it(`compiles the same track bare as with every default spelled out — ${label}`, () => {
+      // The acceptance, and the whole point of the task: a recorded default
+      // must *be* the default. Passing one parameter explicitly at its
+      // recorded value, leaving the rest bare, has to produce the byte-equal
+      // track the fully bare preset produces. Per-parameter rather than all
+      // at once so a failure names the offender.
+      for (const kind of Object.keys(PRESET_PARAMS) as PresetKind[]) {
+        const bare = compilePreset({ kind }, ctx)
+        for (const d of PRESET_PARAMS[kind]) {
+          if (d.default.from === 'none') continue
+          const spelled = compilePreset({ kind, [d.name]: explicitly(d, ctx) }, ctx)
+          expect(spelled, `${kind}.${d.name}`).toEqual(bare)
+        }
+      }
+    })
+  }
+
+  it('marks a parameter whose omission is not equivalent to any value', () => {
+    // `from: 'none'` must not become the lazy answer for a default someone did
+    // not want to look up. It is only honest when omitting the parameter
+    // selects *different behaviour* rather than a value — `move.speed` absent
+    // means "do not derive a duration at all", which no number expresses — so
+    // a probe value has to visibly change the compiled track.
+    const probes: Record<string, unknown> = { scalar: 1, pair: [1, 1] }
+    let seen = 0
+    for (const kind of Object.keys(PRESET_PARAMS) as PresetKind[]) {
+      for (const d of PRESET_PARAMS[kind]) {
+        if (d.unit === 'enum' || d.default.from !== 'none') continue
+        seen++
+        const bare = compilePreset({ kind }, CTX)
+        const probed = compilePreset({ kind, [d.name]: probes[d.shape] }, CTX)
+        expect(probed, `${kind}.${d.name} has a default after all`).not.toEqual(bare)
+      }
+    }
+    // Pins that the marker is in use. If a later edit gives `move.speed` a
+    // default, this drops to 0 and says so rather than vacuously passing.
+    expect(seen, 'no parameter is marked as having no default').toBe(1)
+  })
+
+  it('records push.to as the layer\'s own depth, not a number', () => {
+    // The one default that cannot be a literal, and the reason the marker
+    // exists. `{kind: "push"}` means "come up from the noise to wherever this
+    // layer lives" — a consumer must be able to tell that from "defaults to
+    // 0.5", and an omitted field says neither. `keyof PresetCtx` ties the key
+    // to the context type, so renaming the field is a compile error here
+    // rather than a control that initialises to `undefined`.
+    const d = numeric('push', 'to')
+    expect(d.default.from).toBe('ctx')
+    expect(d.default).toEqual({ from: 'ctx', key: 'layerDepth' })
   })
 })

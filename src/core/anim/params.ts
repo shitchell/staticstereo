@@ -18,7 +18,7 @@
  * `Transform.rotate` is radians, and `Track.start`/`duration` are seconds —
  * three different quantities wearing two words.
  */
-import type { PresetKind } from './presets.js'
+import type { PresetCtx, PresetKind } from './presets.js'
 
 /**
  * The unit vocabulary. Closed on purpose: a consumer switches over it, and an
@@ -72,11 +72,70 @@ export type ParamUnit = typeof PARAM_UNITS[number]
  */
 export type ParamShape = 'scalar' | 'pair'
 
+/**
+ * Where a parameter's default comes from, tagged so a consumer switches over
+ * it exhaustively instead of sniffing the value's JavaScript type.
+ *
+ * **A default is recorded here for the same reason a unit is: the moment to
+ * write it down is while writing the function that consumes it.** Without it
+ * a phase building controls cannot give a control its initial value, so it
+ * reads the numbers back out of the `PresetFn` bodies — the reverse-
+ * engineering this whole table exists to stop.
+ *
+ * Three cases, and the distinction between them is the content:
+ *
+ * - `value` — a literal the preset substitutes when the parameter is absent.
+ * - `ctx` — a value taken from the compile context, named by key. `push.to`
+ *   defaults to `ctx.layerDepth`, and "defaults to wherever this layer sits"
+ *   is a different fact from "defaults to 0.5". Faking a number here would
+ *   make a control initialise to the wrong depth for every layer but one;
+ *   omitting the field would say neither thing. `keyof PresetCtx` ties the
+ *   key to the context type, so renaming the field is a compile error rather
+ *   than a silent `undefined`.
+ * - `none` — omitting the parameter is not equivalent to passing *any* value.
+ *   `move.speed` is the only one: absent, no duration is derived at all; the
+ *   `60` in its `num()` call is an unreachable fallback, not a default.
+ *   Recording `60` would be a lie, and `params.test.ts` catches it by
+ *   compiling the preset both ways.
+ */
+export interface ValueDefault<V> {
+  readonly from: 'value'
+  readonly value: V
+}
+
+/** A default read from the compile context — see `ParamDefault`'s `ctx` case. */
+export interface CtxDefault {
+  readonly from: 'ctx'
+  readonly key: keyof PresetCtx
+}
+
+/** No default: absence selects different behaviour, not a value. */
+export interface NoDefault {
+  readonly from: 'none'
+}
+
+export type NumericDefault =
+  | ValueDefault<number | readonly [number, number]>
+  | CtxDefault
+  | NoDefault
+
+/**
+ * An enum's default is always one of its own `values` — there is no context-
+ * valued or absent case among them, and the narrower type says so. A default
+ * outside the list would be a control whose initial selection is not one of
+ * its options; `params.test.ts` pins membership.
+ */
+export type EnumDefault = ValueDefault<string>
+
+export type ParamDefault = NumericDefault | EnumDefault
+
 /** A parameter carrying a physical quantity. */
 export interface NumericParam {
   readonly name: string
   readonly unit: Exclude<ParamUnit, 'enum'>
   readonly shape: ParamShape
+  /** Matches `shape`: one number for `scalar`, an `[x, y]` pair for `pair`. */
+  readonly default: NumericDefault
   /**
    * Present when the value is a *rate* in `unit` per second.
    *
@@ -97,6 +156,8 @@ export interface EnumParam {
   readonly unit: 'enum'
   /** Every value the preset's own reader accepts, pinned by `params.test.ts`. */
   readonly values: readonly string[]
+  /** One of `values`, pinned by `params.test.ts`. */
+  readonly default: EnumDefault
 }
 
 /**
@@ -107,18 +168,25 @@ export interface EnumParam {
  */
 export type ParamDescriptor = NumericParam | EnumParam
 
-const SCENE_PX_PAIR = (name: string): NumericParam =>
-  ({ name, unit: 'scenePx', shape: 'pair' })
+/**
+ * Wrap a literal default. The constructors below take the raw value and wrap
+ * it here, so the table reads as `SCENE_PX('amount', 8)` rather than carrying
+ * the tag at every entry — the tag is for consumers, not for authors.
+ */
+const value = <V>(v: V): ValueDefault<V> => ({ from: 'value', value: v })
 
-const DEPTH = (name: string): NumericParam =>
-  ({ name, unit: 'depth', shape: 'scalar' })
+const SCENE_PX_PAIR = (name: string, def: readonly [number, number]): NumericParam =>
+  ({ name, unit: 'scenePx', shape: 'pair', default: value(def) })
 
-const SCENE_PX = (name: string): NumericParam =>
-  ({ name, unit: 'scenePx', shape: 'scalar' })
+const DEPTH = (name: string, def: NumericDefault): NumericParam =>
+  ({ name, unit: 'depth', shape: 'scalar', default: def })
+
+const SCENE_PX = (name: string, def: number): NumericParam =>
+  ({ name, unit: 'scenePx', shape: 'scalar', default: value(def) })
 
 /** A rate in scene pixels per second. See `NumericParam.per`. */
-const SCENE_PX_PER_SECOND = (name: string): NumericParam =>
-  ({ name, unit: 'scenePx', shape: 'scalar', per: 'second' })
+const SCENE_PX_PER_SECOND = (name: string, def: NumericDefault): NumericParam =>
+  ({ name, unit: 'scenePx', shape: 'scalar', per: 'second', default: def })
 
 /**
  * **Degrees, which is the parameter's unit and not the channel's.**
@@ -126,16 +194,16 @@ const SCENE_PX_PER_SECOND = (name: string): NumericParam =>
  * descriptor describes what an author writes, so it says `degrees` — getting
  * this backwards would have P3 offer a ±3.14 spinner for a half turn.
  */
-const DEGREES = (name: string): NumericParam =>
-  ({ name, unit: 'degrees', shape: 'scalar' })
+const DEGREES = (name: string, def: number): NumericParam =>
+  ({ name, unit: 'degrees', shape: 'scalar', default: value(def) })
 
 /**
  * A dimensionless factor. **Does not scale under `fit=render`** — that is the
  * whole point of giving it a unit of its own rather than leaving it untagged:
  * doubling a container's width must not double a layer's `scale`.
  */
-const MULTIPLIER = (name: string): NumericParam =>
-  ({ name, unit: 'multiplier', shape: 'scalar' })
+const MULTIPLIER = (name: string, def: number): NumericParam =>
+  ({ name, unit: 'multiplier', shape: 'scalar', default: value(def) })
 
 /**
  * The descriptors, keyed by the registry's own literal union.
@@ -148,42 +216,70 @@ const MULTIPLIER = (name: string): NumericParam =>
  * design table, because the bodies are what runs — `bounce` accepts both
  * `height` and the design doc's `h`, and a consumer that scaled only the first
  * would leave half the scenes in the corpus wrong.
+ *
+ * So are the defaults. Every one of them is checked against behaviour by
+ * `params.test.ts`, which compiles each preset bare and again with the
+ * recorded default written out, and demands the two tracks be identical — a
+ * claimed default that no longer matches the function is a failure, not a
+ * stale comment nobody reads.
  */
 export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
   move: [
-    SCENE_PX_PAIR('from'),
-    SCENE_PX_PAIR('to'),
-    SCENE_PX_PER_SECOND('speed'),
+    SCENE_PX_PAIR('from', [0, 0]),
+    SCENE_PX_PAIR('to', [0, 0]),
+    // **No default, and that is not a gap.** Omitting `speed` does not
+    // substitute a number — it leaves `duration` unset, so the move runs for
+    // the remainder of the scene. The `60` in `move`'s `num(p, 'speed', 60)`
+    // is unreachable: the call sits inside `if (p['speed'] !== undefined)`.
+    SCENE_PX_PER_SECOND('speed', { from: 'none' }),
   ],
   rotate: [
-    DEGREES('from'),
-    DEGREES('to'),
+    DEGREES('from', 0),
+    DEGREES('to', 0),
     // Three values, because all three rotation channels exist and `z` is a
     // real, distinct turn. `flip`'s axis enum is two — see there for why.
-    { name: 'axis', unit: 'enum', values: ['x', 'y', 'z'] },
+    // `z` is the default: it is what "rotate" means unqualified.
+    { name: 'axis', unit: 'enum', values: ['x', 'y', 'z'], default: value('z') },
   ],
   // Absolute factors, not deltas — `composeAnim` multiplies this channel and
-  // its rest value is 1, so the factor is the delta. See `presets.ts`.
-  scale: [MULTIPLIER('from'), MULTIPLIER('to')],
+  // its rest value is 1, so the factor is the delta. See `presets.ts`. Both
+  // default to 1 for the same reason: 1 is rest, where 0 is rest everywhere
+  // else, and a bare `scale` must therefore be a no-op rather than a collapse.
+  scale: [MULTIPLIER('from', 1), MULTIPLIER('to', 1)],
   flip: [
     // **Two** values, where `rotate`'s enum has three. There is no meaningful
     // flip about z: a half turn in the plane is an in-plane spin, never a
     // mirror, and `rotate` already expresses it. The arity difference between
     // these two enums is a design decision, not an oversight.
-    { name: 'axis', unit: 'enum', values: ['x', 'y'] },
+    { name: 'axis', unit: 'enum', values: ['x', 'y'], default: value('y') },
   ],
   'slide-in': [
     // The edge entered from, not a distance: the offset is computed from the
     // measured content and the plate margins, so there is nothing here for a
     // resize to scale.
-    { name: 'from', unit: 'enum', values: ['left', 'right', 'top', 'bottom'] },
+    {
+      name: 'from',
+      unit: 'enum',
+      values: ['left', 'right', 'top', 'bottom'],
+      default: value('left'),
+    },
   ],
-  marquee: [SCENE_PX_PER_SECOND('speed')],
+  // Unlike `move.speed` this one *is* a default: `marquee` always derives its
+  // duration from a rate, so the rate has a value when the author omits it.
+  marquee: [SCENE_PX_PER_SECOND('speed', value(60))],
   // Absolute depths in 0..1, not offsets — `push` subtracts `ctx.layerDepth`
   // itself. Depth is a normalised quantity and does not scale with the frame.
-  push: [DEPTH('from'), DEPTH('to')],
+  push: [
+    DEPTH('from', value(0)),
+    // The one default that is not a literal. `{kind: 'push'}` rises to
+    // *wherever this layer sits*, which is a different fact from any number
+    // and is why `CtxDefault` exists.
+    DEPTH('to', { from: 'ctx', key: 'layerDepth' }),
+  ],
   // `h` is a real second spelling of `height` (the design doc and the
   // implementation plan disagreed), so it is described rather than hidden.
-  bounce: [SCENE_PX('height'), SCENE_PX('h')],
-  bob: [SCENE_PX('amount')],
+  // Both carry the same default because the reader falls back to 100 either
+  // way; they are one parameter with two names, not two parameters.
+  bounce: [SCENE_PX('height', 100), SCENE_PX('h', 100)],
+  bob: [SCENE_PX('amount', 8)],
 }
