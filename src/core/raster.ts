@@ -18,6 +18,7 @@
  * The drawing surface is injected (`CanvasLike`), so this file is isomorphic:
  * it imports nothing from `src/node/` or `src/web/` and has no dependencies.
  */
+import { degToRad } from './angle.js'
 import { composeAnim, compilePreset } from './anim/index.js'
 import type { PresetCtx } from './anim/index.js'
 import { sceneMargins } from './plate.js'
@@ -78,8 +79,8 @@ export function createRasterCache(): RasterCache {
 /**
  * Scene duration in seconds, never 0.
  *
- * Design §4.1: a zero-width window pins every track at one endpoint — for
- * `marquee` that is fully off-screen, so a still of a scrolling scene renders
+ * Design §4.1: a zero-width window pins every track at one endpoint — for a
+ * scroll that is fully off-screen, so a still of a scrolling scene renders
  * completely empty. An explicit `0` is treated the same as an absent value
  * rather than honoured, because the only thing honouring it can produce is
  * that empty frame.
@@ -128,7 +129,7 @@ export async function rasterDepth(
 
   for (const layer of scene.layers) {
     const prep = await prepare(layer, scene, seconds, sceneDuration, canvas, scratch, cache)
-    // Hoisted because presets need it too, not only the compositor: `emerge`
+    // Hoisted because presets need it too, not only the compositor: `push`
     // expresses an absolute depth range as an offset and cannot do that without
     // knowing the base it is offsetting from.
     const layerDepth = layer.depth ?? 1
@@ -241,8 +242,23 @@ async function prepare(
       const font = [layer.weight, `${size}px`, layer.font ?? DEFAULT_FONT_FAMILY]
         .filter(Boolean)
         .join(' ')
-      // Measure before drawing: `marquee` travels to `-contentW`, so an unmeasured
-      // (or zero) width leaves the tail of an over-wide string parked on screen.
+      // Measured and handed to presets as `PresetCtx.contentW`. **No preset
+      // reads it today** — `marquee` and `slide-in` were the only two and
+      // §4.2b deleted them, leaving `push`'s `layerDepth` as the only ctx
+      // field any registered verb reads — so this is currently measured for a
+      // consumer that does not exist.
+      //
+      // **It is not, however, unwitnessed: do not delete it as dead code.**
+      // `raster.test.ts`'s `rasterDepth preset context > text measurement`
+      // registers a probe preset and asserts this value three ways — the
+      // string and font it is measured under, that it arrives verbatim as
+      // `contentW`, and that a pose built from it lands the first painted
+      // column exactly there. Measured: `const contentW = 0` fails all three;
+      // keeping the call and discarding its answer fails two.
+      //
+      // It stays because the UI templates P6 rebuilds those kinds as are
+      // exactly that consumer, and because an unmeasured (or zero) width is
+      // what leaves the tail of an over-wide string parked on screen.
       scratch.font = font
       const contentW = scratch.measureText(layer.text).width
       return {
@@ -397,8 +413,10 @@ function arcSpan(
       `(${start}); the wedge is swept clockwise from 3 o'clock`,
     )
   }
-  const RAD = Math.PI / 180
-  return [start * RAD, end * RAD]
+  // `degToRad`, not a local `Math.PI / 180`: this was the private converter
+  // `angle.ts` was created to replace, and leaving it here while that module
+  // claimed to have ended the duplication made the claim false.
+  return [degToRad(start), degToRad(end)]
 }
 
 /**

@@ -13,9 +13,9 @@ import {
   sceneError,
   timeOfFrame,
 } from './controls.js'
-import { PRESETS, compilePreset, stillTime } from '../src/core/index.js'
-import type { PresetCtx } from '../src/core/index.js'
-import type { Preset, Scene } from '../src/core/types.js'
+import { CHANNELS, PRESETS, compilePreset, stillTime } from '../src/core/index.js'
+import { CTX } from '../src/core/testing/ctx.fixture.js'
+import type { Preset, Scene, Track } from '../src/core/types.js'
 
 const ANIM: Scene = { size: [64, 32], fps: 12, duration: 2, layers: [{ type: 'text', text: 'A' }] }
 const STILL: Scene = { size: [64, 32], layers: [{ type: 'text', text: 'A' }] }
@@ -128,7 +128,7 @@ describe('reduce', () => {
     const snapshot = JSON.stringify(before)
     reduce(before, { type: 'stereo', patch: { seed: 9 } })
     reduce(before, { type: 'time', seconds: 1 })
-    reduce(before, { type: 'layerAnim', index: 0, anim: { kind: 'bob' } })
+    reduce(before, { type: 'layerAnim', index: 0, anim: { kind: 'push' } })
     expect(JSON.stringify(before)).toBe(snapshot)
   })
 
@@ -142,8 +142,8 @@ describe('reduce', () => {
   })
 
   it('sets and clears a layer animator', () => {
-    let s = reduce(initialState(ANIM), { type: 'layerAnim', index: 0, anim: { kind: 'bob', amount: 20 } })
-    expect(s.scene.layers[0]?.anim).toEqual({ kind: 'bob', amount: 20 })
+    let s = reduce(initialState(ANIM), { type: 'layerAnim', index: 0, anim: { kind: 'push', to: 0.2 } })
+    expect(s.scene.layers[0]?.anim).toEqual({ kind: 'push', to: 0.2 })
     s = reduce(s, { type: 'layerAnim', index: 0, anim: undefined })
     expect(s.scene.layers[0] && 'anim' in s.scene.layers[0]).toBe(false)
   })
@@ -182,11 +182,11 @@ describe('reduce', () => {
 
     it('patches only the named fields, leaving the rest of the layer alone', () => {
       const s = reduce(
-        initialState({ ...mixed(), layers: [{ type: 'text', text: 'A', size: 90, weight: 'bold', anim: { kind: 'bob' } }] }),
+        initialState({ ...mixed(), layers: [{ type: 'text', text: 'A', size: 90, weight: 'bold', anim: { kind: 'push' } }] }),
         { type: 'layerText', index: 0, patch: { size: 48 } },
       )
       expect(s.scene.layers[0]).toEqual({
-        type: 'text', text: 'A', size: 48, weight: 'bold', anim: { kind: 'bob' },
+        type: 'text', text: 'A', size: 48, weight: 'bold', anim: { kind: 'push' },
       })
     })
 
@@ -292,36 +292,63 @@ describe('reduce', () => {
 
 describe('presetNote', () => {
   /**
-   * The claim the note makes about `slide` is checked against core rather than
+   * The claim the note makes about `move` is checked against core rather than
    * asserted in prose, and the check is written so that it fails **either** way
-   * round: if `slide` ever gains a non-zero default the note becomes a lie, and
+   * round: if `move` ever gains a non-zero default the note becomes a lie, and
    * if another preset ever loses its default the note stops warning about it.
+   *
+   * Over `CHANNELS`, never a list written out here. A fourth hand-copy of the
+   * channel list lived at this spot and was missing `rotateX`/`rotateY`, so a
+   * preset that animated only an axis rotation was reported as motionless —
+   * the test would have endorsed exactly the bug it exists to catch.
    */
-  const CTX: PresetCtx = {
-    sceneW: 640, sceneH: 360, contentW: 200, contentH: 100, layerDepth: 1,
-    marginLeft: 110, marginRight: 55,
-  }
-  const movesNothing = (kind: string): boolean => {
-    const track = compilePreset({ kind } as Preset, CTX)
-    const axes = ['x', 'y', 'depth', 'scale', 'rotate'] as const
-    return axes.every(axis => {
+  const trackMovesNothing = (track: Track): boolean =>
+    CHANNELS.every(axis => {
       const values = track.keys.map(k => k[axis]).filter(v => v !== undefined)
       return values.every(v => v === values[0])
     })
-  }
 
-  it('slide is the only bare preset that animates nothing', () => {
+  const movesNothing = (kind: string): boolean =>
+    trackMovesNothing(compilePreset({ kind } as Preset, CTX))
+
+  it('counts the axis rotations as motion, like every other channel', () => {
+    // The guard on the helper itself. `rotateX`/`rotateY` are the two channels
+    // every hand-written copy of this list has dropped, here and in both scene
+    // validators, so they are the ones worth pinning.
+    expect(trackMovesNothing({
+      keys: [{ t: 0, rotateX: 0 }, { t: 1, rotateX: 1 }],
+      ease: 'linear',
+      repeat: 'once',
+    })).toBe(false)
+  })
+
+  it('names every bare preset whose channels do not vary', () => {
+    // Two different reasons land a kind in this list, and only one of them is
+    // a dead animation:
+    //
+    //   - the **delta verbs** default to rest, so bare they are genuinely
+    //     inert — `move` ([0,0]→[0,0]), `rotate` (0°→0°) and `scale` (1→1,
+    //     the multiplicative rest). Choosing one from the dropdown and seeing
+    //     nothing happen is the case `presetNote` exists to explain.
+    //   - **`flip` is static sugar**: it holds a half turn for its whole span.
+    //     No channel varies, so it is in this list, but it is very much not
+    //     inert — the layer is mirrored. "Does not move" and "does nothing"
+    //     are different claims and this helper only measures the first.
+    //
+    // An exact list rather than a membership check, so that a verb becoming
+    // inert by accident — a default changed from 100px to 0 — fails here
+    // instead of shipping a dropdown entry that silently does nothing.
     const dead = Object.keys(PRESETS).filter(movesNothing)
-    expect(dead).toEqual(['slide'])
+    expect(dead).toEqual(['move', 'rotate', 'scale', 'flip'])
   })
 
   it('says so, naming from and to, so a dead animation is not read as a bug', () => {
-    const note = presetNote('slide', 1)
+    const note = presetNote('move', 1)
     expect(note).toContain('from')
     expect(note).toContain('to')
     expect(note).toMatch(/nothing/)
-    // The generic note must not be what a `slide` user sees.
-    expect(note).not.toBe(presetNote('bob', 1))
+    // The generic note must not be what a `move` user sees.
+    expect(note).not.toBe(presetNote('push', 1))
   })
 
   it('explains a hand-written track rather than offering to discard it silently', () => {
@@ -330,12 +357,12 @@ describe('presetNote', () => {
   })
 
   it('reports an empty scene ahead of any preset advice', () => {
-    expect(presetNote('slide', 0)).toBe('This scene has no layers.')
+    expect(presetNote('move', 0)).toBe('This scene has no layers.')
     expect(presetNote(CUSTOM_TRACK, 0)).toBe('This scene has no layers.')
   })
 
   it('gives every other preset the generic note', () => {
-    for (const kind of Object.keys(PRESETS).filter(k => k !== 'slide')) {
+    for (const kind of Object.keys(PRESETS).filter(k => k !== 'move')) {
       expect(presetNote(kind, 1), kind).toMatch(/compile to keyframe tracks/)
     }
   })

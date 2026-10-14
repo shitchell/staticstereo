@@ -123,7 +123,7 @@ export function readPeriod(row: ArrayLike<number>, lo: number, hi: number): Peri
  * real scene crosses both the object and the background, and `dominantPeriod`
  * returns the single period that best explains the whole row — which is the
  * background's, since the background is almost always the larger share. Driving
- * the built page in a browser made this concrete: on the `emerge` example at
+ * the built page in a browser made this concrete: on the `push` example at
  * full rise, every row in the frame reported 220px (`sepFar × 2`) and no row
  * anywhere could report 184px (`sepNear × 2`). The object was visible only as
  * the match dropping from 100% to ~87%.

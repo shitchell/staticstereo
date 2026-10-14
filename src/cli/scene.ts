@@ -24,8 +24,17 @@
 import { readFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 import { parse as parseYaml } from 'yaml'
-import { EASINGS, PRESETS, compilePreset, resolveStereo, STEREO_KEYS } from '../core/index.js'
-import type { Layer, Scene } from '../core/index.js'
+import {
+  CHANNELS,
+  CUBIC_BEZIER_SYNTAX,
+  EASINGS,
+  PRESETS,
+  compilePreset,
+  isEasing,
+  resolveStereo,
+  STEREO_KEYS,
+} from '../core/index.js'
+import type { AssertNever, Channel, Layer, Scene } from '../core/index.js'
 import { UsageError } from './args.js'
 import type { CliArgs } from './args.js'
 
@@ -93,7 +102,7 @@ export async function loadScene(path: string): Promise<Scene> {
 
 const SCENE_KEYS = ['size', 'fps', 'duration', 'stereo', 'freezeNoise', 'layers'] as const
 const LAYER_TYPES = ['text', 'image', 'gif', 'shape', 'draw'] as const
-const BASE_LAYER_KEYS = ['type', 'depth', 'at', 'anim'] as const
+const BASE_LAYER_KEYS = ['type', 'id', 'name', 'depth', 'at', 'anim'] as const
 const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {
   text: ['text', 'size', 'font', 'weight'],
   image: ['src', 'mode', 'mask'],
@@ -102,7 +111,22 @@ const TYPE_LAYER_KEYS: Record<string, readonly string[]> = {
   draw: ['fn'],
 }
 const TRACK_KEYS = ['keys', 'ease', 'repeat', 'start', 'duration'] as const
-const KEY_CHANNELS = ['t', 'x', 'y', 'depth', 'scale', 'rotate'] as const
+/**
+ * What may appear in a keyframe: the animatable channels plus `t`, which is
+ * the keyframe's own time and so is not a `Transform` channel.
+ *
+ * Derived rather than written out. The hand-written list this replaces had
+ * fallen a release behind `CHANNELS` and omitted `rotateX`/`rotateY`, so the
+ * CLI rejected by name two channels `evalTrack` interpolates — a scene the
+ * renderer handles perfectly well refused to load. Exported for the test that
+ * pins the derivation.
+ */
+export const KEY_CHANNELS = ['t', ...CHANNELS] as const
+type KeyChannel = typeof KEY_CHANNELS[number]
+// The guard, not the spread, is what keeps this honest: it fails the build if
+// anyone writes the list out again, in either direction.
+type _NoKeyChannelMissing = AssertNever<Exclude<Channel, KeyChannel>>
+type _NoKeyChannelExtra = AssertNever<Exclude<KeyChannel, Channel | 't'>>
 const REPEATS = ['once', 'loop', 'pingpong'] as const
 
 /**
@@ -293,6 +317,16 @@ function validateLayer(
     }
   }
 
+  /* ---- identity (design §4.1)
+   *
+   * Checked, but never supplied: this validator hands the raw object back cast
+   * to `Layer`, so an `id: 5` left unchecked would be a `string` the type
+   * system believes in. Nothing mints one here — a scene loaded and written
+   * back unchanged must stay byte-identical, so id assignment belongs to the
+   * editor's mutation path, where there is an actual edit to attach it to. */
+  if (l['id'] !== undefined) str('id', 'a stable layer id')
+  if (l['name'] !== undefined) str('name', 'a display name for the layer')
+
   switch (kind) {
     case 'text':
       str('text', 'quote it if it looks like a number')
@@ -386,7 +420,7 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
 
   if (a['keys'] === undefined) {
     fail(
-      `${path} must be a preset ({kind: marquee, ...}) or a keyframe track ` +
+      `${path} must be a preset ({kind: move, ...}) or a keyframe track ` +
       `({keys: [...]}), but it has neither "kind" nor "keys"`,
     )
   }
@@ -413,10 +447,16 @@ function validateAnimItem(raw: unknown, path: string, fail: (msg: string) => nev
     }
   })
 
-  if (a['ease'] !== undefined && !(typeof a['ease'] === 'string' && a['ease'] in EASINGS)) {
+  // `isEasing`, not `ease in EASINGS`: the record holds the five named curves
+  // and `Easing` is now wider than that. The message has to name the other
+  // form as well, because a list of five curve names no longer describes what
+  // is accepted — left alone it would tell an author that a perfectly valid
+  // `cubic-bezier(...)` is invalid, and offer five alternatives that are not
+  // what they asked for.
+  if (a['ease'] !== undefined && !isEasing(a['ease'])) {
     fail(
       `${path}.ease must be one of: ${Object.keys(EASINGS).sort().join(', ')} — ` +
-      `got ${describe(a['ease'])}`,
+      `or ${CUBIC_BEZIER_SYNTAX} — got ${describe(a['ease'])}`,
     )
   }
   if (a['repeat'] !== undefined &&
@@ -493,12 +533,14 @@ export type MeasureText = (text: string, font: string) => number
  * Build the one-layer scene behind `stst still --text HELLO`.
  *
  * **It supplies its own `at`, centred.** Design §3 defaults `at` to `[0, 0]`
- * for text layers and says so deliberately: `marquee` and `slide-in` compute
- * off-frame positions as `-contentW` / `+sceneW`, which are only off-frame if
- * the layer's own origin is the top-left corner. That default is right for
- * scene files and wrong for a one-shot still, which would render in the corner.
- * So the centring lives *here*, in the CLI, where there are no presets to break
- * — and `--at` still overrides it.
+ * for text layers and says so deliberately: an off-frame pose is written as
+ * `-contentW` / `+sceneW`, which is only off-frame if the layer's own origin
+ * is the top-left corner. (The two presets that computed those, `marquee` and
+ * `slide-in`, are gone under §4.2b, but the convention they relied on is
+ * still the one a hand-written scroll uses — see
+ * `examples/scrolling-text.yaml`.) That default is right for scene files and
+ * wrong for a one-shot still, which would render in the corner. So the
+ * centring lives *here*, in the CLI — and `--at` still overrides it.
  *
  * The type is also shrunk to fit when it would overflow the canvas, but only
  * when the size was *not* given explicitly: `--font-size 200` is an

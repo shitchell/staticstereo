@@ -272,7 +272,7 @@ describe('soloLayerScene', () => {
     stereo: { sepFar: 120 },
     layers: [
       { type: 'shape', shape: 'rect', w: 10, h: 10 },
-      { type: 'text', text: 'HI', size: 90, anim: { kind: 'bob' } },
+      { type: 'text', text: 'HI', size: 90, anim: { kind: 'push' } },
     ],
   }
 
@@ -283,10 +283,10 @@ describe('soloLayerScene', () => {
   })
 
   it('keeps the frame grid, so the layer is sampled at the same phase', () => {
-    // Dropping fps/duration would re-phase every track: a `bob` sampled at
-    // t=1.0 of a 2s scene is at a different scale than the same t of a 1s
-    // default, and the measured stroke width would be of a frame nobody is
-    // looking at.
+    // Dropping fps/duration would re-phase every track: the `push` above,
+    // sampled at t=1.0 of a 2s scene, is half risen, where the same t of a 1s
+    // default has it fully arrived — and the measured stroke width would be
+    // of a frame nobody is looking at.
     const solo = soloLayerScene(SCENE, 1)
     expect(solo.size).toEqual(SCENE.size)
     expect(solo.fps).toBe(12)

@@ -1,18 +1,94 @@
-import { EASINGS } from './easing.js'
+import { namedEasing, resolveEasing } from './easing.js'
 import { IDENTITY } from '../types.js'
-import type { Anim, Easing, Key, Preset, Track, Transform } from '../types.js'
+import type {
+  Anim, AssertNever, Easing, Key, Preset, Track, Transform,
+} from '../types.js'
 import type { PresetCtx } from './presets.js'
 
-const CHANNELS = ['x', 'y', 'depth', 'scale', 'rotate', 'rotateX', 'rotateY'] as const
-type Channel = typeof CHANNELS[number]
+/**
+ * The animatable channels, canonical. Exported through `core/index.ts` because
+ * the CLI and site scene validators each need the same list to decide which
+ * keyframe fields are legal, and each had grown its own unguarded copy — both
+ * of which missed `rotateX`/`rotateY` and so rejected them.
+ */
+export const CHANNELS = ['x', 'y', 'depth', 'scale', 'rotate', 'rotateX', 'rotateY'] as const
+export type Channel = typeof CHANNELS[number]
 
-/** Errors unless its argument is `never`. */
-type AssertNever<T extends never> = T
 // A channel added to `Transform` without being listed above would silently
 // stop interpolating — `evalTrack` only walks CHANNELS — and nothing else in
 // the codebase would notice. Same guard as `STEREO_KEYS` in `types.ts`.
 type _NoChannelMissing = AssertNever<Exclude<keyof Transform, Channel>>
 type _NoChannelExtra = AssertNever<Exclude<Channel, keyof Transform>>
+
+/**
+ * Solvers built from `cubic-bezier(...)` strings, keyed by the string.
+ *
+ * **This cache is about the render loop, not about microbenchmarks.**
+ * `channelAt` runs once per animated channel per layer per frame, and
+ * `resolveEasing` on a bezier does a regex match, a split, four `Number()`
+ * conversions, and then allocates a closure over six precomputed
+ * coefficients. None of that can vary between frames: the easing is a
+ * property of the track, and the track does not change while the scene
+ * renders. Resolving per call would mean building and discarding one solver
+ * per channel per layer per frame.
+ *
+ * Keyed by the string rather than by the `Track` so that two layers sharing
+ * an easing share a solver, and so a `WeakMap` is not needed to avoid
+ * retaining tracks.
+ *
+ * Unbounded, deliberately — **and that rests on an assumption about the
+ * caller that is true today and will stop being true.** The keys are easing
+ * strings, so while they are written by a scene author the population is the
+ * number of distinct curves in the scene *file*: a handful, and an eviction
+ * policy would be machinery guarding against a scene nobody writes.
+ *
+ * The editor breaks that assumption rather than stretching it. Design §4.4
+ * puts an inline bezier preview beside four draggable numbers, and §7.6
+ * reserves the space for a value-graph editor; dragging one of those numbers
+ * emits a *new* easing string on every frame of the drag, each one a distinct
+ * key and each one a permanent `Map` entry retaining a closure over six
+ * coefficients. The population stops being "curves in the file" and becomes
+ * "curves ever scrubbed through", which is unbounded in a session that never
+ * reloads.
+ *
+ * So this is a decision about a scene renderer, not a decision about the
+ * cache. **Whoever builds that control owns this line**: the options are an
+ * LRU, a cache the editor clears when the drag ends, or resolving the
+ * in-flight curve outside the cache and only interning it on commit. Leaving
+ * it as-is is also allowed — but as a measured choice, not by inheriting a
+ * rationale that was about scene files.
+ */
+const BEZIER_SOLVERS = new Map<string, (t: number) => number>()
+
+/**
+ * The function an easing denotes, memoised for the bezier form.
+ *
+ * **The named path must not get slower**, and that is why the record lookup
+ * comes first instead of everything going through the map. The five named
+ * curves are what every scene in the repo uses today; routing them through a
+ * `Map.get` would add a hash lookup per channel per layer per frame to every
+ * existing scene in exchange for nothing — they are already plain functions
+ * with nothing to build. So: property lookup for the named curves, exactly as
+ * before, and the cache only on the path that would otherwise allocate.
+ *
+ * Exported for the test that pins both halves of that: same instance back for
+ * a repeated bezier, and `EASINGS`' own function for a named one.
+ */
+export function easingFor(ease: Easing): (t: number) => number {
+  // `namedEasing`, not `EASINGS[ease]`: a bare index resolves inherited
+  // `Object.prototype` keys, so an `ease` of `'toString'` returned a function
+  // that is not an easing and `channelAt` produced `NaN` in silence. One
+  // owner of the "is this a shipped name" question, shared with `isEasing`
+  // and `resolveEasing` — see `namedEasing` in `easing.ts`.
+  const named = namedEasing(ease)
+  if (named !== undefined) return named
+  let solver = BEZIER_SOLVERS.get(ease)
+  if (solver === undefined) {
+    solver = resolveEasing(ease)
+    BEZIER_SOLVERS.set(ease, solver)
+  }
+  return solver
+}
 
 /** Map wall-clock seconds to this track's normalised local time, honouring repeat. */
 function localTime(tr: Track, seconds: number, sceneDuration: number): number {
@@ -49,7 +125,12 @@ function channelAt(keys: Key[], ch: Channel, u: number, ease: Easing): number | 
   const a = pts[i]!, b = pts[i + 1]!
   const span = b.t - a.t
   const local = span <= 0 ? 0 : (u - a.t) / span
-  const e = EASINGS[ease](local)
+  // `easingFor`, not `EASINGS[ease]`. This is the **fourth** easing
+  // touchpoint and the only one that is not a validator: it is the actual
+  // runtime resolution path, it never checked anything, and indexing a record
+  // keyed by the five named curves with a widened `Easing` yields `undefined`
+  // for a bezier string — a TypeError one line later, in the render loop.
+  const e = easingFor(ease)(local)
   return a[ch]! + (b[ch]! - a[ch]!) * e
 }
 
@@ -94,12 +175,15 @@ const noCompiler: AnimCompiler = preset => {
 /**
  * Compose one or many animators into a single transform.
  * Translations/rotations sum; scales multiply; depth sums (then the caller clamps).
- * This is what makes [marquee, bob] work without a marquee-with-bob preset.
+ * This is what lets `[{kind: 'move'}, <a three-key bounce track>]` work
+ * without a move-with-bounce preset — and it is why §4.2b could narrow the
+ * registry to five verbs: a composition does not need a name.
  *
- * `ctx` carries the scene/content measurements presets need (marquee's travel
- * distance depends on the measured content width). It is optional only because
- * an anim built entirely from raw tracks does not need it; a preset without it
- * throws rather than guessing a size.
+ * `ctx` carries the scene/content measurements a preset may need. Only
+ * `layerDepth` is read today (by `push`); the measurements and margins are
+ * there for the UI templates P6 restores. It is optional only because an anim
+ * built entirely from raw tracks does not need it; a preset without it throws
+ * rather than guessing a size.
  */
 export function composeAnim(
   anim: Anim | undefined, seconds: number, sceneDuration: number,

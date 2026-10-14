@@ -422,10 +422,23 @@ multi-task**; the PM splits them per §5.2 and reports the split per §5.5.
     Their fixture entries are removed in a commit that says so. `move` gains an optional
     `speed` that derives `duration`, which is `marquee`'s only distinct capability.
 11. **Rewrite `examples/*.yaml` to verbs — its own task, its own review.** All three use
-    the old names, and `metamorphic.real.test.ts` asserts *measured* properties of them
-    (row locality, dead-zone row loss, per-seed silent-row counts). A moved measurement
-    looks exactly like a regression. Any number that changes must be re-derived and
-    explained in the task's report, never silently updated.
+    the old names.
+
+    **Rewrite the tests freely.** A big refactor comes with test changes, and a test that
+    breaks because the scene now says `move` where it said `marquee` is ordinary work.
+
+    **The narrow exception is a moved *measurement*.** `metamorphic.real.test.ts` asserts
+    properties of the *encoder* using these examples as fixtures — row locality, dead-zone
+    row loss, per-seed silent-row counts. Those should not move at all unless the
+    rewritten example is not equivalent to the old one: different travel speed, different
+    resting position, different duration. So: **a changed measured number must be
+    accompanied by the scene difference that caused it.** Accounted for, proceed;
+    unaccounted for, escalate — that is the signal a verb does not do what we think.
+
+    One sentence per changed number, and
+    [`../2026-10-09-testing-retrospective.md`](../2026-10-09-testing-retrospective.md) is
+    why it is worth that sentence: five defects this suite could not see were caught by
+    measurement, and a silently-updated figure is how that evidence gets destroyed.
 
 **Not in P0:** bundles — design §4.2a makes them UI macros, owned by P6.
 

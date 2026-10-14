@@ -1,6 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { evalTrack, composeAnim } from './track.js'
-import { IDENTITY } from '../types.js'
+import { easingFor, evalTrack, composeAnim } from './track.js'
+import { cubicBezier } from './bezier.js'
+import { EASINGS } from './easing.js'
+import { CHANNELS } from '../index.js'
+import { IDENTITY, type Track } from '../types.js'
 
 describe('evalTrack', () => {
   const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }] }
@@ -62,6 +65,73 @@ describe('evalTrack', () => {
   })
 })
 
+/**
+ * The fourth easing touchpoint.
+ *
+ * The other three are validators; this one is the runtime resolution path and
+ * it never validated anything — `EASINGS[ease]` straight into a call. A
+ * widened `Easing` makes that `undefined` for every bezier string, one line
+ * before it is invoked.
+ */
+describe('evalTrack easing resolution', () => {
+  const BEZIER = 'cubic-bezier(.17,.67,.83,.67)' as const
+
+  it('evaluates a cubic-bezier ease to that curve\'s values', () => {
+    // Asserted against the solver's own output rather than against decimals,
+    // so this pins the *wiring* — that the track's string reaches
+    // `cubicBezier` with its four numbers in order — and leaves the curve's
+    // correctness to `bezier.test.ts`. A test carrying its own interpolated
+    // numbers would re-derive the curve and then agree with itself.
+    const f = cubicBezier(0.17, 0.67, 0.83, 0.67)
+    const tr: Track = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }], ease: BEZIER }
+    for (let i = 0; i <= 20; i++) {
+      const u = i / 20
+      expect(evalTrack(tr, u, 1).x, `u=${u}`).toBeCloseTo(100 * f(u), 10)
+    }
+  })
+
+  it('builds a solver once per easing string, not once per call', () => {
+    // `evalTrack` runs per layer per frame. Resolving on every call would put
+    // a regex parse, four `Number()` conversions and a closure allocation
+    // inside the render loop, for a function that cannot vary between frames
+    // — the easing is a property of the track, not of the time.
+    expect(easingFor(BEZIER)).toBe(easingFor(BEZIER))
+    // Not one global solver handed to everyone: distinct curves are distinct.
+    expect(easingFor(BEZIER)).not.toBe(easingFor('cubic-bezier(.1,.2,.3,.4)'))
+  })
+
+  it('leaves the named path a direct lookup', () => {
+    // The named curves must not pay for the bezier cache. Identity against
+    // `EASINGS` is what says so: a `Map` round-trip for `linear` would still
+    // return a correct function, and would still be a map lookup added to
+    // every layer of every frame of every existing scene.
+    for (const [name, fn] of Object.entries(EASINGS)) {
+      expect(easingFor(name as keyof typeof EASINGS), name).toBe(fn)
+    }
+  })
+
+  it('throws on an inherited `Object.prototype` key rather than returning NaN', () => {
+    // `easingFor` indexed `EASINGS` directly, so `'toString'` resolved to
+    // `Object.prototype.toString`, `channelAt` multiplied a keyframe delta by
+    // a string, and the layer moved to `x: NaN` for the whole scene with no
+    // error anywhere. Unreachable from a scene file — all three validators go
+    // through `isEasing` — but reachable from any programmatically built
+    // `Track`, which is what the player and editor phases construct.
+    for (const ease of ['toString', 'valueOf']) {
+      const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }], ease } as unknown as Track
+      expect(() => evalTrack(tr, 0.5, 1), ease).toThrow(/unknown easing/)
+    }
+  })
+
+  it('throws on an easing it cannot resolve', () => {
+    // The validators keep this unreachable from a scene file. It stays loud
+    // anyway: a silent `linear` here renders every frame with the wrong
+    // motion and leaves nothing behind to find.
+    const tr = { keys: [{ t: 0, x: 0 }, { t: 1, x: 100 }], ease: 'wobble' } as unknown as Track
+    expect(() => evalTrack(tr, 0.5, 1)).toThrow(/easing/)
+  })
+})
+
 describe('composeAnim', () => {
   it('sums translations and multiplies scales', () => {
     const r = composeAnim([
@@ -92,22 +162,22 @@ describe('composeAnim preset wiring', () => {
   }
 
   it('throws rather than silently dropping a preset when no compiler is passed', () => {
-    expect(() => composeAnim({ kind: 'marquee' }, 0, 1, ctx))
+    expect(() => composeAnim({ kind: 'move' }, 0, 1, ctx))
       .toThrow(/no preset compiler/i)
   })
 
   it('throws when a preset is used but no PresetCtx is passed', () => {
-    expect(() => composeAnim({ kind: 'marquee' }, 0, 1, undefined, () => ({ keys: [] })))
+    expect(() => composeAnim({ kind: 'move' }, 0, 1, undefined, () => ({ keys: [] })))
       .toThrow(/needs a PresetCtx/i)
   })
 
   it('threads the ctx through to the compiler', () => {
     const seen: unknown[] = []
-    composeAnim({ kind: 'marquee' }, 0, 1, ctx, (p, c) => {
+    composeAnim({ kind: 'move' }, 0, 1, ctx, (p, c) => {
       seen.push([p.kind, c])
       return { keys: [{ t: 0, x: c.contentW }] }
     })
-    expect(seen).toEqual([['marquee', ctx]])
+    expect(seen).toEqual([['move', ctx]])
   })
 
   it('composes a raw track and a compiled preset together', () => {
@@ -149,5 +219,18 @@ describe('axis rotations', () => {
       0, 1, undefined, () => ({ keys: [] }),
     )
     expect(r.rotateX).toBeCloseTo(0.75)
+  })
+})
+
+describe('CHANNELS', () => {
+  // The list is only canonical if the validators can reach it; both carried
+  // their own unguarded copy because it was not on the package surface.
+  //
+  // `IDENTITY` is a runtime witness of `keyof Transform`, so comparing against
+  // its keys pins the *guarantee* — that the list tracks the type — rather than
+  // today's names. Spelling the names out here would be a third copy of the
+  // very list this export exists to deduplicate.
+  it('is exported from the package root and covers every Transform channel', () => {
+    expect(new Set(CHANNELS)).toEqual(new Set(Object.keys(IDENTITY)))
   })
 })

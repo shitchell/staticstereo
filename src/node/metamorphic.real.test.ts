@@ -361,7 +361,7 @@ describe('row locality on the committed examples', () => {
   // The complement of the property above: a row that carries authored depth and
   // produces no signal at all has lost its content outright. Measured before
   // the split, both encoders: pacman at t=0.25s lost 62 of 80 rows, because
-  // `slide` brings it in from x=-60 and at that instant its whole visible
+  // `move` brings it in from x=-60 and at that instant its whole visible
   // sliver sat inside the left dead zone, and scrolling-text at t=0.25 lost 94
   // of 104 rows under `linked`. A viewer did not see pacman slide in; they saw
   // it pop into existence once it cleared the dead-zone width.

@@ -26,8 +26,8 @@ const SIZE: [number, number] = [640, 360]
 
 export const EXAMPLES: Example[] = [
   {
-    id: 'emerge',
-    label: 'EMERGE — text rising out of the noise',
+    id: 'push',
+    label: 'PUSH — text rising out of the noise',
     note:
       'There is no transparency in depth space, so a fade-in is motion in depth. ' +
       'Watch the depth panel: the word brightens from black, which is it rising ' +
@@ -43,19 +43,22 @@ export const EXAMPLES: Example[] = [
           size: 120,
           at: [120, 120],
           depth: 1,
-          anim: { kind: 'emerge' },
+          anim: { kind: 'push' },
         },
       ],
     },
   },
   {
-    id: 'marquee',
-    label: 'MARQUEE — scrolling text wider than the frame',
+    id: 'scroll',
+    label: 'SCROLL — text wider than the frame, crossing it',
     note:
-      'The track travels the whole PLATE — from +stageW + rightMargin to ' +
-      '-(contentW + leftMargin), with contentW measured from the real text ' +
-      'metrics — so an over-wide string crosses the whole emitted image at the ' +
-      'given speed and leaves completely, instead of parking its tail on screen.',
+      'A move with a speed and repeat: loop. The endpoints travel the whole ' +
+      'PLATE rather than the stage — from +stageW + rightMargin to ' +
+      '-(contentW + leftMargin) — so the string crosses the whole emitted ' +
+      'image at the given speed and leaves completely, instead of parking its ' +
+      'tail on screen. This was the `marquee` preset, which computed those two ' +
+      'numbers for you; the verb vocabulary has five entries now and a scroll ' +
+      'is written out. Edit `to` if you change the text.',
     scene: {
       size: SIZE,
       fps: 12,
@@ -67,7 +70,38 @@ export const EXAMPLES: Example[] = [
           size: 96,
           at: [0, 130],
           depth: 0.7,
-          anim: { kind: 'marquee', speed: 160 },
+          // Written out because no preset derives them any more (design
+          // §4.2b). Both endpoints are against the PLATE, not the stage, so
+          // "off-frame" means off the image that is actually emitted:
+          //
+          //   from =   sceneW + marginRight   =  640 + 55   =  695
+          //   to   = -(contentW + marginLeft) = -(1122.3299560546875 + 55)
+          //
+          // `contentW` is the MEASURED width of this string at this size and
+          // weight on the vendored face, and the margins are
+          // `sceneMargins(scene)` — 55 and 55, because the scene names no
+          // `stereo` block, so `algorithm` defaults to `linked` and `linked`
+          // splits `sepFar` evenly. (110 is the shift, not the left margin;
+          // only `shift` puts the whole 110 on the left.) Both numbers were
+          // read off the live rasteriser rather than estimated — the figure
+          // here was ~1050 against a 110px margin, two errors that partly
+          // cancelled, and `to` was 17.33px short of clearing the plate.
+          //
+          // Recompute `to` whenever the text, the size, the weight or the
+          // face changes: a wider string against a stale endpoint parks its
+          // tail on screen, which is the bug the `-contentW` term exists to
+          // prevent.
+          //
+          // Measured and left as it was: the travel is 1872.33px at 160px/s
+          // = 11.7s against a 6s scene, so the demo plays the first half of
+          // one cycle and never reaches `to`. Whether that was intended is
+          // not recorded. It is written down because it is what makes the
+          // exact value of `to` unobservable here, and therefore the reason
+          // this comment had drifted wrong without anything going visibly
+          // bad — an author raising `speed` is the one who will first see it.
+          anim: {
+            kind: 'move', from: [695, 0], to: [-1177.3299560546875, 0], speed: 160, repeat: 'loop',
+          },
         },
       ],
     },
@@ -76,9 +110,11 @@ export const EXAMPLES: Example[] = [
     id: 'bounce',
     label: 'BOUNCE — a ball crossing the frame',
     note:
-      'Two animators on one layer: slide and bounce compose, so the translations ' +
-      'sum. Easing is per-segment in v1, which is why the rise bounces as well as ' +
-      'the fall (design §4.1).',
+      'Two animators on one layer: a move and a raw keyframe track compose, so ' +
+      'the translations sum. The arc is three keys, which no two-key verb can ' +
+      'express, so it is written longhand — exactly what the bounce preset used ' +
+      'to emit. Easing is per-segment in v1, which is why the rise bounces as ' +
+      'well as the fall (design §4.1).',
     scene: {
       size: SIZE,
       fps: 12,
@@ -91,8 +127,11 @@ export const EXAMPLES: Example[] = [
           at: [0, 280],
           depth: 1,
           anim: [
-            { kind: 'slide', from: [-60, 0], to: [700, 0], repeat: 'loop' },
-            { kind: 'bounce', height: 180, duration: 1 },
+            { kind: 'move', from: [-60, 0], to: [700, 0], repeat: 'loop' },
+            {
+              keys: [{ t: 0, y: 0 }, { t: 0.5, y: -180 }, { t: 1, y: 0 }],
+              ease: 'easeOutBounce', repeat: 'loop', duration: 1,
+            },
           ],
         },
       ],
@@ -120,7 +159,7 @@ export const EXAMPLES: Example[] = [
           r: 44,
           at: [0, 180],
           depth: 1,
-          anim: { kind: 'slide', from: [-60, 0], to: [700, 0], repeat: 'loop' },
+          anim: { kind: 'move', from: [-60, 0], to: [700, 0], repeat: 'loop' },
         },
       ],
     },

@@ -1,0 +1,439 @@
+{
+  "ctx": {
+    "sceneW": 800,
+    "sceneH": 450,
+    "contentW": 1200,
+    "contentH": 90,
+    "layerDepth": 0.6,
+    "marginLeft": 110,
+    "marginRight": 55
+  },
+  "cases": [
+    {
+      "kind": "flip",
+      "label": "bare",
+      "input": {
+        "kind": "flip"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateY": 3.141592653589793
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "flip",
+      "label": "params",
+      "input": {
+        "kind": "flip",
+        "axis": "x"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": 3.141592653589793
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "flip",
+      "label": "params+overrides",
+      "input": {
+        "kind": "flip",
+        "axis": "x",
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": 3.141592653589793
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "move",
+      "label": "bare",
+      "input": {
+        "kind": "move"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "t": 1,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "move",
+      "label": "params",
+      "input": {
+        "kind": "move",
+        "from": [
+          -13,
+          7
+        ],
+        "to": [
+          250,
+          -40
+        ]
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": -13,
+            "y": 7
+          },
+          {
+            "t": 1,
+            "x": 250,
+            "y": -40
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "move",
+      "label": "params+overrides",
+      "input": {
+        "kind": "move",
+        "from": [
+          -13,
+          7
+        ],
+        "to": [
+          250,
+          -40
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": -13,
+            "y": 7
+          },
+          {
+            "t": 1,
+            "x": 250,
+            "y": -40
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "move",
+      "label": "speed",
+      "input": {
+        "kind": "move",
+        "from": [
+          0,
+          0
+        ],
+        "to": [
+          300,
+          400
+        ],
+        "speed": 25
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "t": 1,
+            "x": 300,
+            "y": 400
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once",
+        "duration": 20
+      }
+    },
+    {
+      "kind": "push",
+      "label": "bare",
+      "input": {
+        "kind": "push"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.6
+          },
+          {
+            "t": 1,
+            "depth": 0
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "push",
+      "label": "params",
+      "input": {
+        "kind": "push",
+        "from": 0.2,
+        "to": 0.85
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.39999999999999997
+          },
+          {
+            "t": 1,
+            "depth": 0.25
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "push",
+      "label": "params+overrides",
+      "input": {
+        "kind": "push",
+        "from": 0.2,
+        "to": 0.85,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.39999999999999997
+          },
+          {
+            "t": 1,
+            "depth": 0.25
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "rotate",
+      "label": "bare",
+      "input": {
+        "kind": "rotate"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotate": 0
+          },
+          {
+            "t": 1,
+            "rotate": 0
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "rotate",
+      "label": "params",
+      "input": {
+        "kind": "rotate",
+        "from": -30,
+        "to": 210,
+        "axis": "x"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": -0.5235987755982988
+          },
+          {
+            "t": 1,
+            "rotateX": 3.6651914291880923
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "rotate",
+      "label": "params+overrides",
+      "input": {
+        "kind": "rotate",
+        "from": -30,
+        "to": 210,
+        "axis": "x",
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": -0.5235987755982988
+          },
+          {
+            "t": 1,
+            "rotateX": 3.6651914291880923
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "scale",
+      "label": "bare",
+      "input": {
+        "kind": "scale"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 1
+          },
+          {
+            "t": 1,
+            "scale": 1
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "scale",
+      "label": "params",
+      "input": {
+        "kind": "scale",
+        "from": 0.25,
+        "to": 3.5
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 0.25
+          },
+          {
+            "t": 1,
+            "scale": 3.5
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "scale",
+      "label": "params+overrides",
+      "input": {
+        "kind": "scale",
+        "from": 0.25,
+        "to": 3.5,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 0.25
+          },
+          {
+            "t": 1,
+            "scale": 3.5
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "scale",
+      "label": "bezier-ease",
+      "input": {
+        "kind": "scale",
+        "ease": "cubic-bezier(.17,.67,.83,.67)"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "scale": 1
+          },
+          {
+            "t": 1,
+            "scale": 1
+          }
+        ],
+        "ease": "cubic-bezier(.17,.67,.83,.67)",
+        "repeat": "once"
+      }
+    }
+  ]
+}

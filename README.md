@@ -60,9 +60,28 @@ size: [800, 450]
 fps: 12
 duration: 4
 layers:
-  - {type: text,  text: HELLO,   size: 90, depth: 0.6, anim: {kind: marquee, speed: 60}}
-  - {type: image, src: ball.png,           depth: 1.0, anim: {kind: bounce, height: 200}}
+  - type: text
+    text: HELLO
+    size: 90
+    depth: 0.6
+    # A scroll is a `move` with a `speed` and `repeat: loop`; the endpoints run
+    # off the plate at both ends, so the string never parks its tail on screen.
+    anim: {kind: move, from: [900, 0], to: [-400, 0], speed: 60, repeat: loop}
+  - type: image
+    src: ball.png
+    depth: 1.0
+    # A bounce is a three-key arc and every verb keys two, so it is written as a
+    # raw track. `Anim` takes tracks and presets alike — see
+    # `examples/bouncing-ball.yaml`, which does exactly this.
+    anim:
+      keys: [{t: 0, y: 0}, {t: 0.5, y: -200}, {t: 1, y: 0}]
+      ease: easeOutBounce
+      repeat: loop
+      duration: 1
 ```
+
+The vocabulary is five verbs — `move`, `rotate`, `scale`, `push`, `flip` — and anything
+they do not express is a raw keyframe track, which is not a lesser citizen.
 
 ```sh
 stst render scene.yaml -o out.gif     # gif, mp4, or a png sequence
@@ -86,7 +105,7 @@ you can read any of them in a diff:
 ```sh
 stst render examples/pacman.yaml         -o pacman.gif   # a wedge, and dots that get eaten
 stst render examples/bouncing-ball.yaml  -o ball.gif     # two animators composed on one layer
-stst render examples/scrolling-text.yaml -o text.gif     # marquee, wider than the frame
+stst render examples/scrolling-text.yaml -o text.gif     # a looping move, wider than the frame
 ```
 
 ## Making something you can actually see

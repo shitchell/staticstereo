@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { parseArgs } from './args.js'
 import type { CliArgs } from './args.js'
 import {
+  KEY_CHANNELS,
   TEXT_FONT_FAMILY,
   TEXT_FONT_WEIGHT,
   applyOverrides,
@@ -13,6 +14,8 @@ import {
   textScene,
   validateScene,
 } from './scene.js'
+import { PRESETS } from '../core/anim/presets.js'
+import { CHANNELS } from '../core/index.js'
 import type { Scene } from '../core/index.js'
 
 /** The smallest scene that is actually valid, as a YAML string. */
@@ -95,9 +98,15 @@ describe('validateScene — scene fields', () => {
       'size: [800, 450]\nfps: 12\nduration: 4\nfreezeNoise: false\n' +
       'stereo: {sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7}\n' +
       'layers:\n' +
-      '  - {type: text, text: HELLO, size: 90, depth: 0.6, anim: {kind: marquee, speed: 60}}\n' +
-      '  - {type: image, src: ball.png, depth: 1.0, anim: {kind: bounce, height: 200}}\n' +
-      '  - {type: gif, src: walk.gif, loop: loop, depth: 1.0, anim: {kind: slide-in, from: left}}\n' +
+      // The design doc wrote these three as `marquee`, `bounce` and
+      // `slide-in`; §4.2b deleted all three, so they are spelled with the
+      // verbs and the raw track they were sugar for.
+      '  - {type: text, text: HELLO, size: 90, depth: 0.6, ' +
+      'anim: {kind: move, from: [855, 0], to: [-600, 0], speed: 60, repeat: loop}}\n' +
+      '  - {type: image, src: ball.png, depth: 1.0, anim: ' +
+      '{keys: [{t: 0, y: 0}, {t: 0.5, y: -200}, {t: 1, y: 0}], ease: easeOutBounce, repeat: loop}}\n' +
+      '  - {type: gif, src: walk.gif, loop: loop, depth: 1.0, ' +
+      'anim: {kind: move, from: [-300, 0], to: [0, 0], ease: easeOut}}\n' +
       '  - {type: shape, shape: circle, at: [400, 225], r: 40, depth: 0.8}\n',
     )
     expect(s.layers).toHaveLength(4)
@@ -230,6 +239,29 @@ describe('validateScene — layers', () => {
     expect(msg).toMatch(/sized/)
   })
 
+  // Design §4.1. Both fields are optional, so every scene written before they
+  // existed stays valid; and the validator carries them rather than minting
+  // one, because an id invented at load time would make opening an untouched
+  // legacy scene and saving it back a diff — the exact churn stable identity
+  // exists to prevent. Minting belongs to the editor's mutation path.
+  it('carries a layer id and name through, and mints neither', () => {
+    const scene = check(
+      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, id: k3Qp, name: greeting}\n',
+    )
+    expect(scene.layers[0]).toMatchObject({ id: 'k3Qp', name: 'greeting' })
+
+    const bare = check('size: [40, 20]\nlayers:\n  - {type: text, text: HI}\n')
+    expect(bare.layers[0]).not.toHaveProperty('id')
+    expect(bare.layers[0]).not.toHaveProperty('name')
+
+    // Both are typed `string`, and this validator hands its input back cast to
+    // `Layer`, so an unchecked field would be a lie the type system cannot see.
+    expect(checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, id: 5}\n'))
+      .toMatch(/layers\[0\]\.id/)
+    expect(checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, name: []}\n'))
+      .toMatch(/layers\[0\]\.name/)
+  })
+
   it('names a bad at, depth, or mask', () => {
     expect(checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, at: 4}\n'))
       .toMatch(/layers\[0\]\.at.*\[x, y\]|\[x, y\].*layers\[0\]\.at/s)
@@ -242,18 +274,21 @@ describe('validateScene — layers', () => {
 
   it('propagates the preset registry error for an unknown anim kind, with the path', () => {
     const msg = checkFails(
-      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {kind: marque}}\n',
+      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {kind: mvoe}}\n',
     )
     expect(msg).toMatch(/layers\[0\]\.anim/)
     // The registry's own wording, listing the valid kinds — not a replacement.
-    expect(msg).toMatch(/unknown animation preset "marque"/)
-    expect(msg).toMatch(/marquee/)
+    expect(msg).toMatch(/unknown animation preset "mvoe"/)
+    // Swept over the registry rather than naming one kind: a list that names
+    // a single kind is how this test survived `marquee` being deleted in a
+    // state where it no longer proved anything.
+    for (const kind of Object.keys(PRESETS)) expect(msg).toMatch(kind)
   })
 
   it('accepts a raw track and a list of animators', () => {
     const s = check(
       'size: [40, 20]\nlayers:\n' +
-      '  - {type: text, text: HI, anim: [{kind: marquee}, {keys: [{t: 0, y: 0}, {t: 1, y: 5}]}]}\n',
+      '  - {type: text, text: HI, anim: [{kind: move}, {keys: [{t: 0, y: 0}, {t: 1, y: 5}]}]}\n',
     )
     expect(s.layers).toHaveLength(1)
   })
@@ -267,15 +302,65 @@ describe('validateScene — layers', () => {
     expect(checkFails(
       'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], ease: snap}}\n',
     )).toMatch(/ease.*linear|linear.*ease/s)
+    // The list of named curves no longer describes what is accepted, so the
+    // message has to name the other form too — otherwise it tells an author
+    // their valid easing is invalid and offers five curves that are not it.
+    expect(checkFails(
+      'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], ease: snap}}\n',
+    )).toMatch(/cubic-bezier/)
     expect(checkFails(
       'size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], repeat: yes}}\n',
     )).toMatch(/repeat/)
+  })
+
+  it('accepts a cubic-bezier ease on a track and on a preset', () => {
+    // Both validators and `overrides()` tested `ease in EASINGS`, which
+    // rejects every bezier string. This is the CLI half of the acceptance:
+    // the same scene must pass through `site/scene.ts` too.
+    const yaml =
+      'size: [40, 20]\nlayers:\n' +
+      '  - {type: text, text: A, anim: {keys: [{t: 0}, {t: 1, x: 5}], ' +
+      'ease: "cubic-bezier(.17,.67,.83,.67)"}}\n' +
+      '  - {type: text, text: B, anim: {kind: scale, ease: "cubic-bezier(0, 0, 1, 1)"}}\n'
+    const scene = check(yaml)
+    const track = scene.layers[0]!.anim as { ease: string }
+    expect(track.ease).toBe('cubic-bezier(.17,.67,.83,.67)')
+  })
+
+  it('still rejects a malformed or out-of-range cubic-bezier', () => {
+    // Accepting the prefix and nothing else would push the failure into the
+    // solver, which throws from inside the render loop with no file or path
+    // to name — the one thing a scene validator exists to prevent.
+    for (const ease of [
+      'cubic-bezier(0,0,1)', 'cubic-bezier(a,b,c,d)', 'cubic-bezier(2,0,1,1)',
+    ]) {
+      expect(checkFails(
+        `size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {keys: [{t: 0}], ease: "${ease}"}}\n`,
+      ), ease).toMatch(/ease/)
+    }
   })
 
   it('rejects an animator that is neither a preset nor a track', () => {
     const msg = checkFails('size: [40, 20]\nlayers:\n  - {type: text, text: HI, anim: {x: 1}}\n')
     expect(msg).toMatch(/anim/)
     expect(msg).toMatch(/kind|keys/)
+  })
+
+  // `KEY_CHANNELS` was a hand-written copy of the channel list that predated
+  // `rotateX`/`rotateY`, so the CLI rejected as unknown two channels the
+  // animator interpolates perfectly well. Deriving it from `CHANNELS` is what
+  // makes that class of drift impossible, so the test pins the derivation as
+  // well as the symptom.
+  it('accepts every animatable channel in a keyframe, including the axis rotations', () => {
+    const s = check(
+      'size: [40, 20]\nlayers:\n' +
+      '  - {type: text, text: HI, anim: {keys: [{t: 0, rotateX: 0, rotateY: 0}, {t: 1, rotateX: 1, rotateY: 2}]}}\n',
+    )
+    expect(s.layers).toHaveLength(1)
+  })
+
+  it('derives its keyframe channels from CHANNELS, plus the keyframe time', () => {
+    expect(new Set(KEY_CHANNELS)).toEqual(new Set(['t', ...CHANNELS]))
   })
 })
 

@@ -1,5 +1,13 @@
-import { PRESETS, EASINGS, resolveStereo, STEREO_KEYS } from '../src/core/index.js'
-import type { Anim, Easing, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
+import {
+  CHANNELS,
+  CUBIC_BEZIER_SYNTAX,
+  EASINGS,
+  PRESETS,
+  isEasing,
+  resolveStereo,
+  STEREO_KEYS,
+} from '../src/core/index.js'
+import type { Anim, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
  * Validate an untrusted scene — one that arrived from `location.hash` or from
@@ -27,6 +35,17 @@ const LAYER_TYPES = ['text', 'image', 'gif', 'shape'] as const
 const MODES = ['silhouette', 'heightmap'] as const
 const LOOPS = ['loop', 'once', 'pingpong'] as const
 const REPEATS = ['once', 'loop', 'pingpong'] as const
+/**
+ * What may appear in a keyframe: every animatable channel plus `t`, the
+ * keyframe's own time, which is not a `Transform` channel.
+ *
+ * Derived from `CHANNELS`, like the CLI's `KEY_CHANNELS`, rather than written
+ * out: the list this validator used to carry had fallen behind and omitted
+ * `rotateX`/`rotateY`. Spelling it out again here would re-create the drift
+ * one layer down — now in the *rejection* path, where it would refuse a scene
+ * the CLI and the rasteriser both handle.
+ */
+const KEY_CHANNELS = ['t', ...CHANNELS] as const
 
 
 function fail(message: string): never {
@@ -128,8 +147,32 @@ function validateMask(v: unknown, path: string): MaskSource {
 function validateKey(v: unknown, path: string): Key {
   if (!isRecord(v)) fail(`${path} must be an object, got ${JSON.stringify(v)}`)
   requireFinite(v['t'], `${path}.t`)
+  // A misspelled channel is REJECTED, not dropped. The loop below copies what
+  // it recognises, so without this check `rotatX: 5` would leave the scene
+  // valid, the value gone and the layer still on screen rendering something
+  // subtly wrong — while the CLI named the key and refused the same file. The
+  // wording deliberately matches `unknownKeys()` in `src/cli/scene.ts`, down
+  // to listing the valid keys sorted, so the two read as one product.
+  //
+  // Scoped to keyframes on purpose. Unknown-key parity for layers, tracks and
+  // scene keys is a much larger job; half of it delivered quietly would teach
+  // authors that the site catches typos and leave them wrong about where.
+  for (const field of Object.keys(v)) {
+    if (!(KEY_CHANNELS as readonly string[]).includes(field)) {
+      fail(
+        `unknown keyframe channel "${field}" at ${path} — valid keys: ` +
+        `${[...KEY_CHANNELS].sort().join(', ')}`,
+      )
+    }
+  }
   const key: Record<string, unknown> = { t: v['t'] }
-  for (const field of ['x', 'y', 'depth', 'scale', 'rotate'] as const) {
+  // Looping over `CHANNELS` rather than a list written out here, because this
+  // validator **rebuilds** the key instead of checking it: anything the loop
+  // does not copy is not rejected, it is silently discarded, and the layer
+  // renders motionless on that channel with no error raised anywhere. The
+  // inline list this replaces had missed `rotateX`/`rotateY` since they were
+  // added, so a shared link animating a flip arrived as a still.
+  for (const field of CHANNELS) {
     if (v[field] !== undefined) key[field] = requireFinite(v[field], `${path}.${field}`)
   }
   return key as Key
@@ -143,13 +186,22 @@ function validateTrack(v: Record<string, unknown>, path: string): Track {
   const track: Track = { keys: keys.map((k, i) => validateKey(k, `${path}.keys[${i}]`)) }
   if (v['ease'] !== undefined) {
     const ease = v['ease']
-    if (typeof ease !== 'string' || !(ease in EASINGS)) {
+    // `isEasing`, not `ease in EASINGS`: the record holds the five named
+    // curves and `Easing` is now wider than that. The message names the other
+    // form too — a list of five curve names no longer describes what is
+    // accepted, and without it an author is told that a valid
+    // `cubic-bezier(...)` is invalid.
+    if (!isEasing(ease)) {
       fail(
-        `${path}.ease must be one of ${Object.keys(EASINGS).join(', ')}, got ` +
-        `${JSON.stringify(ease)}`,
+        `${path}.ease must be one of ${Object.keys(EASINGS).join(', ')}, or ` +
+        `${CUBIC_BEZIER_SYNTAX}, got ${JSON.stringify(ease)}`,
       )
     }
-    track.ease = ease as Easing
+    // No cast: `fail()` returns `never` and `isEasing` is a type predicate,
+    // so `ease` is already `Easing` here. Spelling it out again would assert
+    // what the guard proves, and would keep asserting it if the guard were
+    // later weakened.
+    track.ease = ease
   }
   if (v['repeat'] !== undefined) track.repeat = requireOneOf(v['repeat'], REPEATS, `${path}.repeat`)
   if (v['start'] !== undefined) track.start = requireFinite(v['start'], `${path}.start`)
@@ -179,7 +231,7 @@ function validateAnimOne(v: unknown, path: string): Track | Record<string, unkno
     return { ...v }
   }
   fail(
-    `${path} must be either a preset ({kind: "marquee", ...}) or a keyframe ` +
+    `${path} must be either a preset ({kind: "move", ...}) or a keyframe ` +
     `track ({keys: [...]}), got ${JSON.stringify(v)}`,
   )
 }
@@ -208,7 +260,27 @@ function validateLayer(v: unknown, path: string): Layer {
   }
   const kind = requireOneOf(type, LAYER_TYPES, `${path}.type`)
 
+  // **This is the silent drop.** Everything below copies field by field, so a
+  // key this function does not name — `rotatX`, `apacity`, a field from a
+  // newer scene format — is not rejected, it simply does not survive the
+  // rebuild, and the scene loads looking almost right. The CLI refuses the
+  // same file by name (`unknownKeys()` in `src/cli/scene.ts`).
+  //
+  // That asymmetry is deliberate and the reasoning is recorded in full on the
+  // unknown-channel check in `validateKey` above: unknown-key parity was
+  // delivered for **keyframe channels only**, because half of it delivered
+  // quietly would teach authors that the site catches typos and leave them
+  // wrong about where. Read that note before widening or narrowing this.
   const base: Record<string, unknown> = { type: kind }
+  // Identity first, and copied rather than invented (design §4.1). On this
+  // side the hash *is* the scene: a field this rebuild forgets is not ignored,
+  // it is destroyed on every round trip through the URL, and a lost `id`
+  // orphans every reference to the layer with no other copy to restore from.
+  // Minting one here would be the opposite failure — a legacy link would come
+  // back with an id it never had, so assignment stays with the editor's
+  // mutation path.
+  if (v['id'] !== undefined) base['id'] = requireString(v['id'], `${path}.id`)
+  if (v['name'] !== undefined) base['name'] = requireString(v['name'], `${path}.name`)
   if (v['depth'] !== undefined) base['depth'] = requireFinite(v['depth'], `${path}.depth`)
   if (v['at'] !== undefined) base['at'] = requirePair(v['at'], `${path}.at`)
   if (v['anim'] !== undefined) base['anim'] = validateAnim(v['anim'], `${path}.anim`)

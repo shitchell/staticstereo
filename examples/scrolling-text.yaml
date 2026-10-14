@@ -1,7 +1,10 @@
 # Text wider than the frame, scrolling right to left.
 #
-# `marquee` measures the real rendered text width, so an over-wide string
-# leaves the frame completely instead of parking its tail on screen.
+# A `move` with a `speed` and `repeat: loop`. This was a `marquee`, which
+# derived the same two endpoints from the compile context; `marquee` is gone
+# (design 4.2b narrows the registry to five verbs), so the endpoints are
+# written out. See the `anim:` block at the bottom for where each number
+# comes from and for what is lost by writing them down.
 #
 #   stst render examples/scrolling-text.yaml -o text.gif
 #
@@ -43,4 +46,28 @@ layers:
     weight: bold
     at: [0, 30]
     depth: 0.65
-    anim: {kind: marquee, speed: 220}
+    # The travel is expressed against the PLATE, not the stage, so "off-frame"
+    # means off the image that is actually emitted. Both endpoints were
+    # compiled from the live rasteriser rather than estimated:
+    #
+    #   from  =  sceneW + marginRight  =  800 + 55            =   855
+    #   to    = -(contentW + marginLeft) = -(2830.550048828125 + 55)
+    #                                                         = -2885.550048828125
+    #
+    # `to` ends past -contentW, not at 0, because stopping at 0 would park the
+    # tail of an over-wide string on screen forever. `speed` is px/sec across
+    # that whole 3740.55px travel, so duration = 3740.55/220 = 17.0025s.
+    #
+    # WHAT WRITING THESE DOWN COSTS: `contentW` is the MEASURED width of the
+    # rendered string on the vendored face. The old `marquee` re-measured it
+    # every frame; this does not. Change the text, the size, the weight or the
+    # face and `to` must be recomputed, or the tail parks on screen again --
+    # which is the bug the `-contentW` term exists to prevent. The editor
+    # (design 4.2b) is where a template re-derives it; a static scene file
+    # cannot.
+    anim:
+      - kind: move
+        from: [855, 0]
+        to: [-2885.550048828125, 0]
+        speed: 220
+        repeat: loop

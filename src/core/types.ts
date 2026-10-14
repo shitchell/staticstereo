@@ -162,15 +162,23 @@ export const STEREO_KEYS = [
 
 export type StereoKey = typeof STEREO_KEYS[number]
 
-/** Errors unless its argument is `never`. */
-type AssertNever<T extends never> = T
+/**
+ * Errors unless its argument is `never`.
+ *
+ * Exported, and the only declaration: `anim/track.ts` had an independent copy
+ * guarding `CHANNELS`, so the one mechanism that keeps a hand-written list in
+ * step with a type was itself duplicated — and unavailable to the validators
+ * outside `core`, which is exactly where the unguarded copies of those lists
+ * ended up.
+ */
+export type AssertNever<T extends never> = T
 type _NoStereoKeyMissing = AssertNever<Exclude<keyof StereoOpts, StereoKey>>
 type _NoStereoKeyExtra = AssertNever<Exclude<StereoKey, keyof StereoOpts>>
 
 /**
  * What an animator can move. Deliberately has no `opacity`: there is no
  * meaningful transparency in depth space, so fading is expressed as motion in
- * `depth` (the `emerge` preset) instead.
+ * `depth` (the `push` preset) instead.
  *
  * **This is a sampled pose, not an animation.** Duration, easing and endpoints
  * live on {@link Track} and on the preset that compiled it; a `Transform` is
@@ -229,7 +237,38 @@ export const IDENTITY: Transform = {
 /** A keyframe. `t` is normalised 0..1 within the track's own window. */
 export type Key = { t: number } & Partial<Transform>
 
-export type Easing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'easeOutBounce'
+/**
+ * The five curves shipped as functions, and the key type of `EASINGS`.
+ *
+ * Kept as its own name rather than folded into `Easing` because these five
+ * are an **enumerable, exhaustive** set and the rest of `Easing` is not:
+ * `EASINGS` is `Record<NamedEasing, fn>`, which is what makes "every named
+ * curve has an implementation" a compile error to break rather than a
+ * convention. Widening `Easing` in place would have turned that record into
+ * a promise to implement infinitely many curves.
+ */
+export type NamedEasing = 'linear' | 'easeIn' | 'easeOut' | 'easeInOut' | 'easeOutBounce'
+
+/**
+ * A CSS `cubic-bezier(a, b, c, d)`.
+ *
+ * A template literal rather than `string`, and the difference is the whole
+ * point: `string` would make `Easing` accept every typo the named union
+ * currently catches at compile time — `easeout`, `ease-out`, `easeOutBonce`
+ * would all become valid scenes that silently render with the wrong motion.
+ * This keeps the prefix checked.
+ *
+ * What a template literal **cannot** express is "four finite numbers with the
+ * first and third in 0..1", so the argument list is `string` here and
+ * `isEasing` is the real check. The split is deliberate rather than a
+ * shortfall: the type catches a misspelled *name*, which is what a scene
+ * author gets wrong while typing, and the runtime guard catches a malformed
+ * *argument list*, which is what they get wrong while tuning — and which only
+ * the validators, with a file and a path to name, can report usefully.
+ */
+export type CubicBezierEasing = `cubic-bezier(${string})`
+
+export type Easing = NamedEasing | CubicBezierEasing
 
 export interface Track {
   keys: Key[]
@@ -257,6 +296,25 @@ export type Anim = Track | Preset | (Track | Preset)[]
 export type MaskSource = 'alpha' | { luma: number }
 
 interface LayerBase {
+  /**
+   * Stable identity, for anything that has to refer to this layer across an
+   * edit — a selection, an undo entry, a panel row.
+   *
+   * **Optional, and assigned on first mutation rather than on load** (design
+   * §4.1). Every scene written before this field existed is still valid, and
+   * loading one and saving it back unchanged stays byte-identical, because no
+   * validator mints an id. An array index cannot serve: reordering or deleting
+   * a layer renumbers every layer after it, so a selection or an undo entry
+   * held by index silently retargets.
+   */
+  id?: string
+  /**
+   * Display name. Optional because a layer that has never been renamed should
+   * not carry a name at all — `layerName()` derives one from the content
+   * (`HELLO`, `ball.png`, `circle`), so the panel never lists a scene as
+   * "Layer 1 / Layer 2 / Layer 3" and never makes renaming the first chore.
+   */
+  name?: string
   /** Flat depth for silhouette mode. Default 1 (nearest). */
   depth?: Depth
   at?: [number, number]
@@ -298,7 +356,7 @@ export interface Scene {
    * Seconds. Omit for a still, in which case it is treated as 1 — NOT 0.
    *
    * Zero would collapse every track's window and pin all animators at their
-   * t=0 pose, which for `marquee` is fully off-screen: a still of a scrolling
+   * t=0 pose, which for a scroll is fully off-screen: a still of a scrolling
    * scene would render completely empty. Stills therefore also take an explicit
    * sample time, defaulting to the midpoint rather than 0, so an animated scene
    * stills to something visible.

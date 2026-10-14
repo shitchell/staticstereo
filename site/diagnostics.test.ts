@@ -168,7 +168,7 @@ describe('readSegment', () => {
    * *full-width* row of a real scene crosses both the object and the
    * background, and `dominantPeriod` returns the one period that best explains
    * the whole row — which is the background's, because the background is almost
-   * always the larger share. Measured on the `emerge` example at full rise:
+   * always the larger share. Measured on the `push` example at full rise:
    * the full row reported 220px (= sepFar × 2) at 87% match, and no row
    * anywhere in the frame could report 184px (= sepNear × 2). The object shows
    * up only as that drop from 100%.

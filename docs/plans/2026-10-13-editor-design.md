@@ -132,6 +132,17 @@ stay exactly as they are.
   real requirement: the CLI validator returns the raw input after an allow-list check,
   while the site validator **rebuilds field-by-field and silently drops anything it does
   not name**, so without an explicit change it would strip ids on every URL round-trip.
+
+  **A related asymmetry was closed only halfway, deliberately.** The site validator now
+  *rejects* an unknown **keyframe channel** instead of dropping it, matching the CLI's
+  error shape — typing `rotatX: 5` used to validate clean, lose the value, and render
+  something subtly wrong with no signal, which on a URL-is-the-scene design is
+  unrecoverable data loss rather than a validation nicety. Unknown **layer**, **track** and
+  **scene** keys are *still* dropped silently. Full parity is a much larger job, and half
+  of it delivered quietly would be worse than none: it would teach an author that the site
+  catches typos and leave them wrong about where. The limitation is recorded at both the
+  rejection site and the rebuild site, because a reader who finds the drop will otherwise
+  file it as a bug.
 - `name` — derived from content when absent (`HELLO`, `ball.png`, `circle`). Pre-empts
   PowerPoint's biggest usability complaint, where the pane lists effects with useless
   default names and the documented first step is "go rename everything."
@@ -150,6 +161,16 @@ existing preset, and all default to `ease: 'linear'`, `repeat: 'once'` — **ver
 unopinionated primitives**, and opinionated defaults are exactly what made `emerge` a
 preset rather than a verb.
 
+**One exception, and it is forced: `push` defaults to `ease: 'easeOut'`.** §4.2b requires
+`push` to compile to *precisely* what `emerge` did, and `emerge` defaulted to `easeOut`. So
+`push` carries an opinionated default **by inheritance, not by choice**, and the sentence
+above disqualifies it from verb-hood by its own test. The exact-reproduction requirement
+wins, because it is what the golden corpus exists to prove. Recorded here because a reader
+arriving at the paragraph above will otherwise change one word in `presets.ts` and redden
+the golden — and because it is the one place the descriptor table cannot help: `ease` is
+omitted from `PRESET_PARAMS` on the grounds that it is universal, which is true of its
+*application* and false of its *default*.
+
 | verb | params | defaults | unit | writes |
 |---|---|---|---|---|
 | `move` | `from`, `to` | `[0,0]`, `[0,0]` | scene px, **offset from the resting `at`** | x **and** y |
@@ -167,8 +188,26 @@ Five of these are decisions rather than transcriptions:
   the `PresetFn` is where every other unit translation already happens — `marquee`
   converts px/sec into a duration. An author types `to: 180`, not `to: 3.14159`. The cost
   is a hidden conversion, paid for by the golden fixture and an explicit `180 → Math.PI`
-  assertion. **Core gains an exported deg↔rad helper**; today the only one is private to
-  `raster.ts`.
+  assertion. **Core gains an exported deg↔rad helper.** *Landed as `src/core/angle.ts`
+  (`degToRad`/`radToDeg`), and `raster.ts`'s private `const RAD = Math.PI / 180` — the
+  duplication this helper existed to end — is gone with it.
+
+  The switch was treated as a behavioural edit, because it is one. The two spellings
+  `d * RAD` and `(d * Math.PI) / 180` disagree by one ulp for roughly a quarter of integer
+  degrees, and **one angle the suite exercises is among them**: `raster.test.ts`'s
+  `{start: 135, end: 405}` pacman moves from `7.06858347057703451100` to
+  `7.06858347057703362282`, so the cosine fed to the rasteriser did change in its last bit.
+  **No measured assertion moved**, and could not have — that test probes 45° from the
+  wedge boundary and asserts to five decimals, about ten orders of magnitude of margin
+  against a 9e-16 rad shift. The angles in `examples/` (`pacman.yaml`'s 40 and 320) and the
+  cardinals are bit-identical, and the cardinals are what `flip` and `rotate`'s
+  exact-equality assertions rest on.
+
+  Recorded at this length because an earlier draft of this paragraph claimed the two
+  spellings were "bit-identical at every angle the committed corpus uses". That is
+  checkable and, on any reading that includes the test suite, false — it was promoted from
+  a worker's report into this document without a single value being checked, and two
+  independent agents caught it. The true claim is the weaker one: no assertion moved.*
 - **One `rotate` with an `axis`, not three verbs** — the three rotations are one family.
   `axis` is `'x' | 'y' | 'z'`, naming the channel it writes rather than pitch/yaw/roll.
 - **`scale` is absolute, not a delta**, because `composeAnim` *multiplies* this channel
@@ -192,14 +231,81 @@ Five of these are decisions rather than transcriptions:
   Symbolic endpoints restore the `measureText → contentW → endpoint` chain to the
   production path. One verb, both affordances — the same move as folding `speed` in.
 
-**`slide` and `emerge` are deliberately not reimplemented as delegations** to `move` and
-`push`, despite near-identical bodies. A few duplicated lines are cheaper than risking
-"every legacy preset compiles to its previous output" in the very phase that establishes
-the golden corpus. Revisit once the golden exists.
+  **Status: `speed` landed in P0; the symbolic endpoints did not.** The execution plan's P0
+  criteria list carried only the `speed` half of this bullet and was silent on the other,
+  so the phase matched the plan rather than the design. The consequences stand as written
+  above and are now measured rather than predicted: `scrolling-text.yaml` and
+  `site/examples.ts` carry hardcoded off-stage literals; `PresetCtx.contentW`/`contentH`/
+  `marginLeft`/`marginRight` have **no reader** (only `push` reads `layerDepth`); and the
+  endpoint formula `−(contentW + marginLeft)` has **no assertion anywhere** — it survives
+  only as a constant in two test files, either of which would stay green if §10.5 changed.
+  P0 restored the *producer* side instead (the measurement and the margins handed into
+  `PresetCtx` are witnessed, bidirectionally, by mutation), which is the half that was
+  restorable without a consumer.
+
+  A third consequence, found at review and worth recording because it explains how an
+  endpoint stayed wrong by 17px for several commits: **no shipped scene renders the far
+  endpoint of a scroll either.** All three corpora derive a travel duration far longer
+  than their scene (`scrolling-text.yaml` 17.0s against `duration: 6`; the README's 21.7s
+  against 4), so there is no witness of any kind — not a test, not a rendered frame. This
+  predates the rewrite and is unchanged by it.
+
+  **Whoever closes this is reversing a decision, not filling a blank.** This bullet already
+  assigns the fix to `move`, in P0. Deferring it to P6's templates is a different choice
+  and should be made explicitly.
+
+**`slide` and `emerge` are renames, not delegations.** An earlier revision of this section
+argued for keeping near-identical bodies rather than having `slide` delegate to `move`,
+to avoid risking the legacy-output guarantee in the phase that established the golden.
+**§4.2b supersedes that entirely**: `slide` *became* `move` and `emerge` *became* `push`,
+and the golden proved the renames were renames: the fixture held 19 cases at the time and
+every recorded `output` survived byte-identically, which is checkable from the fixture's own
+history. A verifier additionally compiled the old and new registries side by side over a
+parameter sweep — 5,216 cases, zero differences — which is *not* checkable from this repo
+and is cited as out-of-tree evidence rather than as a fact the tree will confirm.
 
 **"Fade" compiles to `push`.** `Transform` deliberately has no opacity: there is no
 meaningful transparency in depth space, so fading is motion in depth. R10's "ease-in
 fade-in 250ms" is a `push` with an ease.
+
+### 4.2b-pre Each verb's parameters declare their own unit and default
+
+Landed in P0, pulled forward from the editor shell's "each `PresetFn` declares its own
+parameter descriptors", because **the moment to record a parameter's unit is while writing
+the function that consumes it.** Otherwise a later phase reverse-engineers units from
+implementations, which is the provenance loss §9.1 warns about — `shape.start`/`end` are
+degrees, `Track.start`/`duration` are seconds, same word.
+
+`src/core/anim/params.ts` exports `PRESET_PARAMS`, tied to the registry by
+`Record<PresetKind, …>` so that **adding a verb without descriptors, or deleting a verb's
+descriptors, is a compile error.** Unit vocabulary: `scenePx` · `degrees` · `depth` ·
+`seconds` · `multiplier` · `enum`.
+
+Three decisions worth recording:
+
+- **`speed` is `scenePx` with `per: 'second'`, not its own unit tag.** Under `fit=render`
+  a rate in px/s scales by *exactly* the same factor as a distance in px — the geometry
+  scales and time does not — so a consumer saying "scale every `scenePx` parameter" gets
+  `speed` right for free. A distinct `scenePxPerSecond` tag would make `speed` invisible to
+  that rule, which is the fail-open bug the unit tags were raised to kill.
+  **The same reasoning puts an obligation on the symbolic endpoints above:** a token
+  resolves from an already-scaled `PresetCtx`, so it must be marked *not* scalable, or
+  `fit=render` double-counts it.
+- **Descriptors carry defaults, checked against behaviour rather than read off the source.**
+  Running that check found a default that is dead code: `move`'s `speed` has an apparent
+  fallback of `60` inside a branch that only runs when `speed` is present, so the fallback
+  can never fire. It is recorded as "no default". A table built by reading the source would
+  have published a value the function cannot produce.
+- **One default is not a literal.** `push`'s `to` defaults to `ctx.layerDepth`, so it is
+  recorded as a tagged marker rather than a number — a consumer must be able to tell
+  "defaults to 0.5" from "defaults to wherever this layer sits", and an omitted field says
+  neither.
+
+`ease` and `repeat` are deliberately absent: `overrides()` applies them to every preset
+uniformly. **Their defaults are not uniform, though** — see `push` above — so a consumer
+driving a control from this table cannot get `push`'s initial ease from universality alone.
+A phase that needs the four universal parameters rendered will need its own declaration
+for them.
 
 ### 4.2a Bundles are UI macros, not registry entries
 

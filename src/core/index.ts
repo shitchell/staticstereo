@@ -37,11 +37,14 @@ export type { Margins, PlateLayout, Rect } from './plate.js'
 export { DEFAULT_STEREO, IDENTITY, SIRDS_ALGORITHMS, STEREO_KEYS } from './types.js'
 export type {
   Anim,
+  AssertNever,
+  CubicBezierEasing,
   Depth,
   Easing,
   Key,
   Layer,
   MaskSource,
+  NamedEasing,
   Preset,
   Scene,
   SirdsAlgorithm,
@@ -72,10 +75,57 @@ export { blurDepth } from './blur.js'
 export { sirdsFromDepth, upscale } from './sirds.js'
 export { makeRng } from './rng.js'
 
+/* -------------------------------------------------------------------- units */
+
+/**
+ * Exported, not module-private, because the model carries two angle
+ * conventions — `shape.start`/`end` in degrees, `Transform.rotate` and the two
+ * axis rotations in radians — and anything building or reading an animator has
+ * to cross between them.
+ */
+export { degToRad, radToDeg } from './angle.js'
+
 /* ---------------------------------------------------------------- animation */
 
-export { EASINGS, PRESETS, compilePreset, composeAnim, evalTrack } from './anim/index.js'
-export type { AnimCompiler, PresetCtx, PresetFn } from './anim/index.js'
+export {
+  CHANNELS,
+  CUBIC_BEZIER_SYNTAX,
+  EASINGS,
+  PARAM_UNITS,
+  PRESETS,
+  PRESET_PARAMS,
+  compilePreset,
+  composeAnim,
+  cubicBezier,
+  evalTrack,
+  isEasing,
+  resolveEasing,
+} from './anim/index.js'
+/**
+ * `ParamDefault` and its members are published alongside `ParamDescriptor`
+ * because P2 and P3 are the named consumers of the table and both have to
+ * *switch* on `default.from`, not merely read it — see the note in
+ * `anim/index.ts`. Exporting the descriptor without its union left a surface
+ * that could be read and not processed.
+ */
+export type {
+  AnimCompiler,
+  Channel,
+  CtxDefault,
+  EnumDefault,
+  EnumParam,
+  NoDefault,
+  NumericDefault,
+  NumericParam,
+  ParamDefault,
+  ParamDescriptor,
+  ParamShape,
+  ParamUnit,
+  PresetCtx,
+  PresetFn,
+  PresetKind,
+  ValueDefault,
+} from './anim/index.js'
 
 /* -------------------------------------------------------------- measurement */
 

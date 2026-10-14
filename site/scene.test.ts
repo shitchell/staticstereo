@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateScene } from './scene.js'
+import { CHANNELS, PRESETS } from '../src/core/index.js'
+import type { Track } from '../src/core/types.js'
 
 /**
  * A scene arriving from `location.hash` is **untrusted input** — it came from a
@@ -128,7 +130,7 @@ describe('validateScene', () => {
       message = (err as Error).message
     }
     expect(message).toMatch(/wobble/)
-    expect(message).toMatch(/marquee/)
+    for (const kind of Object.keys(PRESETS)) expect(message).toMatch(kind)
     expect(message).toMatch(/layers\[0\]\.anim/)
   })
 
@@ -136,12 +138,51 @@ describe('validateScene', () => {
     const scene = validateScene({
       size: [8, 8],
       layers: [
-        { type: 'text', text: 'A', anim: [{ kind: 'marquee' }, { kind: 'bob' }] },
+        { type: 'text', text: 'A', anim: [{ kind: 'move' }, { kind: 'push' }] },
         { type: 'text', text: 'B', anim: { keys: [{ t: 0, y: 0 }, { t: 1, y: 10 }], ease: 'linear' } },
-        { type: 'text', text: 'C', anim: { kind: 'emerge' } },
+        { type: 'text', text: 'C', anim: { kind: 'push' } },
       ],
     })
     expect(scene.layers).toHaveLength(3)
+  })
+
+  it('accepts a cubic-bezier ease on a track and on a preset', () => {
+    // The site half of the acceptance: the same scene must also pass the
+    // CLI's `validateScene`. This validator **rebuilds** the track field by
+    // field, so a rejected `ease` here is not merely an error — before the
+    // check was widened it was an error; had it instead been dropped, the
+    // shared link would have rendered with `linear` and said nothing.
+    const scene = validateScene({
+      size: [8, 8],
+      layers: [
+        {
+          type: 'text', text: 'A',
+          anim: { keys: [{ t: 0 }, { t: 1, x: 5 }], ease: 'cubic-bezier(.17,.67,.83,.67)' },
+        },
+        { type: 'text', text: 'B', anim: { kind: 'scale', ease: 'cubic-bezier(0, 0, 1, 1)' } },
+      ],
+    })
+    expect((scene.layers[0]!.anim as Track).ease).toBe('cubic-bezier(.17,.67,.83,.67)')
+  })
+
+  it('still rejects a malformed or out-of-range cubic-bezier, naming the form', () => {
+    for (const ease of [
+      'cubic-bezier(0,0,1)', 'cubic-bezier(a,b,c,d)', 'cubic-bezier(2,0,1,1)', 'snap',
+    ]) {
+      let message = ''
+      try {
+        validateScene({
+          size: [8, 8],
+          layers: [{ type: 'text', text: 'A', anim: { keys: [{ t: 0 }], ease } }],
+        })
+      } catch (err) {
+        message = (err as Error).message
+      }
+      expect(message, ease).toMatch(/ease/)
+      // The named list stopped describing what is accepted the moment the
+      // type widened, so the message has to name the other form as well.
+      expect(message, ease).toMatch(/cubic-bezier/)
+    }
   })
 
   it('rejects a raw track with no usable keys', () => {
@@ -153,6 +194,47 @@ describe('validateScene', () => {
       size: [8, 8],
       layers: [{ type: 'text', text: 'A', anim: { keys: [{ y: 3 }] } }],
     })).toThrowError(/\.t\b/)
+  })
+
+  // Unlike the CLI validator, this one rebuilds every object field by field
+  // and keeps only what it explicitly copies, so an unlisted channel is not
+  // rejected — it is silently dropped, and the layer renders motionless on that
+  // axis with no error anywhere. Widening a list would not have been enough:
+  // the copy itself has to be the loop over `CHANNELS`.
+  it('keeps every animatable channel in a keyframe rather than dropping it', () => {
+    const key: Record<string, number> = { t: 0 }
+    CHANNELS.forEach((ch, i) => { key[ch] = i + 1 })
+    const out = validateScene({
+      size: [8, 8],
+      layers: [{ type: 'text', text: 'A', anim: { keys: [key] } }],
+    })
+    const track = out.layers[0]?.anim as Track | undefined
+    const got = (track?.keys[0] ?? {}) as Record<string, number>
+    expect(new Set(Object.keys(got))).toEqual(new Set(['t', ...CHANNELS]))
+    for (const ch of CHANNELS) expect(got[ch]).toBe(key[ch])
+  })
+
+  // The other half of the same asymmetry. The test above makes the *known*
+  // channels survive the rebuild; a misspelled one was still discarded in
+  // silence. `rotatX: 5` made the CLI name the key and refuse to load, while
+  // the site accepted the scene, dropped the value, and rendered something
+  // subtly wrong with no signal anywhere — the one error class a validator
+  // catches that nothing downstream ever will.
+  it('rejects an unknown keyframe channel instead of dropping it', () => {
+    let message = ''
+    try {
+      validateScene({
+        size: [8, 8],
+        layers: [{ type: 'text', text: 'A', anim: { keys: [{ t: 0, rotatX: 5 }] } }],
+      })
+    } catch (err) {
+      message = (err as Error).message
+    }
+    expect(message).toMatch(/rotatX/)
+    expect(message).toMatch(/layers\[0\]\.anim\.keys\[0\]/)
+    // Naming the bad key without listing the good ones leaves the author
+    // guessing, which is where the CLI's wording earns its keep.
+    for (const valid of ['t', ...CHANNELS]) expect(message).toContain(valid)
   })
 
   it('rejects an animator that is neither a track nor a preset', () => {
@@ -189,6 +271,29 @@ describe('validateScene', () => {
       .toThrowError(/layers\[0\]\.at/)
     expect(() => validateScene({ size: [8, 8], layers: [{ type: 'text', text: 'A', depth: 'near' }] }))
       .toThrowError(/layers\[0\]\.depth/)
+  })
+
+  // Not a validation nicety: the hash *is* the scene here, so a field this
+  // rebuild forgets to copy is destroyed on every round trip through the URL,
+  // not merely ignored. A dropped `id` takes every reference to that layer
+  // with it, and there is no other copy to restore it from.
+  it('carries a layer id and name through the rebuild, and mints neither', () => {
+    const out = validateScene({
+      size: [8, 8],
+      layers: [{ type: 'text', text: 'A', id: 'k3Qp', name: 'greeting' }],
+    })
+    expect(out.layers[0]).toMatchObject({ id: 'k3Qp', name: 'greeting' })
+
+    const bare = validateScene({ size: [8, 8], layers: [{ type: 'text', text: 'A' }] })
+    expect(bare.layers[0]).not.toHaveProperty('id')
+    expect(bare.layers[0]).not.toHaveProperty('name')
+
+    expect(() => validateScene({
+      size: [8, 8], layers: [{ type: 'text', text: 'A', id: 5 }],
+    })).toThrowError(/layers\[0\]\.id/)
+    expect(() => validateScene({
+      size: [8, 8], layers: [{ type: 'text', text: 'A', name: [] }],
+    })).toThrowError(/layers\[0\]\.name/)
   })
 
   it('rejects an unknown gif loop mode and an unknown image mode', () => {
