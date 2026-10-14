@@ -390,6 +390,46 @@ describe('every role the chrome module can produce has a renderer arm', () => {
     expect(() => renderingFor(`${CONTROL_PREFIX}Not A Class`)).toThrow(/class/)
   })
 
+  it('refuses the prototype chain, so an inherited name is not a renderer arm', () => {
+    // E8 / R-l, and this table was the live sixth instance of the idiom P0b
+    // closed in five registries (`cde97ff`, `75508ce`, `ff6d41d`,
+    // `ad3a6d2`/`0eaedcf`, `6f583ef`). `ROLE_RENDERING` is a plain object
+    // literal, so `ROLE_RENDERING['constructor']` is the `Object` **function**,
+    // which is `!== undefined` — the bare index at the top of `renderingFor`
+    // therefore returned it typed as a `RoleRendering`, past both the control
+    // prefix rule and the throw that exist to make an unknown role loud.
+    //
+    // The symptom is the worst available one for this module. `applyChrome`
+    // reads `.classes` off the answer and spreads it into `classList.add`,
+    // and `Object.classes` is `undefined`, so the node is built with no class
+    // at all: unstyled, and — because `player.css` gives the controls
+    // `pointer-events: auto` by class while the container is `none` —
+    // unclickable. That is exactly the failure `CONTROL_PREFIX`'s docblock
+    // says the prefix rule exists to prevent, arriving through the one door
+    // the prefix rule does not cover. `primaryClassOf` is worse again: it is
+    // `classes[0]!`, so it hands back `undefined` typed as a `string`.
+    //
+    // The correct answer for every one of these names is the same answer any
+    // other unknown structural role gets — a throw naming the role — because
+    // none of them carries the control prefix. This module is forbidden to
+    // decide anything, and silently rendering a node for a name that came from
+    // `Object.prototype` is a decision.
+    for (const inherited of ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']) {
+      expect(() => renderingFor(inherited), inherited).toThrow(/unknown chrome role/)
+      expect(() => primaryClassOf(inherited), inherited).toThrow(/unknown chrome role/)
+    }
+  })
+
+  it('still answers for the roles that are really in the table', () => {
+    // §6.5a's other half. The throws above are evidence only because the same
+    // reader, asked for a role the table really holds, returns its arm — the
+    // whole describe is otherwise satisfied by a function that throws at every
+    // call, which would take the player's chrome down with it.
+    for (const [name, role] of ROLES) {
+      expect(() => renderingFor(role), name).not.toThrow()
+    }
+  })
+
   it('gives the two tag-ambiguous controls the attributes their tag needs', () => {
     // The tree says `tag: 'input'` and stops there, because it is not allowed
     // to know what a tag resolves to. An `<input>` with no `type` is a TEXT
