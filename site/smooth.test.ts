@@ -27,7 +27,15 @@ const SCENE: Scene = {
   freezeNoise: false,
   stereo: { sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7 },
   layers: [
-    { type: 'text', text: 'HELLO', size: 60, depth: 0.6, anim: { kind: 'marquee', speed: 60 } },
+    // Was `{kind: 'marquee', speed: 60}`; see `fit.test.ts`'s copy for why it
+    // is now a `move` with explicit endpoints. P0 deleted `marquee`, and the
+    // animator is incidental to every assertion here — `planFit` reads only
+    // `size` and `stereo` — but `validateScene` is not, and it rejects a kind
+    // no registry implements.
+    {
+      type: 'text', text: 'HELLO', size: 60, depth: 0.6,
+      anim: { kind: 'move', from: [-320, 0], to: [320, 0], speed: 60 },
+    },
   ],
 }
 
@@ -488,9 +496,18 @@ describe('parseSmooth and the fragment', () => {
   })
 
   it('and the fragment spelling it refuses really would break the scene', () => {
-    // The positive control, as in present.test.ts and fit.test.ts.
+    // The positive control, as in present.test.ts and fit.test.ts. See
+    // `fit.test.ts`'s copy for why the refusal is named two ways: the codec
+    // rejects an invalid LENGTH before it scans characters, so which of the
+    // two messages a suffix produces depends on the body's length mod 4 and
+    // not on anything this test is claiming. This copy passed where
+    // `fit.test.ts`'s failed purely because `&smooth=on` is ten characters and
+    // `&fit=snap` is nine.
     const body = encodeSceneHash(SCENE)
-    expect(() => parseSceneHash(`#${body}&smooth=on`)).toThrow(/not a base64url character/)
-    expect(() => parseSceneHash(`#${body}?smooth=on`)).toThrow(/not a base64url character/)
+    expect(parseSceneHash(`#${body}`)).toEqual(SCENE)
+    const REFUSED = /not a base64url character|is not a valid base64 length/
+    for (const sep of ['&', '?']) {
+      expect(() => parseSceneHash(`#${body}${sep}smooth=on`), sep).toThrow(REFUSED)
+    }
   })
 })

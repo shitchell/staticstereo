@@ -30,7 +30,16 @@ const SCENE: Scene = {
   freezeNoise: false,
   stereo: { sepFar: 110, sepNear: 92, noiseScale: 2, depthBlur: 1, cross: false, seed: 7 },
   layers: [
-    { type: 'text', text: 'HELLO', size: 60, depth: 0.6, anim: { kind: 'marquee', speed: 60 } },
+    // Was `{kind: 'marquee', speed: 60}`. P0 deleted `marquee`; `presets.ts`
+    // records its recomposition — "a `move` with a `speed`" — and `move`
+    // rejects a `speed` over a zero-length travel, so the endpoints are
+    // written out. The animator is incidental to every assertion here; what
+    // matters is that the fixture stays a scene `validateScene` accepts, which
+    // is what the round-trip assertions below are measuring.
+    {
+      type: 'text', text: 'HELLO', size: 60, depth: 0.6,
+      anim: { kind: 'move', from: [-320, 0], to: [320, 0], speed: 60 },
+    },
   ],
 }
 
@@ -338,7 +347,24 @@ describe('parseFit and the fragment', () => {
     // The positive control. Without it, "fit lives in the query" is a claim
     // about a danger nobody has shown to exist.
     const body = encodeSceneHash(SCENE)
-    expect(() => parseSceneHash(`#${body}&fit=snap`)).toThrow(/not a base64url character/)
-    expect(() => parseSceneHash(`#${body}?fit=snap`)).toThrow(/not a base64url character/)
+    // Non-vacuity: the unmodified body decodes, so whatever the appended
+    // parameter does below, it is the parameter doing it and not the fixture.
+    expect(parseSceneHash(`#${body}`)).toEqual(SCENE)
+    // **Which refusal fires is a property of the body's LENGTH, not of the
+    // parameter.** `base64UrlToBytes` rejects `length % 4 === 1` before it
+    // looks at a single character, and `&fit=snap` is nine characters: a body
+    // that is 0 mod 4 trips the length check, one that is 2 or 3 mod 4 reaches
+    // the character check. This assertion used to name only the character
+    // message and passed for a phase because the fixture happened to sit in
+    // the right class; editing one layer of the scene moved it and reddened a
+    // test that was making no claim about scene contents at all. Both messages
+    // are the same refusal — the fragment is base64url and `&`, `?` and `=`
+    // are not in that alphabet, so a query parameter cannot be expressed
+    // inside it — and both are named, so an unrelated third failure mode still
+    // cannot pass as either.
+    const REFUSED = /not a base64url character|is not a valid base64 length/
+    for (const sep of ['&', '?']) {
+      expect(() => parseSceneHash(`#${body}${sep}fit=snap`), sep).toThrow(REFUSED)
+    }
   })
 })
