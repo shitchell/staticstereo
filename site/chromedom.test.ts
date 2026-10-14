@@ -100,15 +100,47 @@ function linkedStylesheets(html: string): string[] {
 
 const ENTRY_HTML = readFileSync(new URL('./player.html', import.meta.url), 'utf8')
 
+/**
+ * A linked `href` that is a plain sibling of the entry, which is the only
+ * shape this file can read off disk.
+ *
+ * The discovery above used to strip a leading `./` and hand whatever was left
+ * straight to `readFileSync`, at module scope. That is fine for the two sheets
+ * the entry links today and illegible for anything else: a CDN href, a
+ * protocol-relative `//`, or a sheet moved into `site/css/` would each become
+ * an **ENOENT thrown while collecting this file**, taking all of
+ * `chromedom.test.ts` down with a stack trace about a missing path rather than
+ * one named failure saying which href it could not read. `site/dist.test.ts`
+ * already keeps an `isExternal` helper for exactly this; this file had none.
+ */
+const SIBLING_SHEET = /^\.\/([\w.-]+\.css)$/
+
+const LINKED_HREFS = linkedStylesheets(ENTRY_HTML)
+/** The ones read below, and the ones that could not be — reported, never thrown. */
+const SHEET_NAMES = LINKED_HREFS.map(href => SIBLING_SHEET.exec(href)?.[1])
+const UNREADABLE_HREFS = LINKED_HREFS.filter((_, i) => SHEET_NAMES[i] === undefined)
+
 /** Each linked sheet: its filename, its text, and its text with comments stripped. */
-const PLAYER_SHEETS = linkedStylesheets(ENTRY_HTML).map(href => {
-  const name = href.replace(/^\.\//, '')
+const PLAYER_SHEETS = SHEET_NAMES.filter((n): n is string => n !== undefined).map(name => {
   const text = readFileSync(new URL(`./${name}`, import.meta.url), 'utf8')
   return { name, text, code: text.replace(/\/\*[\s\S]*?\*\//g, '') }
 })
 
 describe('the stylesheets under test are the ones the page loads', () => {
   it('discovered them from the entry, rather than matching nothing and passing', () => {
+    // First, because it is the diagnosis: every sheet the entry links was in
+    // fact read. An href this file cannot resolve is a named failure here
+    // rather than a collection-time ENOENT, and it is a failure rather than a
+    // skip — a sheet that is linked and not swept is a sheet with no guard on
+    // it, which is precisely the hole `playerpage.css` sat in before the
+    // sweeps were widened. Ahead of the floor below so that the dropped sheet
+    // is reported as a dropped sheet, not as a count that came out short.
+    expect(
+      UNREADABLE_HREFS,
+      'the entry links a stylesheet this file cannot read off disk, so it is linked but ' +
+      'not swept — move it back beside the entry, or teach this helper to reach it',
+    ).toEqual([])
+    expect(PLAYER_SHEETS).toHaveLength(LINKED_HREFS.length)
     // The vacuity floor, and it is the load-bearing assertion of this block:
     // every sweep that follows is a loop over `PLAYER_SHEETS`, so a parser
     // that found nothing would prove every absence at once.
@@ -124,6 +156,12 @@ describe('the stylesheets under test are the ones the page loads', () => {
         '<link rel="preload" href="./a.css"><link href="./invented-tomorrow.css" rel="stylesheet">',
       ),
     ).toEqual(['./invented-tomorrow.css'])
+    // ...and the sibling test really does separate the readable from the rest,
+    // instead of letting the three shapes above reach `readFileSync`.
+    expect(SIBLING_SHEET.exec('./player.css')?.[1]).toBe('player.css')
+    for (const href of ['https://cdn.example/x.css', '//cdn.example/x.css', './css/x.css']) {
+      expect(SIBLING_SHEET.test(href), href).toBe(false)
+    }
   })
 })
 
@@ -186,15 +224,41 @@ function isRoleExport(name: string): boolean {
  * filtered on both: a `ROLE_`-named export that is not a string is a mistake
  * worth a red test, and a predicate that required `typeof value === 'string'`
  * would silently drop it instead.
+ *
+ * The string check is **a test and not a step of this map**, which it used to
+ * be. An `expect` at module scope throws while vitest is *collecting*, so a
+ * `ROLE_`-named non-string aborted this entire file — twenty-odd assertions
+ * replaced by one stack trace — where the docblock's argument only ever asked
+ * for one red test naming the export. The red was real and far less legible
+ * than the prose implied.
  */
 const ROLES = Object.entries(chrome as unknown as Record<string, unknown>)
   .filter(([name]) => isRoleExport(name))
-  .map(([name, value]) => {
-    expect(typeof value, `${name} is not a string constant`).toBe('string')
-    return [name, value as string] as const
-  })
+  .map(([name, value]) => [name, value as string] as const)
 
 const ROLE_NAMES = ROLES.map(([name]) => name)
+
+/**
+ * Every `ROLE_`-named declaration in `playerchrome.ts`'s **source text**.
+ *
+ * Deliberately the old, holed regex — it misses a type annotation, an
+ * `export { … as ROLE_X }` re-export and a `satisfies` clause, which is why
+ * the enumeration above reads the runtime namespace instead. It is kept as a
+ * **cross-check in one direction only**: whatever the source plainly declares
+ * must appear in the namespace enumeration. The reverse does not hold and must
+ * not be asserted, because the namespace is legitimately a superset — that
+ * superset is the entire point of the change.
+ *
+ * This replaces `expect(ROLE_NAMES).toEqual(Object.keys(chrome).filter(isRoleExport))`,
+ * which was the same expression over the same object with the same predicate
+ * on both sides and so could not fail for any input. Its stated purpose — "the
+ * live namespace really is the source, not a list typed here" — is worth
+ * having; it just was not what the line asserted.
+ */
+const ROLE_NAMES_IN_SOURCE = [
+  ...readFileSync(new URL('./playerchrome.ts', import.meta.url), 'utf8')
+    .matchAll(/^export const (ROLE_[A-Z_]+)\s*[:=]/gm),
+].map(m => m[1]!)
 
 describe('every role the chrome module can produce has a renderer arm', () => {
   it('found the role constants, rather than matching nothing and passing', () => {
@@ -213,6 +277,17 @@ describe('every role the chrome module can produce has a renderer arm', () => {
     expect(ROLE_NAMES).toContain('ROLE_TRANSPORT')
   })
 
+  it('exports every one of them as a string constant', () => {
+    // Its own test rather than a step of the `ROLES` map, where it was an
+    // `expect` at module scope: that throws during collection, so one
+    // misdeclared export took this whole file down with a stack trace instead
+    // of failing here, by name.
+    for (const [name, value] of ROLES) {
+      expect(typeof value, `${name} is not a string constant`).toBe('string')
+    }
+    expect(ROLES.length).toBeGreaterThanOrEqual(6)
+  })
+
   it('enumerates by name from the namespace, so no declaration syntax hides a role', () => {
     // The positive control for the enumeration itself. A synthetic namespace
     // cannot express the case that motivated the change — a type annotation
@@ -222,9 +297,26 @@ describe('every role the chrome module can produce has a renderer arm', () => {
     // take the module's other string constant.
     const pretend = { ROLE_CAPTION: 'caption', CONTROL_PREFIX: 'control:', nodesOf: () => [] }
     expect(Object.keys(pretend).filter(isRoleExport)).toEqual(['ROLE_CAPTION'])
-    // ...and the live namespace really is the source, not a list typed here.
-    expect(ROLE_NAMES).toEqual(Object.keys(chrome).filter(isRoleExport))
-    expect(ROLE_NAMES).not.toContain('CONTROL_PREFIX')
+    // ...and the enumeration really does come from the module rather than from
+    // a list typed in this file. Cross-checked against the source text, in one
+    // direction: every `ROLE_` the source plainly declares has to be in it.
+    //
+    // One direction, because the namespace is legitimately a *superset* — the
+    // source regex misses an annotated declaration, a renamed re-export and a
+    // `satisfies` clause, which is the whole reason the enumeration stopped
+    // being a regex. Asserting equality would re-impose the holes it exists to
+    // avoid.
+    //
+    // This line replaces `toEqual(Object.keys(chrome).filter(isRoleExport))`,
+    // which was `ROLE_NAMES`' own definition spelled out again and so could
+    // not fail for any input.
+    expect(ROLE_NAMES_IN_SOURCE.length, 'the source scan found no roles').toBeGreaterThanOrEqual(6)
+    for (const declared of ROLE_NAMES_IN_SOURCE) {
+      expect(
+        ROLE_NAMES,
+        `${declared} is declared in playerchrome.ts and is not in the enumeration`,
+      ).toContain(declared)
+    }
   })
 
   it('renders each of them, with at least one class and no duplicates', () => {
