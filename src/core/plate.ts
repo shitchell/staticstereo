@@ -89,12 +89,42 @@ export interface PlateLayout {
  * near object at `z = 0` and therefore at `sepFar`.
  *
  * **Honest note on the `shift` right margin.** It is there for the fusion
- * fringe, and no measurement in this repo can see it: `shift`'s pairs are
- * `(x - sep, x)`, so a slab flush against the stage's right edge is fully
- * encoded with a right margin of 0 (verified — `plate.test.ts` records it).
- * It is kept because §10.3 specifies it, it costs `ceil(sepFar/2)` emitted
- * columns, and the percept it buys cannot be measured monocularly. Unlike the
- * other three numbers here, mutating it to 0 does **not** turn any test red.
+ * fringe, and **no measurement of an emitted stereogram in this repo can see
+ * it**: `shift`'s pairs are `(x - sep, x)`, so a slab flush against the
+ * stage's right edge is fully encoded with a right margin of 0. That is
+ * witnessed positively rather than merely unobserved — `plate.test.ts`'s
+ * `shift needs no right margin to encode its right edge; linked does` passes
+ * `{right: 0}` in explicitly and still gets all 120 right-edge stage columns
+ * encoded, where `linked` under the same margin gets fewer. It is kept because
+ * §10.3 specifies it, it costs `ceil(sepFar/2)` emitted columns, and the
+ * percept it buys cannot be measured monocularly.
+ *
+ * **What the suite does see is the number.** An earlier revision of this note
+ * went on to claim that, unlike the other three, mutating this one to 0 turns
+ * no test red. Measured — `right: 0` in the `shift` branch below — that is
+ * false. It reddens five tests across three files:
+ *
+ * - `plate.test.ts` · `marginsFor (design §10.3) > is left-heavy for shift and
+ *   symmetric for linked`
+ * - `plate.test.ts` · `marginsFor (design §10.3) > rounds the half-margin up,
+ *   so an odd sepFar never under-pads`
+ * - `plate.test.ts` · `plateLayoutOf > widens the plate under shift, because
+ *   its dead zone is left-heavy`
+ * - `raster.test.ts` · `rasterDepth preset context > plate margins > is
+ *   left-heavy under shift and symmetric under linked`
+ * - `site/stageguide.test.ts` · `stageGuideLabel > tracks the encoder, since
+ *   shift pads left-heavily`
+ *
+ * **The two claims are about different things and only the second was wrong.**
+ * Every one of those five reads the number back out: the arithmetic table
+ * above, the plate-width identity (`110 + 800 + 55 = 965`), its propagation
+ * into `PresetCtx`, and the guide label that prints it. Not one of them
+ * renders a stereogram and measures it. So they pin *the number* as an
+ * interface, and say nothing about *the percept* — the claim above, that
+ * nothing can detect this margin's absence in the encoded image, still stands.
+ * Do not read those five reds as the fringe turning out to be measurable after
+ * all: that reading invites cropping the plate back to the stage, and §10.4
+ * (and the trap it is recorded as) is exactly why not.
  */
 export function marginsFor(sepFar: number, algorithm: SirdsAlgorithm): Margins {
   if (!Number.isFinite(sepFar) || sepFar < 2) {
