@@ -42,6 +42,33 @@ function siteModules(): readonly string[] {
     .sort()
 }
 
+/** The `site/` modules `name` imports, by its own relative specifiers. */
+function importsOf(name: string): readonly string[] {
+  const source = readFileSync(join(SITE, name), 'utf8')
+  return [...source.matchAll(/from '\.\/([a-z]+)\.js'/g)].map(m => `${m[1]!}.ts`)
+}
+
+/**
+ * Every `site/` module that reaches `query.ts` by some chain of imports.
+ *
+ * A fixed point rather than one pass: the chain is three deep today
+ * (`player.ts` → `playerplan.ts` → `fit.ts` → `query.ts`) and nothing caps it.
+ */
+function queryCone(): ReadonlySet<string> {
+  const cone = new Set<string>(['query.ts'])
+  for (let growing = true; growing; ) {
+    growing = false
+    for (const name of siteModules()) {
+      if (cone.has(name)) continue
+      if (importsOf(name).some(dep => cone.has(dep))) {
+        cone.add(name)
+        growing = true
+      }
+    }
+  }
+  return cone
+}
+
 describe('searchParams', () => {
   /**
    * These pin the function's **contract** — what a caller may hand it — and not
@@ -207,9 +234,28 @@ describe('exactly one copy of the parse policy', () => {
    * reformatted call — fails here rather than passing with a count of zero.
    *
    * Each pattern is code-only by construction (a call, a `new`), not a word
-   * that could turn up in prose. The one residual hazard is a docblock that
-   * literally writes `new URLSearchParams(`, which would be a false positive;
-   * it would be legible as one.
+   * that could turn up in prose.
+   *
+   * ## What this sweep does NOT catch, measured
+   *
+   * **Its false positive**, which was the only hazard recorded here: a docblock
+   * that literally writes `new URLSearchParams(`. It would be legible as one.
+   *
+   * **Its false negative**, which is the one that matters and was missing. A
+   * verifier added a fourth parser spelling every one of the shared decisions
+   * differently — `search.replace(/^\?/, '')` for the leading `?`, `new
+   * URL(…).searchParams` instead of `new URLSearchParams(`,
+   * `[...params.entries()].filter(…).pop()` instead of `.getAll(`, and
+   * `.toLowerCase().trim()` in the reverse order — and this file passed
+   * **20/20**. The sweep did not see it, and no enumeration of idioms can: the
+   * patterns are the spellings this repo happens to use, and a copy is free to
+   * pick others.
+   *
+   * So the claim these three patterns support is the narrow one — *they catch
+   * the three idioms as written in this repo today* — and the broad one is
+   * carried by the next test instead, which is closed over **modules** rather
+   * than over spellings. That one is also not complete, in a different and
+   * stated direction.
    */
   /**
    * **Three patterns and not four.** `startsWith('?')` was the fourth, and it
@@ -242,6 +288,62 @@ describe('exactly one copy of the parse policy', () => {
       )
       // The floor and the claim in one: query.ts has it, and it is alone.
       expect(holders, what).toEqual(['query.ts'])
+    }
+  })
+
+  /**
+   * **The half an idiom sweep cannot do, closed over modules instead.**
+   *
+   * The sweep above enumerates spellings, and a verifier walked straight
+   * through it with a fourth parser that used four different ones. This test
+   * enumerates **modules**: anything in `site/` that handles a query string at
+   * all must sit inside `query.ts`'s own import cone, so a new reader has to
+   * reach the shared mechanism to be legal, whatever idiom it would have
+   * reached for. That is a property of the dependency graph and no choice of
+   * `replace` over `slice` can dodge it.
+   *
+   * "Handles a query string" is detected two ways, both chosen because they are
+   * about the module's *interface* rather than its body — the thing a copy
+   * cannot respell and still be a copy:
+   *
+   * - it **declares a parameter name** (`export const X_PARAM`), which is what
+   *   a fourth parameter looks like from outside; or
+   * - it **reads `location.search`** as code, which is what a module that
+   *   skipped the parsers entirely looks like.
+   *
+   * **The stated limitation.** This is closed over modules, so a *second copy
+   * inside the cone* — a hand-rolled reader added to `fit.ts`, which already
+   * imports `query.js` — satisfies it. That case is the idiom sweep's job, and
+   * the idiom sweep is incomplete. Between the two, what is actually guaranteed
+   * is: no query parsing outside the cone, and none of the three idioms this
+   * repo writes anywhere but here. Neither is "there can never be a fourth
+   * copy", and nothing in this file should be read as claiming it.
+   */
+  it('leaves no module outside query.ts’s import cone handling a query string', () => {
+    const cone = queryCone()
+    // Floors on the cone itself: it is real, and it is not simply every module
+    // in the directory, which would make membership no constraint at all.
+    expect(cone).toContain('query.ts')
+    expect(cone.size).toBeGreaterThan(5)
+    expect(cone.size).toBeLessThan(siteModules().length)
+
+    const declared: string[] = []
+    const readers: string[] = []
+    for (const name of siteModules()) {
+      const source = readFileSync(join(SITE, name), 'utf8')
+      if (/export const [A-Z0-9_]+_PARAM\b/.test(source)) declared.push(name)
+      // Backtick-quoted `location.search` is prose; every module here names it
+      // in a docblock, and only some of them read it.
+      if (/(?<!`)location\.search/.test(source)) readers.push(name)
+    }
+    // Both detectors are live. The declaring modules are pinned by name because
+    // they are this page's whole parameter vocabulary; the readers are pinned
+    // by a count, because which module holds the DOM is another phase's choice.
+    expect(declared).toEqual(['fit.ts', 'present.ts', 'smooth.ts'])
+    expect(readers.length, 'modules reading location.search').toBeGreaterThan(0)
+
+    for (const name of new Set([...declared, ...readers])) {
+      expect(cone.has(name), `${name} handles a query string from outside the cone`).toBe(true)
     }
   })
 

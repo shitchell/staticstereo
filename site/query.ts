@@ -26,9 +26,23 @@
  * drop channels as a result.
  *
  * So the mechanism is here and there is exactly one of it, and
- * `site/query.test.ts` asserts that by sweeping every non-test module in
- * `site/` for each spelling of the policy. A later parameter that hand-rolls
- * its own reader fails that sweep rather than quietly becoming the fourth copy.
+ * `site/query.test.ts` is where that is asserted — in two tests that are each
+ * incomplete in a *stated* direction, because the earlier single claim was not
+ * true and a reader acting on it would have been misled:
+ *
+ * - a **sweep over spellings**, which catches the three idioms as written in
+ *   this repo today and nothing else. It does not catch a copy that picks other
+ *   spellings, and that is not hypothetical: a verifier wrote a fourth parser
+ *   using `new URL(…).searchParams`, `.entries().pop()` and
+ *   `.toLowerCase().trim()`, and the sweep passed 20/20 over it.
+ * - a **pin over modules**, which requires every `site/` module that declares a
+ *   parameter or reads `location.search` to sit inside this module's import
+ *   cone. No choice of idiom evades it, because it is a property of the
+ *   dependency graph. What it permits is a second copy *inside* the cone.
+ *
+ * Together: no query parsing outside the cone, and none of this repo's three
+ * idioms anywhere but here. Not "there can never be a fourth copy" — that claim
+ * stood here and was disproved by hand.
  *
  * ## What is deliberately NOT here
  *
