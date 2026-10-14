@@ -225,7 +225,14 @@ function validateAnimOne(v: unknown, path: string): Track | Record<string, unkno
   if ('keys' in v) return validateTrack(v, path)
   if ('kind' in v) {
     const kind = v['kind']
-    if (typeof kind !== 'string' || !(kind in PRESETS)) {
+    // `Object.hasOwn`, **not** `kind in PRESETS`: `in` walks the prototype
+    // chain, `PRESETS` is a plain object literal, and `'constructor' in PRESETS`
+    // is `true`. So this validator accepted `anim: {kind: "constructor"}` from a
+    // hash and handed it on, where `compilePreset`'s own guard was bypassed the
+    // same way and returned a non-`Track` with nothing thrown — a shared link
+    // that renders a still and explains nothing. Same defect, same fix, as
+    // `parseFit` in `site/fit.ts`, which records the reasoning at length.
+    if (typeof kind !== 'string' || !Object.hasOwn(PRESETS, kind)) {
       // core's `compilePreset` produces this message too, but only once a frame
       // is actually rendered — from inside the rasteriser, with no field path.
       // Catching it here is the difference between "layers[1].anim: unknown

@@ -302,4 +302,84 @@ describe('validateScene', () => {
     expect(() => validateScene({ size: [8, 8], layers: [{ type: 'image', src: 'a.png', mode: 'relief' }] }))
       .toThrowError(/layers\[0\]\.mode/)
   })
+
+  /**
+   * The two registry lookups this validator performs on a hash-supplied string
+   * — the preset `kind` and the track `ease`.
+   *
+   * This is the file's own premise under test. The docblock at the top says the
+   * rule is "be exactly as permissive as `core`, and no more"; a lookup that
+   * consults `Object.prototype` is *more* permissive than core by twelve keys
+   * nobody wrote down, and the scene it admits is not one core can render. It
+   * is also the only input on this page that an attacker chooses: a link is the
+   * whole scene, so "a string from a URL nobody in this repo wrote" is the
+   * normal case, not the adversarial one. `site/fit.ts:111-116` records the
+   * same reasoning for `?fit=`.
+   *
+   * `constructor` and `__proto__` are enumerated rather than sampled because
+   * they resolve to different *types* — a function and an object — and a guard
+   * can be wrong about one while handling the other.
+   */
+  describe('inherited Object.prototype keys are not registry members', () => {
+    const INHERITED = ['constructor', '__proto__', 'toString', 'valueOf'] as const
+
+    const message = (scene: unknown): string => {
+      try {
+        validateScene(scene)
+      } catch (err) {
+        return (err as Error).message
+      }
+      return ''
+    }
+
+    it('rejects an inherited key as a preset kind, which core cannot render', () => {
+      // Measured at `3a05f63`: `kind in PRESETS` was `true` for all four, so
+      // this validator *accepted* the scene and handed it to the rasteriser,
+      // where `compilePreset`'s own `if (!fn)` guard was bypassed the same way
+      // and `{kind: 'constructor'}` came back typed as a `Track`. Nothing threw
+      // and nothing warned — the link rendered a still.
+      //
+      // Asserting the message, not the throw: core threw a `TypeError` from
+      // inside `evalTrack` for two of these four even before the fix, so a
+      // `.toThrow()` here would not have been red, and would not distinguish
+      // this validator doing its job from the rasteriser crashing later.
+      for (const kind of INHERITED) {
+        const scene = { size: [8, 8], layers: [{ type: 'text', text: 'X', anim: { kind } }] }
+        const msg = message(scene)
+        expect(msg, kind).toMatch(/unknown animation preset/)
+        expect(msg, kind).toContain(kind)
+        expect(msg, kind).toMatch(/layers\[0\]\.anim/)
+        for (const valid of Object.keys(PRESETS)) expect(msg, kind).toContain(valid)
+      }
+    })
+
+    it('rejects an inherited key as a track ease', () => {
+      // **Already closed, and not by this task.** `ease in EASINGS` was this
+      // file's other prototype-chain site; widening `Easing` to admit
+      // `cubic-bezier(...)` replaced it with `isEasing`, which resolves names
+      // through `namedEasing`'s `Object.prototype.hasOwnProperty.call`. So this
+      // test was green the first time it ran and is a regression pin, not
+      // evidence — its RED was established by mutation, by restoring `!(ease in
+      // EASINGS)` here, which turns all eight assertions red.
+      //
+      // Worth pinning anyway because this was the *silent* half: `EASINGS`
+      // inherits `toString`, `channelAt` multiplied a keyframe delta by the
+      // string it returns, and the layer sat at `x: NaN` for the whole scene
+      // with no error anywhere. `track.test.ts` holds the core half of that.
+      //
+      // **Tracks only, deliberately.** `ease` on a *preset* is not checked
+      // here: `validateAnimOne` copies a preset's parameter bag through
+      // untouched by design (see its comment), and core's `overrides()` is what
+      // rejects it — measured: `compilePreset({kind: 'move', ease:
+      // 'constructor'})` throws `preset "move": unknown easing "constructor" —
+      // valid: …`. Asserting a rejection here would be asserting against this
+      // validator's stated division of labour, not for it.
+      for (const ease of INHERITED) {
+        const anim = { keys: [{ t: 0 }, { t: 1, x: 5 }], ease }
+        const msg = message({ size: [8, 8], layers: [{ type: 'text', text: 'X', anim }] })
+        expect(msg, ease).toMatch(/ease/)
+        expect(msg, ease).toContain(ease)
+      }
+    })
+  })
 })

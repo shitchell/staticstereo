@@ -422,6 +422,93 @@ describe('move off-stage endpoints', () => {
 })
 
 /**
+ * Both registries in this file are indexed with a string that came from a scene
+ * file, which on the site means **from a URL someone else wrote**. Neither
+ * lookup may consult `Object.prototype`.
+ *
+ * This is the third instance of one idiom being wrong in this repo, in three
+ * files written by three different authors — `site/fit.ts`'s `parseFit` (`key in
+ * FIT_MODES` returned `'constructor'` as a valid fit mode), `site/scene.ts`'s
+ * `kind in PRESETS`, and these two. So the assertions below pin the *message*
+ * rather than the fact of a throw: every one of these keys already threw
+ * something before the guards went in, and a test asserting `.toThrow()` alone
+ * would have passed against a registry that was still inheriting.
+ *
+ * `constructor` and `__proto__` are named individually, not probed as "a weird
+ * key", because they fail in different shapes — a function and an object — and
+ * a guard that catches one need not catch the other. `toString`/`valueOf` ride
+ * along as the two the repo has already been bitten by (`track.test.ts`).
+ */
+const INHERITED = ['constructor', '__proto__', 'toString', 'valueOf'] as const
+
+describe('registry lookups do not walk the prototype chain', () => {
+  it('rejects an inherited key as a preset kind, loudly and with the registry', () => {
+    // The pre-fix shapes, measured against `dist/core` at `3a05f63`:
+    //   `{kind: 'constructor'}` returned the *Preset* typed as a `Track`
+    //   `{kind: 'toString'}`    returned the string "[object Undefined]" as a `Track`
+    //   `{kind: '__proto__'}`   threw `TypeError: fn is not a function`
+    //   `{kind: 'valueOf'}`     threw `TypeError: Cannot convert undefined …`
+    // Two silent, two loud-but-illegible, so neither "it throws" nor "it does
+    // not return garbage" is sufficient on its own and both are asserted.
+    for (const kind of INHERITED) {
+      let thrown: unknown
+      let returned: unknown
+      try {
+        returned = compilePreset({ kind }, ctx)
+      } catch (err) {
+        thrown = err
+      }
+      expect(thrown, `${kind}: must not compile to anything`).toBeInstanceOf(Error)
+      expect(returned, kind).toBeUndefined()
+      // Not a `TypeError` from inside the registry: that is what indexing an
+      // inherited property produced, and it names no field and no scene.
+      expect((thrown as Error).constructor.name, kind).toBe('Error')
+      const message = (thrown as Error).message
+      expect(message, kind).toMatch(/unknown animation preset/)
+      expect(message, kind).toContain(kind)
+      for (const valid of Object.keys(PRESETS)) expect(message, kind).toContain(valid)
+    }
+  })
+
+  it('rejects an inherited key in an endpoint slot with the token message, not the axis one', () => {
+    // The pre-fix shape here is the subtler of the two: `OFF_STAGE[v]` found an
+    // inherited property, so `if (!token)` did not fire and execution fell into
+    // the *axis-mismatch* branch one line down, where `token.slot` is
+    // `undefined`. The thrown message read "…is a undefined-axis endpoint —
+    // write it as "from"[undefined]", which is loud, actionable-looking and
+    // wrong: it tells the author to move a token that does not exist to a slot
+    // that does not exist. Asserting the correct message is what separates the
+    // fix from that, and `not.toMatch` pins the old text so it cannot come back
+    // under a different guard.
+    const valid = { 0: ['offLeft', 'offRight'], 1: ['offTop', 'offBottom'] } as const
+    for (const key of ['from', 'to']) {
+      for (const slot of [0, 1] as const) {
+        for (const token of INHERITED) {
+          const p = { kind: 'move', [key]: slot === 0 ? [token, 0] : [0, token] }
+          const where = JSON.stringify(p)
+          let message = ''
+          try {
+            compilePreset(p, ctx)
+          } catch (err) {
+            message = (err as Error).message
+          }
+          // the unknown-token message, which is the one an unknown name gets …
+          expect(message, where).toMatch(/must be a number or one of/)
+          expect(message, where).toContain(token)
+          // … naming the slot written and the tokens that slot does accept …
+          expect(message, where).toContain(`"${key}"[${slot}]`)
+          for (const name of valid[slot]) expect(message, where).toContain(name)
+          // … and never the axis-mismatch message, whose slot and axis are
+          // `undefined` for a key that is not in the table at all.
+          expect(message, where).not.toMatch(/axis endpoint/)
+          expect(message, where).not.toContain('undefined')
+        }
+      }
+    }
+  })
+})
+
+/**
  * `rotate` — the unit trap, named in the execution plan's trap table.
  *
  * The verb's parameters are **degrees** by design decision (§4.2), while

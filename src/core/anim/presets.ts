@@ -226,7 +226,18 @@ function endpoint(
   // message: widening this to accept tokens must not turn `to: [0, {}]` into a
   // report about symbolic endpoints, which is not what went wrong.
   if (typeof v !== 'string') throw pairError(p, key, whole)
-  const token = OFF_STAGE[v]
+  // `Object.hasOwn`, not a bare `OFF_STAGE[v]`: the table is an object literal
+  // on `Object.prototype`, so `OFF_STAGE['constructor']` is a *function* and
+  // `OFF_STAGE['__proto__']` is an *object* — both truthy, both sailing past
+  // the guard below and landing in the axis-mismatch branch, where
+  // `token.slot` is `undefined`. The message that produced told the author to
+  // "write it as `from`[undefined]", which is a loud error about a token that
+  // does not exist in a slot that does not exist. `v` reaches here from a
+  // scene file, and on the site that means from a link someone else wrote —
+  // both validators pass preset parameters through byte-for-byte by design, so
+  // nothing upstream filters it. Third instance of this idiom in the repo;
+  // `site/fit.ts:111-116` records the first.
+  const token = Object.hasOwn(OFF_STAGE, v) ? OFF_STAGE[v] : undefined
   if (!token) {
     throw new Error(
       `preset "${p.kind}": "${key}"[${slot}] must be a number or one of ` +
@@ -548,11 +559,20 @@ export type PresetKind = keyof typeof REGISTRY
 
 /**
  * The registry as consumed. Deliberately **not** narrowed to `PresetKind`:
- * `compilePreset` below indexes it with a plain `string` taken from the scene
- * file, and both scene validators ask `kind in PRESETS` of unvalidated input.
+ * `compilePreset` below looks it up with a plain `string` taken from the scene
+ * file, and both scene validators ask the same question of unvalidated input.
  * Narrowing the public type would push a cast into all three call sites to buy
  * nothing — the compile-time tie we actually want is on the descriptor table,
  * where a missing entry is the failure mode, not here.
+ *
+ * **All three sites must ask `Object.hasOwn`, never `kind in PRESETS`.** This
+ * is a plain object literal, so `in` answers `true` for the dozen keys on
+ * `Object.prototype`. All three asked it the wrong way: `compilePreset` below
+ * indexed bare, `site/scene.ts` asked `kind in PRESETS`, and
+ * **`src/cli/scene.ts:401` still does** — that one is outstanding, escalated
+ * rather than fixed here because it belongs to another task's file set. What
+ * makes a wide public type safe is the guard at each lookup, not the type, so
+ * a fourth consumer inherits nothing from these two being right.
  */
 export const PRESETS: Record<string, PresetFn> = REGISTRY
 
@@ -562,9 +582,19 @@ export const PRESETS: Record<string, PresetFn> = REGISTRY
  * Throws on an unknown kind. A no-op fallback here would render a perfectly
  * still scene with no diagnostic at all, so the error names the kind and lists
  * what is valid.
+ *
+ * `Object.hasOwn` is what makes the guard below reachable. A bare
+ * `PRESETS[p.kind]` found inherited properties, so `{kind: 'constructor'}`
+ * returned `Object` from the registry, `fn(p, ctx)` called it, and this
+ * function handed back the `Preset` object itself typed as a `Track` — no
+ * throw, nothing logged, a still frame. `{kind: 'toString'}` was worse: it
+ * returned the *string* `"[object Undefined]"` as a `Track`. `{kind:
+ * '__proto__'}` threw `TypeError: fn is not a function` from in here, naming
+ * no field and no scene. The kind is a string from a scene file, and on the
+ * site the scene is the URL, so none of those four are hypothetical.
  */
 export function compilePreset(p: Preset, ctx: PresetCtx): Track {
-  const fn = PRESETS[p.kind]
+  const fn = Object.hasOwn(PRESETS, p.kind) ? PRESETS[p.kind] : undefined
   if (!fn) {
     throw new Error(
       `unknown animation preset "${p.kind}" — valid kinds: ` +
