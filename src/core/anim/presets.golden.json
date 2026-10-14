@@ -202,6 +202,65 @@
       }
     },
     {
+      "kind": "flip",
+      "label": "bare",
+      "input": {
+        "kind": "flip"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateY": 3.141592653589793
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "flip",
+      "label": "params",
+      "input": {
+        "kind": "flip",
+        "axis": "x"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": 3.141592653589793
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "flip",
+      "label": "params+overrides",
+      "input": {
+        "kind": "flip",
+        "axis": "x",
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "rotateX": 3.141592653589793
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
       "kind": "marquee",
       "label": "bare",
       "input": {

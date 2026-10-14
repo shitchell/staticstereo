@@ -94,6 +94,17 @@ const ROTATION_CHANNEL = {
   z: 'rotate',
 } as const satisfies Record<typeof ROTATION_AXES[number], Channel>
 
+/**
+ * `flip`'s axes — **two**, where `rotate`'s are three.
+ *
+ * There is no meaningful flip about z. A half turn in the plane is an in-plane
+ * spin, not a mirror: the layer ends up rotated, never reversed, and `rotate`
+ * already expresses it exactly. Offering `flip: {axis: 'z'}` would give one
+ * effect two spellings with different defaults, which is the ambiguity the
+ * verb vocabulary is being narrowed to remove.
+ */
+const FLIP_AXES = ['x', 'y'] as const
+
 /* ------------------------------------------------------------------ params */
 
 /**
@@ -294,6 +305,34 @@ const REGISTRY = {
       { t: 0, scale: num(p, 'from', 1) },
       { t: 1, scale: num(p, 'to', 1) },
     ],
+    ease: 'linear',
+    repeat: 'once',
+  }, p),
+
+  /**
+   * Mirror the layer. A **constant** half turn about x or y, defaulting to y.
+   *
+   * **This is static sugar, not a motion, and the two are kept
+   * non-overlapping on purpose.** Animating a flip already has a spelling:
+   * `{kind: 'rotate', axis: 'y', from: 0, to: 180}`. What `rotate` cannot
+   * express without ceremony is the common case — a layer that simply faces
+   * the other way, with no animation involved — and a `flip` that swept would
+   * be `rotate` under a worse name while leaving the static mirror unsayable.
+   * `Transform` makes this possible by having no separate mirror channel: a
+   * mirror *is* a half turn, which is also why the in-between values of a
+   * `rotate` are meaningful (§ `Transform`).
+   *
+   * One key rather than two at the same value. A constant is better stated by
+   * having nothing to interpolate between than by two endpoints that a later
+   * edit could pull apart; `evalTrack` returns the single key's value across
+   * the whole span, whatever `ease`, `repeat` or `duration` say.
+   *
+   * `degToRad(180)` rather than a literal `Math.PI` so that a half turn is
+   * written in the same unit the `rotate` verb takes — the two are the same
+   * angle and should read as it. The conversion is exact at 180.
+   */
+  flip: p => overrides({
+    keys: [{ t: 0, [ROTATION_CHANNEL[oneOf(p, 'axis', FLIP_AXES, 'y')]]: degToRad(180) }],
     ease: 'linear',
     repeat: 'once',
   }, p),

@@ -21,7 +21,7 @@ function absDepth(tr: Parameters<typeof evalTrack>[0], t: number, layerDepth: nu
 describe('presets', () => {
   it('registers the v1 set', () => {
     expect(Object.keys(PRESETS).sort()).toEqual(
-      ['bob', 'bounce', 'marquee', 'move', 'push', 'rotate', 'scale', 'slide-in'],
+      ['bob', 'bounce', 'flip', 'marquee', 'move', 'push', 'rotate', 'scale', 'slide-in'],
     )
   })
 
@@ -334,5 +334,53 @@ describe('scale', () => {
     const tr = compilePreset({ kind: 'scale', to: 3 }, ctx)
     expect(JSON.stringify(tr)).not.toContain('"x"')
     expect(JSON.stringify(tr)).not.toContain('"y"')
+  })
+})
+
+/**
+ * `flip` — **static sugar, not a motion.**
+ *
+ * It holds a half turn for its whole span. Animating a flip is a different
+ * verb and already exists: `{kind: 'rotate', axis: 'y', from: 0, to: 180}`.
+ * Keeping the two non-overlapping is the point — a `flip` that swept would be
+ * `rotate` with a worse name and no way to ask for the static mirror, which is
+ * the common case (a layer facing the other way) and is not an animation at
+ * all.
+ */
+describe('flip', () => {
+  it('holds exactly Math.PI on rotateY for the whole span, by default', () => {
+    // Both endpoints, because "constant" is the claim. A track that merely
+    // *ended* at π would be a rotate with the wrong easing.
+    const tr = compilePreset({ kind: 'flip' }, ctx)
+    expect(evalTrack(tr, 0, 1).rotateY).toBe(Math.PI)
+    expect(evalTrack(tr, 0.5, 1).rotateY).toBe(Math.PI)
+    expect(evalTrack(tr, 1, 1).rotateY).toBe(Math.PI)
+  })
+
+  it('flips about x when asked, and writes nothing on the other axes', () => {
+    const tr = compilePreset({ kind: 'flip', axis: 'x' }, ctx)
+    expect(evalTrack(tr, 0, 1).rotateX).toBe(Math.PI)
+    expect(evalTrack(tr, 1, 1).rotateX).toBe(Math.PI)
+    expect(JSON.stringify(tr)).not.toContain('rotateY')
+  })
+
+  it('has no z axis, because an in-plane half turn is rotate\'s job', () => {
+    // Two values where `rotate`'s enum has three. A "flip about z" is a 180°
+    // in-plane spin — a real transform, but a rotation rather than a mirror,
+    // and `rotate` already expresses it. Offering it here would give one
+    // effect two spellings with different defaults.
+    expect(() => compilePreset({ kind: 'flip', axis: 'z' }, ctx)).toThrow(/must be one of/)
+    expect(() => compilePreset({ kind: 'flip', axis: 'z' }, ctx)).toThrow(/x, y/)
+  })
+
+  it('composes with rotate on the same axis, because the channels sum', () => {
+    // A mirror plus a quarter turn is three quarters of a turn: the two verbs
+    // are additive on `rotateY`, which is what makes `flip` sugar rather than
+    // a mode.
+    const t = composeAnim(
+      [{ kind: 'flip' }, { kind: 'rotate', axis: 'y', from: 90, to: 90 }],
+      1, 1, ctx, compilePreset,
+    )
+    expect(t.rotateY).toBeCloseTo(Math.PI * 1.5, 12)
   })
 })

@@ -322,16 +322,24 @@ describe('presetNote', () => {
     })).toBe(false)
   })
 
-  it('names every bare preset that animates nothing', () => {
-    // The set grows with the delta verbs — a verb whose parameters are an
-    // offset from rest defaults to rest, so bare it is a no-op. `rotate`
-    // (0°→0°) and `scale` (1→1, the multiplicative rest) follow `move`.
-    // Asserted as an exact list rather
-    // than a membership check so that a verb becoming inert by accident —
-    // a default changed from 100px to 0 — fails here instead of shipping a
-    // dropdown entry that silently does nothing.
+  it('names every bare preset whose channels do not vary', () => {
+    // Two different reasons land a kind in this list, and only one of them is
+    // a dead animation:
+    //
+    //   - the **delta verbs** default to rest, so bare they are genuinely
+    //     inert — `move` ([0,0]→[0,0]), `rotate` (0°→0°) and `scale` (1→1,
+    //     the multiplicative rest). Choosing one from the dropdown and seeing
+    //     nothing happen is the case `presetNote` exists to explain.
+    //   - **`flip` is static sugar**: it holds a half turn for its whole span.
+    //     No channel varies, so it is in this list, but it is very much not
+    //     inert — the layer is mirrored. "Does not move" and "does nothing"
+    //     are different claims and this helper only measures the first.
+    //
+    // An exact list rather than a membership check, so that a verb becoming
+    // inert by accident — a default changed from 100px to 0 — fails here
+    // instead of shipping a dropdown entry that silently does nothing.
     const dead = Object.keys(PRESETS).filter(movesNothing)
-    expect(dead).toEqual(['move', 'rotate', 'scale'])
+    expect(dead).toEqual(['move', 'rotate', 'scale', 'flip'])
   })
 
   it('says so, naming from and to, so a dead animation is not read as a bug', () => {

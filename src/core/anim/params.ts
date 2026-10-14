@@ -148,6 +148,13 @@ export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
   // Absolute factors, not deltas — `composeAnim` multiplies this channel and
   // its rest value is 1, so the factor is the delta. See `presets.ts`.
   scale: [MULTIPLIER('from'), MULTIPLIER('to')],
+  flip: [
+    // **Two** values, where `rotate`'s enum has three. There is no meaningful
+    // flip about z: a half turn in the plane is an in-plane spin, never a
+    // mirror, and `rotate` already expresses it. The arity difference between
+    // these two enums is a design decision, not an oversight.
+    { name: 'axis', unit: 'enum', values: ['x', 'y'] },
+  ],
   'slide-in': [
     // The edge entered from, not a distance: the offset is computed from the
     // measured content and the plate margins, so there is nothing here for a

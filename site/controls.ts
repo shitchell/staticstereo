@@ -131,6 +131,11 @@ export const CUSTOM_TRACK = '(custom track)'
  * complete instruction and so is the choice that gets mistaken for a broken
  * renderer. The others take the generic note.
  *
+ * Not every bare preset that *animates* nothing is inert: `flip` holds a
+ * constant half turn, so no channel of its track varies, yet the layer is
+ * visibly mirrored. It needs no warning for the same reason `rotate` needs
+ * none — what it does bare is what it says.
+ *
  * The dropdown cannot carry parameters — those live in the scene JSON — so
  * without this sentence that one user action is indistinguishable from a bug.
  * Core's own parameter readers reject garbage rather than defaulting, for
