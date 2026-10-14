@@ -25,6 +25,15 @@ import {
   plateLayoutOf,
 } from '../src/core/index.js'
 import type { PresetCtx } from '../src/core/index.js'
+/*
+ * Deep import, where everything else in this file comes from the `core` barrel.
+ * `OFF_STAGE_TOKENS` is deliberately not published there — see its docblock —
+ * because it is a seam for the probe below rather than API, and routing it
+ * through the barrel would make it the latter. `testing/verbs.js` and
+ * `testing/ctx.fixture.js` are reached the same way from `site/` for the same
+ * reason.
+ */
+import { OFF_STAGE_TOKENS } from '../src/core/anim/presets.js'
 import type { Layer, Preset, Scene, Track, Transform } from '../src/core/types.js'
 
 /**
@@ -752,6 +761,146 @@ describe('scaleScene — the preset allow-list', () => {
     const r = scaleScene(scene, planAt(scene, 0.5))
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.detail.subject).toBe('bob')
+  })
+})
+
+/* ------------------- 7a. what makes section 7's check sufficient for tokens */
+
+/**
+ * Section 7 asserts that no allow-listed kind carries a `scenePx` parameter.
+ * That is the *only* thing standing between a symbolic off-stage endpoint and
+ * the scaler's multiplication, and it stands there **by coincidence**: the two
+ * parameters that accept a token (`move.from`, `move.to`) happen to be tagged
+ * `scenePx`, so a kind carrying one cannot be allow-listed. Nothing enforces
+ * that coincidence. A token-accepting parameter tagged `degrees`, `depth` or
+ * `multiplier` would be invisible to section 7, its kind could be allow-listed
+ * with everything green, and `fit=render` would then scale a value that was
+ * resolved from an already-scaled `PresetCtx` — counting the scale factor
+ * twice.
+ *
+ * So this section pins the coincidence instead of restating section 7: **every
+ * parameter that accepts a symbolic endpoint is tagged `scenePx`.** With that
+ * held, section 7 is sufficient *by construction* and stays sufficient as the
+ * registry grows, which no amount of disjointness assertions here would buy —
+ * a second statement of section 7's guarantee would go stale the day the tag
+ * and the token part company, which is precisely the day that matters.
+ *
+ * **Neither side is written down here.** The tagged side is read off
+ * `PRESET_PARAMS`. The token-accepting side is *discovered*, by probing, and
+ * that is the part worth being careful about: a list of verb names — however
+ * it was spelled, and however it was derived — would be a roster, and a roster
+ * stops being true the moment a second verb starts accepting tokens without
+ * anyone editing this file. The probe asks the compiler instead, so a third
+ * `endpointPair` call site is found by the test that cares about it.
+ */
+describe('scaleScene — the tag that keeps tokens out of the scaler', () => {
+  /*
+   * Two contexts differing in **every field except `layerDepth`**, which is the
+   * discriminator the probe runs on: a symbolic endpoint is by definition a
+   * value read out of the `PresetCtx`, so placing one in a parameter makes the
+   * compiled `Track` depend on the context where a plain number does not.
+   *
+   * `layerDepth` is held equal deliberately. `push` reads it for its *numeric*
+   * parameters — `to` defaults to it and `from` is compiled against it — so
+   * perturbing it would make `push`'s number-valued control context-sensitive
+   * too and blunt the discriminator for a verb that accepts no token at all.
+   * Every other field is perturbed, and by a constant rather than a factor so
+   * that a `0` field still moves.
+   */
+  const PROBE_A = CTX
+  const PROBE_B = Object.fromEntries(
+    Object.entries(CTX).map(([k, v]) => [k, k === 'layerDepth' ? v : v + 37]),
+  ) as unknown as PresetCtx
+
+  /**
+   * The three places a token can stand in a parameter: the whole value, or
+   * either slot of a pair. Brute-forced rather than read off the descriptor's
+   * `shape`, and rather than asking which axis a token belongs to — the slot
+   * assignments are `OFF_STAGE`'s business and stay private, so the probe tries
+   * every placement and lets the verb reject the wrong ones.
+   */
+  const PLACEMENTS: readonly ((v: unknown) => unknown)[] = [
+    v => v,
+    v => [v, 0],
+    v => [0, v],
+  ]
+
+  /** The compiled track as a comparable string, or `null` if the verb refused. */
+  function compiled(p: Preset, ctx: PresetCtx): string | null {
+    try {
+      return JSON.stringify(compilePreset(p, ctx))
+    } catch {
+      return null
+    }
+  }
+
+  /** Does setting `name` to `v` make this verb's output depend on the context? */
+  function readsCtx(kind: string, name: string, v: unknown): boolean {
+    const p = { kind, [name]: v } as Preset
+    const a = compiled(p, PROBE_A)
+    const b = compiled(p, PROBE_B)
+    return a !== null && b !== null && a !== b
+  }
+
+  it('tags every parameter that accepts a symbolic off-stage endpoint as scenePx', () => {
+    // `kind.name` → the token that proved it, so the failure can quote one.
+    const accepting = new Map<string, string>()
+    let probes = 0
+    for (const kind of Object.keys(PRESETS)) {
+      const params = PRESET_PARAMS[kind as keyof typeof PRESET_PARAMS]
+      expect(params, `${kind} is described`).toBeDefined()
+      for (const d of params) {
+        for (const token of OFF_STAGE_TOKENS) {
+          for (const place of PLACEMENTS) {
+            probes++
+            // Both halves are needed. The first says a token put here reached
+            // the context; the second says a *number* put here did not, which
+            // is what rules out a verb that reads the context for its own
+            // reasons and would otherwise look token-accepting in every slot.
+            if (readsCtx(kind, d.name, place(token)) && !readsCtx(kind, d.name, place(1))) {
+              accepting.set(`${kind}.${d.name}`, token)
+            }
+          }
+        }
+      }
+    }
+
+    /*
+     * The vacuity floor, and it is load-bearing rather than decorative: an
+     * assertion over a set the probe cannot actually read passes for the same
+     * reason an empty loop does. Emptying `OFF_STAGE`, or moving `move` off
+     * `endpointPair`, reds here — measured, not assumed.
+     */
+    expect(
+      accepting.size,
+      `probed ${probes} parameter/token/placement combinations across ` +
+      `${Object.keys(PRESETS).length} registered kinds and ${OFF_STAGE_TOKENS.length} tokens, ` +
+      'and found no parameter that accepts a symbolic off-stage endpoint. Either the token ' +
+      'table is empty, no verb routes a parameter through `endpointPair` any more, or this ' +
+      'probe has stopped seeing its sources — in all three cases the assertion below is ' +
+      'checking nothing.',
+    ).toBeGreaterThanOrEqual(1)
+
+    for (const [param, token] of accepting) {
+      const [kind, name] = param.split('.') as [string, string]
+      const d = PRESET_PARAMS[kind as keyof typeof PRESET_PARAMS].find(x => x.name === name)
+      expect(d, `${param} is described`).toBeDefined()
+      expect(
+        d!.unit,
+        `${param} accepts the symbolic off-stage endpoint "${token}", but its descriptor's ` +
+        `unit is "${d!.unit}" rather than "scenePx". A symbolic endpoint is resolved from the ` +
+        '`PresetCtx` the preset is compiled against, and under `fit=render` that context is ' +
+        'already scaled — so scaling the resolved value again counts the scale factor twice ' +
+        'and the layer travels off-stage by a multiple of what the author wrote. The scaler ' +
+        'knows nothing about tokens; what keeps this from happening is that ' +
+        '`SCALE_FREE_PRESET_KINDS` refuses every kind it cannot vouch for, and the test ' +
+        'tying that allow-list to this hazard ("accepts every allow-listed kind, and each ' +
+        `one really exists", above) keys on the \`scenePx\` tag. Tagged "${d!.unit}", ` +
+        `${param} is invisible to it: allow-listing ${kind} would double-count ${param} with ` +
+        'nothing red. Either tag it `scenePx`, or give the allow-list a check that sees ' +
+        'symbolic endpoints directly and stop relying on the tag.',
+      ).toBe('scenePx')
+    }
   })
 })
 

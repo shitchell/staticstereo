@@ -204,6 +204,31 @@ function tokensIn(slot: 0 | 1): string {
 }
 
 /**
+ * The token *names* only — the table, its slot assignments and its resolvers
+ * all stay module-private.
+ *
+ * The vocabulary is the one part of `OFF_STAGE` a consumer outside this module
+ * can need: enough to write a token where a number goes and see whether the
+ * verb accepts it. `site/scalescene.test.ts` needs exactly that and nothing
+ * more. It probes every registered verb's every descriptor with these names to
+ * *discover* which parameters accept a symbolic endpoint, rather than being
+ * told, and then asserts each one is tagged `scenePx` — which is the tag the
+ * `fit=render` allow-list check keys on, and therefore the thing that keeps a
+ * token out of the scaler's multiplication.
+ *
+ * `Object.keys`, not a written-out list, and that is the whole point of the
+ * shape: a fifth token joins the probe without anyone remembering to extend
+ * anything. A hand-listed copy here would be a second roster of a set that
+ * already exists one line above it, which is the exact drift this file's
+ * `tokensIn` was introduced to stop.
+ *
+ * Deliberately **not** re-exported from `anim/index.ts` or `core/index.ts`:
+ * this is a seam for a test inside this repo, not published API, and those
+ * barrels are explicit precisely so the two do not get confused.
+ */
+export const OFF_STAGE_TOKENS: readonly string[] = Object.keys(OFF_STAGE)
+
+/**
  * One slot of an endpoint pair: a finite number, or a token for that slot's
  * axis.
  *
