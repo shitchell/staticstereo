@@ -13,9 +13,9 @@ import {
   sceneError,
   timeOfFrame,
 } from './controls.js'
-import { PRESETS, compilePreset, stillTime } from '../src/core/index.js'
-import type { PresetCtx } from '../src/core/index.js'
-import type { Preset, Scene } from '../src/core/types.js'
+import { CHANNELS, PRESETS, compilePreset, stillTime } from '../src/core/index.js'
+import { CTX } from '../src/core/testing/ctx.fixture.js'
+import type { Preset, Scene, Track } from '../src/core/types.js'
 
 const ANIM: Scene = { size: [64, 32], fps: 12, duration: 2, layers: [{ type: 'text', text: 'A' }] }
 const STILL: Scene = { size: [64, 32], layers: [{ type: 'text', text: 'A' }] }
@@ -297,18 +297,31 @@ describe('presetNote', () => {
    * round: if `slide` ever gains a non-zero default the note becomes a lie, and
    * if another preset ever loses its default the note stops warning about it.
    */
-  const CTX: PresetCtx = {
-    sceneW: 640, sceneH: 360, contentW: 200, contentH: 100, layerDepth: 1,
-    marginLeft: 110, marginRight: 55,
-  }
-  const movesNothing = (kind: string): boolean => {
-    const track = compilePreset({ kind } as Preset, CTX)
-    const axes = ['x', 'y', 'depth', 'scale', 'rotate'] as const
-    return axes.every(axis => {
+  /**
+   * Over `CHANNELS`, never a list written out here. A fourth hand-copy of the
+   * channel list lived at this spot and was missing `rotateX`/`rotateY`, so a
+   * preset that animated only an axis rotation was reported as motionless —
+   * the test would have endorsed exactly the bug it exists to catch.
+   */
+  const trackMovesNothing = (track: Track): boolean =>
+    CHANNELS.every(axis => {
       const values = track.keys.map(k => k[axis]).filter(v => v !== undefined)
       return values.every(v => v === values[0])
     })
-  }
+
+  const movesNothing = (kind: string): boolean =>
+    trackMovesNothing(compilePreset({ kind } as Preset, CTX))
+
+  it('counts the axis rotations as motion, like every other channel', () => {
+    // The guard on the helper itself. `rotateX`/`rotateY` are the two channels
+    // every hand-written copy of this list has dropped, here and in both scene
+    // validators, so they are the ones worth pinning.
+    expect(trackMovesNothing({
+      keys: [{ t: 0, rotateX: 0 }, { t: 1, rotateX: 1 }],
+      ease: 'linear',
+      repeat: 'once',
+    })).toBe(false)
+  })
 
   it('slide is the only bare preset that animates nothing', () => {
     const dead = Object.keys(PRESETS).filter(movesNothing)
