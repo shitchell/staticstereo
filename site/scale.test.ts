@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import { agreement, encoderFor, nearestScaleX, report, slabDepth } from '../src/core/testing/metamorphic.js'
+import { plateLayoutOf } from '../src/core/index.js'
 import {
-  OFFSET_SEARCH, containFit, fitNote, fitScale, scaleNote, snapOffset, snapScale, viewLayout,
+  OFFSET_SEARCH, containFit, fitNote, fitScale, renderFit, scaleNote, snapOffset, snapScale,
+  viewLayout,
 } from './scale.js'
-import type { SirdsOpts } from '../src/core/types.js'
+import type { RenderFit } from './scale.js'
+import type { Scene, SirdsOpts, StereoOpts } from '../src/core/types.js'
 
 /**
  * The display scale, and the measurement that says why it has to be an integer.
@@ -603,6 +606,255 @@ describe('containFit', () => {
         plateWidth, plateHeight: 100, availableWidth: 800, availableHeight: 600,
       })).toThrow(/containFit: plateWidth/)
     }
+  })
+})
+
+/* ------------------------------------------------------------- renderFit */
+
+/** A scene is only ever its geometry here; no layer affects the plate's size. */
+const sceneOf = (size: [number, number], stereo?: Partial<StereoOpts>): Scene =>
+  stereo ? { size, layers: [], stereo } : { size, layers: [] }
+
+/**
+ * The plan for re-rendering, and the single fact its arithmetic turns on.
+ *
+ * `renderFit` computes a plan, not a render: the chain it has to get right is
+ * scene px → plate px (**plus constant margins**) → backing-store px
+ * (× `noiseScale`) → device px (1:1, which is the point of the mode) → CSS px
+ * (÷ `dpr`). The margin step is the one that is not a multiply, and the group
+ * below pins it so that a later change to `plateLayoutOf`'s margin rule turns
+ * this red rather than silently invalidating the solve.
+ */
+describe('renderFit', () => {
+  const DEFAULT_SCENE = sceneOf([640, 360])
+
+  it('margins are CONSTANT in scene size — which is why sceneScale is not containerW/plateW', () => {
+    // The fact the whole function turns on. `marginsFor` reads `sepFar` and the
+    // algorithm and nothing else, so the plate is `margins.left + w +
+    // margins.right`: AFFINE in the scene width, not proportional to it.
+    const margins = plateLayoutOf(DEFAULT_SCENE).margins
+    expect(margins.left + margins.right).toBeGreaterThan(0)
+    for (const w of [4, 16, 64, 640, 1920, 7680]) {
+      expect(plateLayoutOf(sceneOf([w, 360])).margins, `width ${w}`).toEqual(margins)
+      // Unit slope: one more scene column is exactly one more plate column.
+      expect(
+        plateLayoutOf(sceneOf([w + 1, 360])).plate.width -
+          plateLayoutOf(sceneOf([w, 360])).plate.width,
+        `width ${w}`,
+      ).toBe(1)
+    }
+
+    // ...so solving for the scale has to subtract the dead strips FIRST. A
+    // 3000 CSS px box at dpr 1 holds 1500 plate px at noiseScale 2; 110 of them
+    // are margin, leaving 1390 for a 640px stage.
+    const r = renderFit({
+      scene: DEFAULT_SCENE, availableWidth: 3000, availableHeight: 1e6, dpr: 1,
+    })
+    expect(r.sceneScale).toBeCloseTo((3000 / 2 - 110) / 640, 12)
+    // And the naive answer — container ÷ today's plate — is a different number.
+    // If margins ever became proportional the two would coincide and this is
+    // the assertion that would catch it.
+    expect(r.sceneScale).not.toBeCloseTo(3000 / 1500, 6)
+  })
+
+  it('is 1 for a box exactly the plate\'s natural size at dpr 1, and keeps today\'s dimensions', () => {
+    // The committed default: a 640x360 stage, sepFar 110, `linked` → 55px
+    // margins either side → a 750x360 plate → x noiseScale 2 → 1500x720.
+    const r = renderFit({
+      scene: DEFAULT_SCENE, availableWidth: 1500, availableHeight: 720, dpr: 1,
+    })
+    expect(r.sceneScale).toBeCloseTo(1, 12)
+    expect(r.sceneWidth).toBe(640)
+    expect(r.sceneHeight).toBe(360)
+    expect(r.plateWidth).toBe(750)
+    expect(r.plateHeight).toBe(360)
+    expect(r.backingWidth).toBe(1500)
+    expect(r.backingHeight).toBe(720)
+    expect(r.cssWidth).toBe(1500)
+    expect(r.cssHeight).toBe(720)
+    expect(r.overflows).toBe(false)
+    expect(r.limit).toBe('both')
+    expect(r.clamped).toBe(false)
+  })
+
+  const SCENES: Array<[number, number]> = [
+    [640, 360], [1920, 1080], [16, 16], [2000, 4], [4, 2000], [300, 160], [800, 450],
+  ]
+  const BOXES: Array<[number, number]> = [
+    [320, 200], [760, 480], [1280, 800], [1920, 1080], [2560, 1440], [3840, 2160],
+    [1080, 1920], [400, 300], [100, 100],
+  ]
+  const DPRS = [1, 1.25, 1.5, 2, 3]
+
+  const sweepRender = (
+    f: (r: RenderFit, size: [number, number], box: [number, number], dpr: number,
+        where: string) => void,
+  ): void => {
+    for (const size of SCENES) {
+      for (const box of BOXES) {
+        for (const dpr of DPRS) {
+          const r = renderFit({
+            scene: sceneOf(size), availableWidth: box[0], availableHeight: box[1], dpr,
+          })
+          f(r, size, box, dpr, `${size[0]}x${size[1]} in ${box[0]}x${box[1]} @ ${dpr}`)
+        }
+      }
+    }
+  }
+
+  it('never exceeds the box, and is displayed one backing px per DEVICE px', () => {
+    sweepRender((r, _size, box, dpr, where) => {
+      // The pixel-exactness claim, which is the whole reason the mode exists:
+      // the backing store lands on device pixels 1:1, never resampled.
+      expect(r.cssWidth * dpr, where).toBeCloseTo(r.backingWidth, 9)
+      expect(r.cssHeight * dpr, where).toBeCloseTo(r.backingHeight, 9)
+      if (!r.clamped) {
+        expect(r.cssWidth, where).toBeLessThanOrEqual(box[0] + 1e-6)
+        expect(r.cssHeight, where).toBeLessThanOrEqual(box[1] + 1e-6)
+        expect(r.overflows, where).toBe(false)
+      }
+    })
+  })
+
+  it('reports a plate that is exactly margins + scaled stage, in whole scene px', () => {
+    sweepRender((r, size, _box, _dpr, where) => {
+      expect(Number.isInteger(r.sceneWidth), where).toBe(true)
+      expect(Number.isInteger(r.sceneHeight), where).toBe(true)
+      expect(r.sceneWidth, where).toBeGreaterThanOrEqual(1)
+      expect(r.sceneHeight, where).toBeGreaterThanOrEqual(1)
+      expect(r.plateWidth, where).toBe(r.margins.left + r.sceneWidth + r.margins.right)
+      expect(r.plateHeight, where).toBe(r.sceneHeight)
+      expect(r.backingWidth, where).toBe(r.plateWidth * r.noiseScale)
+      expect(r.backingHeight, where).toBe(r.plateHeight * r.noiseScale)
+      // The scene the caller will actually build is the ideal scale floored,
+      // never rounded up — rounding up is how a plan overflows the box it was
+      // solved for.
+      expect(r.sceneWidth, where).toBeLessThanOrEqual(r.sceneScale * size[0] + 1e-6)
+      expect(r.sceneHeight, where).toBeLessThanOrEqual(r.sceneScale * size[1] + 1e-6)
+    })
+  })
+
+  it('is monotonically non-decreasing in each dimension and in dpr', () => {
+    let previous = -Infinity
+    for (let availableWidth = 0; availableWidth <= 6000; availableWidth += 7) {
+      const { sceneScale } = renderFit({
+        scene: DEFAULT_SCENE, availableWidth, availableHeight: 1e6, dpr: 1.5,
+      })
+      expect(sceneScale).toBeGreaterThanOrEqual(previous)
+      previous = sceneScale
+    }
+    expect(previous).toBeGreaterThan(1)
+
+    previous = -Infinity
+    for (let availableHeight = 0; availableHeight <= 6000; availableHeight += 7) {
+      const { sceneScale } = renderFit({
+        scene: DEFAULT_SCENE, availableWidth: 1e6, availableHeight, dpr: 1.5,
+      })
+      expect(sceneScale).toBeGreaterThanOrEqual(previous)
+      previous = sceneScale
+    }
+    expect(previous).toBeGreaterThan(1)
+
+    previous = -Infinity
+    for (const dpr of [0.5, 1, 1.25, 1.5, 2, 2.5, 3, 4]) {
+      const { sceneScale } = renderFit({
+        scene: DEFAULT_SCENE, availableWidth: 1920, availableHeight: 1080, dpr,
+      })
+      expect(sceneScale).toBeGreaterThanOrEqual(previous)
+      previous = sceneScale
+    }
+  })
+
+  it('is strictly greater for a box twice as large on both axes', () => {
+    // Non-decreasing is not enough: a function that ignored the box entirely
+    // would satisfy it. Doubling the box must really buy a bigger scene.
+    for (const size of SCENES) {
+      for (const box of BOXES) {
+        for (const dpr of DPRS) {
+          const at = (k: number) => renderFit({
+            scene: sceneOf(size), availableWidth: box[0] * k, availableHeight: box[1] * k, dpr,
+          })
+          const one = at(1)
+          const two = at(2)
+          const where = `${size[0]}x${size[1]} in ${box[0]}x${box[1]} @ ${dpr}`
+          // Only where the smaller plan was a real solve. A box too small to
+          // hold even a 1px-wide stage is reported clamped, and two clamped
+          // plans are equal by construction — asserted on its own below.
+          if (!one.clamped) expect(two.sceneScale, where).toBeGreaterThan(one.sceneScale)
+        }
+      }
+    }
+  })
+
+  it('scales with dpr and inversely with noiseScale, because both are in the chain', () => {
+    const box = { availableWidth: 1200, availableHeight: 1e6 }
+    const one = renderFit({ scene: DEFAULT_SCENE, ...box, dpr: 1 })
+    const two = renderFit({ scene: DEFAULT_SCENE, ...box, dpr: 2 })
+    // Twice the device pixels for the same CSS box: the stage budget doubles
+    // AFTER the constant margins are taken out, so the scale does not.
+    expect(two.sceneScale).toBeCloseTo((1200 * 2 / 2 - 110) / 640, 12)
+    expect(one.sceneScale).toBeCloseTo((1200 / 2 - 110) / 640, 12)
+
+    const coarse = renderFit({ scene: sceneOf([640, 360], { noiseScale: 1 }), ...box, dpr: 1 })
+    expect(coarse.noiseScale).toBe(1)
+    expect(one.noiseScale).toBe(2)
+    expect(coarse.sceneScale).toBeCloseTo((1200 / 1 - 110) / 640, 12)
+  })
+
+  it('margins do not scale, so they eat a growing share of a shrinking plate', () => {
+    // Worth asserting rather than only noting: `sepFar` is a property of the
+    // viewer's eyes, not of the picture (requirements §7 C1), so it is NOT
+    // scene geometry and does NOT scale. The consequence is that `render` into
+    // a small box spends proportionally more of the plate on dead strips.
+    const big = renderFit({ scene: DEFAULT_SCENE, availableWidth: 3000, availableHeight: 1e6 })
+    const small = renderFit({ scene: DEFAULT_SCENE, availableWidth: 400, availableHeight: 1e6 })
+    expect(small.margins).toEqual(big.margins)
+    const share = (r: RenderFit) => (r.margins.left + r.margins.right) / r.plateWidth
+    expect(share(small)).toBeGreaterThan(share(big))
+  })
+
+  it('clamps at a one-pixel scene rather than planning an empty render', () => {
+    // A box that cannot hold even the margins has no solution: the honest
+    // answer is the smallest renderable scene plus an overflow, not a zero or
+    // negative scale that a caller would hand to a rasteriser.
+    const r = renderFit({ scene: DEFAULT_SCENE, availableWidth: 10, availableHeight: 10, dpr: 1 })
+    expect(r.clamped).toBe(true)
+    expect(r.sceneWidth).toBeGreaterThanOrEqual(1)
+    expect(r.sceneHeight).toBeGreaterThanOrEqual(1)
+    expect(r.sceneScale).toBeGreaterThan(0)
+    expect(r.overflows).toBe(true)
+    // ...and the clamp is flat, which is why the strict-growth sweep above
+    // skips it rather than pretending otherwise.
+    const tinier = renderFit({
+      scene: DEFAULT_SCENE, availableWidth: 1, availableHeight: 1, dpr: 1,
+    })
+    expect(tinier.sceneScale).toBe(r.sceneScale)
+  })
+
+  it('survives a box that has not been laid out yet', () => {
+    for (const availableWidth of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const r = renderFit({ scene: DEFAULT_SCENE, availableWidth, availableHeight: 0 })
+      expect(r.sceneScale, `availableWidth ${availableWidth}`).toBeGreaterThan(0)
+      expect(r.clamped).toBe(true)
+      expect(r.overflows).toBe(true)
+    }
+  })
+
+  it('rejects a scene whose size is not a real measurement', () => {
+    for (const size of [[0, 100], [100, 0], [-1, 100], [Number.NaN, 100]] as Array<[number, number]>) {
+      expect(() => renderFit({
+        scene: sceneOf(size), availableWidth: 800, availableHeight: 600,
+      }), `${size[0]}x${size[1]}`).toThrow(/renderFit: scene\.size/)
+    }
+  })
+
+  it('lets the margin authority reject a scene it cannot measure', () => {
+    // `plateLayoutOf` is the authority on margins and this does not second-guess
+    // it: a scene with an unusable `sepFar` throws from there, where the rule
+    // lives, rather than being papered over with a default here.
+    expect(() => renderFit({
+      scene: sceneOf([640, 360], { sepFar: 1 }), availableWidth: 800, availableHeight: 600,
+    })).toThrow(/sepFar/)
   })
 })
 

@@ -167,6 +167,9 @@
  * window, and neither is reachable from a test that needs a browser.
  */
 
+import { DEFAULT_STEREO, plateLayoutOf } from '../src/core/index.js'
+import type { Margins, Scene } from '../src/core/index.js'
+
 /** Slack for the `floor`, so a ratio that is 1.9999999 in binary reads as 2. */
 const EPS = 1e-9
 
@@ -555,6 +558,228 @@ export function containFit({
     limit: tied ? 'both' : byWidth < byHeight ? 'width' : 'height',
     offsetX: snapOffset(availW - cssWidth, ratio),
     offsetY: snapOffset(availH - cssHeight, ratio),
+  }
+}
+
+/* -------------------------------------------------- render (re-render, R21) */
+
+export interface RenderFitInput {
+  /**
+   * The scene as authored. Only `size` and `stereo` are read: nothing a layer
+   * does changes the plate's geometry.
+   */
+  readonly scene: Scene
+  /** CSS px the canvas may occupy horizontally. Coerced like {@link SnapInput}. */
+  readonly availableWidth: number
+  /** CSS px the canvas may occupy vertically. Coerced like {@link SnapInput}. */
+  readonly availableHeight: number
+  readonly dpr?: number
+}
+
+/**
+ * A plan for re-rendering a scene at a container's size. **Not a render.**
+ *
+ * Every field names the pixel space it is counted in, because this type spans
+ * all four of them and a mislabelled one is the defect this whole module exists
+ * to prevent.
+ */
+export interface RenderFit {
+  /**
+   * The factor every **scene-px** quantity must be multiplied by: `scene.size`
+   * and, with it, each layer's `at`, a text layer's `size`, a shape's `r`/`w`/`h`
+   * — which is what "stroke widths scale with the frame" (design §8.1) means and
+   * what requirements §7 C1 priced as the cost of this mode.
+   *
+   * Dimensionless: scene px ÷ scene px. It is **not** a display ratio and must
+   * never be written into `style.width`; `render` displays its backing store at
+   * exactly one device pixel per backing pixel, which is the whole point.
+   */
+  readonly sceneScale: number
+  /** Target stage width, in **scene px**. A positive integer. */
+  readonly sceneWidth: number
+  /** Target stage height, in **scene px**. A positive integer. */
+  readonly sceneHeight: number
+  /**
+   * The dead strips either side of the stage, in **scene px** — which is also
+   * **plate px**, the two being the same space. Constant in `sceneScale`; see
+   * {@link renderFit}.
+   */
+  readonly margins: Margins
+  /** `margins.left + sceneWidth + margins.right`, in **plate px**. */
+  readonly plateWidth: number
+  /** `sceneHeight`, in **plate px**: margins are x-only. */
+  readonly plateHeight: number
+  /** The scene's resolved `stereo.noiseScale`. Plate px → backing-store px. */
+  readonly noiseScale: number
+  /** `plateWidth * noiseScale`, in **backing-store px** — i.e. `canvas.width`. */
+  readonly backingWidth: number
+  /** `plateHeight * noiseScale`, in **backing-store px** — i.e. `canvas.height`. */
+  readonly backingHeight: number
+  /**
+   * What to write into `style.width`, in **CSS px**: `backingWidth / dpr`, so
+   * the backing store lands on device pixels 1:1 and nothing is resampled.
+   */
+  readonly cssWidth: number
+  /** `backingHeight / dpr`, in **CSS px**. */
+  readonly cssHeight: number
+  /** Left centring offset in CSS px, snapped by {@link snapOffset}. */
+  readonly offsetX: number
+  /** Top centring offset in CSS px, snapped by {@link snapOffset}. */
+  readonly offsetY: number
+  readonly overflowsWidth: boolean
+  readonly overflowsHeight: boolean
+  readonly overflows: boolean
+  /** Which axis bound the ideal scale, before any clamp. */
+  readonly limit: FitLimit
+  /**
+   * The box could not hold even a one-pixel stage, so `sceneScale` is the
+   * minimum renderable one rather than the solve. `overflows` will be true.
+   */
+  readonly clamped: boolean
+}
+
+/**
+ * The plan for `fit=render`: how much to scale a scene's geometry so that the
+ * plate it emits fits the container exactly, at one backing pixel per device
+ * pixel.
+ *
+ * Design §8.1: *"re-render at the container's exact size, scene geometry scaled.
+ * Pixel-exact; stroke widths scale with the frame."* This is the mode that
+ * honours the file header's no-downscale rule by a different route from
+ * {@link fitScale}: it never resamples, so no source column is ever dropped —
+ * there simply are fewer columns, authored smaller.
+ *
+ * ## The chain, named at every step
+ *
+ * The container is measured in CSS px and the thing being scaled is in scene px,
+ * and the four spaces between them do not compose into a single multiply:
+ *
+ * | step | operation |
+ * |---|---|
+ * | scene px → plate px | **add** `margins.left + margins.right` (x only; `plate.height === stage.height`) |
+ * | plate px → backing-store px | × `noiseScale` (default **2**) |
+ * | backing-store px → device px | × **1** — the mode's defining choice |
+ * | device px → CSS px | ÷ `dpr` |
+ *
+ * ## The one fact the arithmetic turns on: the margins are a CONSTANT
+ *
+ * `plateLayoutOf` is the authority and it is imported rather than re-derived.
+ * What it says is that `marginsFor` reads `sepFar` and the algorithm **and
+ * nothing else** — `ceil(sepFar/2)` either side for `linked`, `ceil(sepFar)` and
+ * `ceil(sepFar/2)` for `shift`. The scene's width is not an input. So
+ *
+ *     plateWidth(s) = L + s·sceneWidth + R
+ *
+ * is **affine in `s`, not proportional to it**, and therefore
+ *
+ *     sceneScale  !=  containerWidth / plateWidth
+ *
+ * which is the mistake this comment exists to prevent. The dead strips have to
+ * come out of the budget *before* the division:
+ *
+ *     sceneScale = min( (availableWidth·dpr/noiseScale − L − R) / sceneWidth,
+ *                       (availableHeight·dpr/noiseScale)        / sceneHeight )
+ *
+ * And `sepFar` does not scale with the scene, which is why the margins do not:
+ * separation is a property of the viewer's eyes, not of the picture
+ * (requirements §7 C1). Scaling it would change the disparity budget — a
+ * perceptual decision — in the course of answering a layout question. The
+ * visible consequence is that the dead strips take a *growing* share of the
+ * plate as the scene shrinks, and at some size the stage is a minority of what
+ * is emitted. That is a real cost of this mode and it is asserted, not hidden.
+ *
+ * ## Contract
+ *
+ * - `sceneWidth`/`sceneHeight` are **integers** — a rasteriser cannot be handed
+ *   a fractional stage (`padDepth` rejects one) — obtained by flooring, never
+ *   rounding: rounding up is how a plan overflows the box it was solved for.
+ * - For an unclamped plan the resulting backing store fits the box on both axes,
+ *   and `cssWidth * dpr === backingWidth` exactly.
+ * - `sceneScale` is monotonically non-decreasing in either available dimension
+ *   and in `dpr`, and strictly increasing wherever the clamp is not in play.
+ * - `sceneScale > 0` always. A box too small to hold even the margins has no
+ *   solution — the unclamped formula goes to zero and then negative — and the
+ *   answer is the smallest renderable scene plus `overflows`, not a zero or
+ *   negative scale handed to a rasteriser. That clamp is flat, which is the one
+ *   place strict growth fails.
+ * - A scene whose `stereo` cannot produce margins throws from `plateLayoutOf`,
+ *   where that rule lives. This function does not second-guess it.
+ */
+export function renderFit({
+  scene,
+  availableWidth,
+  availableHeight,
+  dpr = 1,
+}: RenderFitInput): RenderFit {
+  const [sceneW, sceneH] = scene.size
+  if (
+    !Number.isFinite(sceneW) || sceneW <= 0 ||
+    !Number.isFinite(sceneH) || sceneH <= 0
+  ) {
+    throw new Error(
+      `renderFit: scene.size must be two finite positive numbers of scene px, got ` +
+      `${JSON.stringify(scene.size)}`,
+    )
+  }
+  // The authority on margins, imported rather than restated. It throws for a
+  // scene whose `sepFar` cannot be measured, and that is the right place for it
+  // to throw.
+  const { margins } = plateLayoutOf(scene)
+  const noiseScale = scene.stereo?.noiseScale ?? DEFAULT_STEREO.noiseScale
+  if (!Number.isFinite(noiseScale) || noiseScale <= 0) {
+    throw new Error(
+      `renderFit: stereo.noiseScale must be a finite positive number, got ` +
+      `${JSON.stringify(noiseScale)}`,
+    )
+  }
+  const ratio = Number.isFinite(dpr) && dpr > 0 ? dpr : 1
+  const availW = Number.isFinite(availableWidth) && availableWidth > 0 ? availableWidth : 0
+  const availH = Number.isFinite(availableHeight) && availableHeight > 0 ? availableHeight : 0
+
+  // CSS px → device px → backing-store px → plate px. Three of the four spaces
+  // in two lines; the fourth is what we are solving for.
+  const plateBudgetW = (availW * ratio) / noiseScale
+  const plateBudgetH = (availH * ratio) / noiseScale
+  // The subtraction that makes this affine rather than proportional.
+  const dead = margins.left + margins.right
+  const byWidth = (plateBudgetW - dead) / sceneW
+  const byHeight = plateBudgetH / sceneH
+  const ideal = Math.min(byWidth, byHeight)
+
+  // The smallest scale that still floors to a whole pixel on BOTH axes, which
+  // is the smallest scene a rasteriser will accept.
+  const minScale = Math.max(1 / sceneW, 1 / sceneH)
+  const sceneScale = Math.max(minScale, ideal)
+  const clamped = sceneScale > ideal
+
+  const sceneWidth = Math.floor(sceneScale * sceneW + EPS)
+  const sceneHeight = Math.floor(sceneScale * sceneH + EPS)
+  const plateWidth = margins.left + sceneWidth + margins.right
+  const plateHeight = sceneHeight
+  const backingWidth = plateWidth * noiseScale
+  const backingHeight = plateHeight * noiseScale
+  const cssWidth = backingWidth / ratio
+  const cssHeight = backingHeight / ratio
+  const tied = Math.abs(byWidth - byHeight) <= NEAR * Math.max(1, Math.abs(byWidth), Math.abs(byHeight))
+  return {
+    sceneScale,
+    sceneWidth,
+    sceneHeight,
+    margins,
+    plateWidth,
+    plateHeight,
+    noiseScale,
+    backingWidth,
+    backingHeight,
+    cssWidth,
+    cssHeight,
+    offsetX: snapOffset(availW - cssWidth, ratio),
+    offsetY: snapOffset(availH - cssHeight, ratio),
+    overflowsWidth: cssWidth > availW + 1e-6,
+    overflowsHeight: cssHeight > availH + 1e-6,
+    overflows: cssWidth > availW + 1e-6 || cssHeight > availH + 1e-6,
+    limit: tied ? 'both' : byWidth < byHeight ? 'width' : 'height',
+    clamped,
   }
 }
 
