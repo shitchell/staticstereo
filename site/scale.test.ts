@@ -1396,7 +1396,7 @@ describe('scaleNote', () => {
  * **Nothing pinned the fallback.** Every dpr loop in this file was finite and
  * positive (`DPRS`, `CONTAIN_DPRS`, and about twenty inline lists); the
  * degenerate sweeps that do exist sweep *lengths and plate sizes*, never `dpr`;
- * and `undefined` was pinned nowhere at all, because seven signatures here
+ * and `undefined` was pinned nowhere at all, because eight signatures there
  * reach the fallback through a `dpr = 1` default parameter rather than through
  * the predicate. A verifier changed one copy's fallback to `7` and the suite
  * stayed green.

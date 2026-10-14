@@ -209,9 +209,11 @@ const EPS = 1e-9
  * `site/scale.test.ts`'s `usableDpr` block asserts the rule both directly and
  * through every function that applies it.
  *
- * `undefined` is unusable by the same predicate, which is what makes the seven
+ * `undefined` is unusable by the same predicate, which is what makes the eight
  * signatures here that spell the fallback as a `dpr = 1` default parameter
- * agree with this function by construction rather than by coincidence.
+ * (`snapScale`, `snapOffset`, `fitScale`, `containFit`, `renderFit`, `fitNote`,
+ * `viewLayout`, `scaleNote` — `planFit` is the one that reads `input.dpr`
+ * instead) agree with this function by construction rather than by coincidence.
  */
 export function isUsableDpr(dpr: number | undefined): dpr is number {
   return typeof dpr === 'number' && Number.isFinite(dpr) && dpr > 0
