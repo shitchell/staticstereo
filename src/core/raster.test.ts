@@ -698,10 +698,22 @@ function lastPaintedColumn(d: Float32Array, w: number): number {
  * claim — no registered verb computed such an endpoint, so the only way to
  * write the assertion was against a preset defined in this file, which would
  * have pinned the test's own arithmetic. `move` computes one now, from
- * `PresetCtx`,
- * so these tests go through `PRESETS.move` with a token and **nothing in this
- * describe knows the formula** — not the margin term, not the sign, not which
- * of the seven context fields are summed.
+ * `PresetCtx`, so these tests go through `PRESETS.move` with a token rather
+ * than a preset defined here.
+ *
+ * **The term this describe does not know is `contentW`, and that is the
+ * load-bearing one.** Every expectation below is derived from the width the
+ * *canvas* measured — `frameOf` hands it back — never from
+ * `PresetCtx.contentW`. An expectation read off the context would move with a
+ * mutated `contentW` and cancel instead of failing, which is how the deleted
+ * `marquee` witness stayed green at 12345.678.
+ *
+ * It does know the margin term and the sign, and a claim that stood here that
+ * it knew neither was wrong. Three of the four tests slide `at[0]` by
+ * `layout.margins.left` (two of them plus an `overlap`), which lands where it
+ * is asserted to only if the endpoint is `−(contentW + marginLeft)`. Measured
+ * against this file: dropping `marginLeft` from `offLeft` reddens 3 of the 4,
+ * and flipping `offLeft`'s sign reddens all 4.
  *
  * **Why an empty frame cannot be the whole witness, and why `at` is the
  * instrument.** The depth map is stage-sized (`raster.ts` composites
@@ -737,8 +749,14 @@ describe('move\'s off-frame endpoints against the plate', () => {
    * either margin, and it differs from `sceneW` (50), `sceneH` (12) and
    * `contentH` (11). The four candidate sums a wrong formula would produce —
    * `contentW + marginLeft` 52.6, `contentW + marginRight` 46.6,
-   * `sceneW + marginLeft` 63, `sceneW + marginRight` 57 — are all distinct, and
-   * none is the negation of another, so a sign error is visible too.
+   * `sceneW + marginLeft` 63, `sceneW + marginRight` 57 — are **pairwise
+   * distinct**, which is the property that matters: no one wrong formula can
+   * satisfy two of the expectations below, so a formula error cannot hide by
+   * landing on a second test's target. ("None is the negation of another" stood
+   * here, which is trivially true of four positive numbers and bought nothing.
+   * The sign is caught by the positional assertions naming a column —
+   * flipping `offLeft`'s sign reddens all four tests — not by anything about
+   * these sums.)
    */
   const TEXT = 'STATIC'
   const SIZE = 11
@@ -867,13 +885,28 @@ describe('move\'s off-frame endpoints against the plate', () => {
   /**
    * A scroll whose scene duration actually reaches the far endpoint.
    *
-   * **No shipped scene does.** Measured over the three corpora — derived
+   * **No shipped scene does.** Measured over the three corpora, through
+   * `compilePreset` on the width the real `measureText` returns — derived
    * duration against the scene's own `duration` — `examples/scrolling-text.yaml`
    * runs 17.0025s against 6 (2.83×), `site/examples.ts`'s SCROLL 11.7021s
-   * against 6 (1.95×), and the README's 21.6667s against 4 (5.42×). The far
+   * against 6 (1.95×), and the README's 19.9838s against 4 (5.00×). The far
    * endpoint of a scroll has therefore never been rendered anywhere in this
    * repo, which is how one of those endpoints stayed wrong by 17.33px over
    * several commits with nothing red and nothing visibly bad in the output.
+   *
+   * **Recompute before citing these; the README's figure has already gone
+   * stale once, inside this phase.** It read 21.6667s (5.42×) here, which is
+   * `1300 / 60` — right for the endpoints the README spelled out by hand,
+   * `from: [900, 0]` to `to: [-400, 0]`. `90412b6` then rewrote that scene to
+   * use the tokens, moving its travel to `(sceneW + marginRight) +
+   * (contentW + marginLeft)` = `855 + 344.03` ≈ 1199, i.e. 19.9838s; this
+   * comment predated that commit by thirteen minutes and did not follow it.
+   * The other two figures survived their own rewrites (`110f4c0`, `83b78e9`)
+   * only because those swaps were byte-identical — each file's literals were
+   * already what the tokens resolve to, which the README's were not. The
+   * conclusion is insensitive to all of this: the *smallest* of the three
+   * ratios is 1.95×, so every shipped scroll would have to roughly halve its
+   * travel or double its duration before any of them reached an endpoint.
    *
    * This is a fixture rather than an edit to `examples/scrolling-text.yaml`
    * deliberately: that file's measured numbers feed
