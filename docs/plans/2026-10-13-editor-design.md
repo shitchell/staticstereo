@@ -190,10 +190,24 @@ Five of these are decisions rather than transcriptions:
   is a hidden conversion, paid for by the golden fixture and an explicit `180 → Math.PI`
   assertion. **Core gains an exported deg↔rad helper.** *Landed as `src/core/angle.ts`
   (`degToRad`/`radToDeg`), and `raster.ts`'s private `const RAD = Math.PI / 180` — the
-  duplication this helper existed to end — is gone with it. The two spellings
-  `d * RAD` and `(d * Math.PI) / 180` can differ by one ulp in general, so the switch was
-  treated as a behavioural edit; they were verified bit-identical at every angle the
-  committed corpus uses, and no measured assertion moved.*
+  duplication this helper existed to end — is gone with it.
+
+  The switch was treated as a behavioural edit, because it is one. The two spellings
+  `d * RAD` and `(d * Math.PI) / 180` disagree by one ulp for roughly a quarter of integer
+  degrees, and **one angle the suite exercises is among them**: `raster.test.ts`'s
+  `{start: 135, end: 405}` pacman moves from `7.06858347057703451100` to
+  `7.06858347057703362282`, so the cosine fed to the rasteriser did change in its last bit.
+  **No measured assertion moved**, and could not have — that test probes 45° from the
+  wedge boundary and asserts to five decimals, about ten orders of magnitude of margin
+  against a 9e-16 rad shift. The angles in `examples/` (`pacman.yaml`'s 40 and 320) and the
+  cardinals are bit-identical, and the cardinals are what `flip` and `rotate`'s
+  exact-equality assertions rest on.
+
+  Recorded at this length because an earlier draft of this paragraph claimed the two
+  spellings were "bit-identical at every angle the committed corpus uses". That is
+  checkable and, on any reading that includes the test suite, false — it was promoted from
+  a worker's report into this document without a single value being checked, and two
+  independent agents caught it. The true claim is the weaker one: no assertion moved.*
 - **One `rotate` with an `axis`, not three verbs** — the three rotations are one family.
   `axis` is `'x' | 'y' | 'z'`, naming the channel it writes rather than pitch/yaw/roll.
 - **`scale` is absolute, not a delta**, because `composeAnim` *multiplies* this channel
@@ -244,9 +258,11 @@ Five of these are decisions rather than transcriptions:
 argued for keeping near-identical bodies rather than having `slide` delegate to `move`,
 to avoid risking the legacy-output guarantee in the phase that established the golden.
 **§4.2b supersedes that entirely**: `slide` *became* `move` and `emerge` *became* `push`,
-and the golden proved the renames were renames — 19 recorded outputs byte-identical across
-the change, corroborated by 5,216 compiled comparisons between the old and new registries
-with zero differences.
+and the golden proved the renames were renames: the fixture held 19 cases at the time and
+every recorded `output` survived byte-identically, which is checkable from the fixture's own
+history. A verifier additionally compiled the old and new registries side by side over a
+parameter sweep — 5,216 cases, zero differences — which is *not* checkable from this repo
+and is cited as out-of-tree evidence rather than as a fact the tree will confirm.
 
 **"Fade" compiles to `push`.** `Transform` deliberately has no opacity: there is no
 meaningful transparency in depth space, so fading is motion in depth. R10's "ease-in
