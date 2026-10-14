@@ -33,6 +33,17 @@ describe('layerName', () => {
     expect(layerName(SAMPLES.draw)).toBe('spiral.js')
   })
 
+  it('treats an empty name as no name, for every variant', () => {
+    // `name: ''` is not a legal scene — both validators reject it (see
+    // `layerName`'s own note) — so this is only reachable from the editor's
+    // unvalidated in-memory state. Deriving beats showing a blank row.
+    expect(layerName({ ...SAMPLES.text, name: '' })).toBe('HELLO')
+    expect(layerName({ ...SAMPLES.image, name: '' })).toBe('ball.png')
+    expect(layerName({ ...SAMPLES.gif, name: '' })).toBe('spin.gif')
+    expect(layerName({ ...SAMPLES.shape, name: '' })).toBe('circle')
+    expect(layerName({ ...SAMPLES.draw, name: '' })).toBe('spiral.js')
+  })
+
   it('falls back to the layer type when the content yields nothing', () => {
     // Reachable: the site validator accepts `text: ""`, and a `src` ending in
     // a slash has no basename. A blank row names nothing at all, so the type

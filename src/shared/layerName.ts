@@ -41,6 +41,19 @@ function basename(path: string): string {
  * returns the whole thing.
  */
 export function layerName(layer: Layer): string {
+  // `''` is **not a legal name**; absence is expressed by the key being
+  // absent. Both validators already say so — `src/cli/scene.ts` rejects it via
+  // `str('name', …)` and `site/scene.ts` via `requireString` — so no scene that
+  // has been loaded can reach this clause. What can is the **editor's
+  // unvalidated in-memory state**: a rename in progress, before the scene
+  // round-trips through a URL. For that one input, deriving beats rendering a
+  // blank row, which names nothing at all.
+  //
+  // TODO(editor): the rename path must **delete** `name` rather than set it to
+  // `''`. Setting `''` produces in-memory state that the URL round-trip will
+  // refuse to load, and the failure surfaces at save time, far from the rename
+  // that caused it. This clause keeps the panel readable meanwhile; it is not
+  // permission to store `''`.
   if (layer.name !== undefined && layer.name !== '') return layer.name
 
   switch (layer.type) {
