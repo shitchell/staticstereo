@@ -176,6 +176,21 @@ Five of these are decisions rather than transcriptions:
   delta; writing `to − 1` would produce a zero-scale catastrophe.
 - **`flip` is static sugar, not a motion.** Animating a flip is
   `rotate: {axis: 'y', from: 0, to: 180}`. No overlap between the two.
+- **`move`'s `from`/`to` accept a symbolic endpoint as well as a number** — `offLeft`,
+  `offRight`, `offTop`, `offBottom` — resolved from `PresetCtx` exactly as the deleted
+  `marquee` resolved them, and `move` also takes an optional `speed` that derives
+  `duration`.
+
+  Both are capabilities `marquee` had that a literal `from`/`to` loses, and the loss is
+  not cosmetic. With `marquee` deleted, `scrolling-text.yaml` carried *hardcoded*
+  off-stage literals where it used to derive them: change the scene width or the font and
+  those numbers are silently wrong. Worse, `PresetCtx.marginLeft`/`marginRight` were left
+  with **neither a reader nor a test**, so the only assertion in the repo pinning the
+  plate-vs-stage margin relationship was guarding a relationship no shipped code depended
+  on any more.
+
+  Symbolic endpoints restore the `measureText → contentW → endpoint` chain to the
+  production path. One verb, both affordances — the same move as folding `speed` in.
 
 **`slide` and `emerge` are deliberately not reimplemented as delegations** to `move` and
 `push`, despite near-identical bodies. A few duplicated lines are cheaper than risking
