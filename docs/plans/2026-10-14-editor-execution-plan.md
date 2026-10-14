@@ -173,6 +173,39 @@ the worker wrote it into its final output. **A worker that cannot reach its PM, 
 issuing a wrong correction, is one step from silent compliance.** Until the mesh is
 reliable, every worker brief must say that the final report is the channel of record.
 
+### 1.2e The expensive errors sit in the cheapest checks
+
+PM-MODEL's parting assessment of its own six fabrications, and the most useful sentence
+produced in this build:
+
+> "my failures were not about difficulty. Not one of the six was a hard question.
+> `package.json`'s `files` field, which commit deleted two lines, whether a report had
+> arrived, how two floats compare at 405 degrees: every one was a single command away, and
+> I skipped the command precisely because the claim felt too small to be worth one. The
+> expensive errors sat in the cheapest checks, and the thing that would have caught all six
+> is a reflex rather than a judgement."
+
+So the rule is not "verify important claims" — importance is exactly the signal that
+misled it. **Any claim about the tree that a single command would settle, gets the
+command.** Especially the ones that feel too small to bother with; those are the
+population the failures were drawn from. This applies to the orchestrator identically, and
+it has already caught two of its own errors that way.
+
+### 1.2f Escalate on conflict, not only on uncertainty
+
+The worker that stopped a cluster rather than comply was not being careful in general. It
+was holding one specific line — that the golden could not be regenerated under a
+conflicted instruction — and was willing to halt over it. PM-MODEL's reading, which is
+right:
+
+> "a tier that only escalates when it is uncertain would have picked one of my two
+> conflicting instructions and been quietly wrong."
+
+Two confident, contradictory instructions produce **no uncertainty** in the receiver, so an
+uncertainty-triggered escalation never fires. Every brief must therefore say: **if two
+instructions conflict, stop and report the conflict — do not choose between them**, however
+clear each one is on its own.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -193,8 +226,17 @@ reliable, every worker brief must say that the final report is the channel of re
 3. **Comments carry rationale, not description.** A constant with no recorded reason is a
    review failure. Match the surrounding density.
 4. **Assert on structure, not on values.** Pin the guarantee, not today's output.
-   *(Exception: the preset golden in P0, which exists precisely to pin values. It is the
-   only one.)*
+
+   *Standing exception, narrowly: the preset golden.* It was written as a temporary
+   exception scoped to a fixture that would be deleted at merge; the fixture is being
+   kept, so the exception is now **precedent** and needs its boundary stated or the next
+   PM wanting to pin values will simply cite it. A value-pinning fixture is legitimate
+   only when all three hold: it pins the output of a **pure, deterministic compiler**; its
+   inputs are **enumerable from a registry** rather than hand-listed; and it exists to
+   **prove a refactor preserved behaviour**. A golden over a rasteriser, a renderer, or
+   anything touching font metrics fails the first test — and this repo has the evidence:
+   the golden's own authors had to keep it strictly upstream of `raster.ts` precisely
+   because `Math.cos` and `@napi-rs/canvas` make everything below it machine-dependent.
 5. **Never alpha-blend depth.** `depth[i] = max(depth[i], layerDepth × mask[i])`.
 6. **Perceptual thresholds live in functions, never inlined** (R22).
 7. **Name the pixel space** wherever a count appears — scene px, plate px, backing-store
