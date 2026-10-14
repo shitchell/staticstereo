@@ -1,0 +1,513 @@
+{
+  "ctx": {
+    "sceneW": 800,
+    "sceneH": 450,
+    "contentW": 1200,
+    "contentH": 90,
+    "layerDepth": 0.6,
+    "marginLeft": 110,
+    "marginRight": 55
+  },
+  "cases": [
+    {
+      "kind": "bob",
+      "label": "bare",
+      "input": {
+        "kind": "bob"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -8
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeInOut",
+        "repeat": "pingpong"
+      }
+    },
+    {
+      "kind": "bob",
+      "label": "params",
+      "input": {
+        "kind": "bob",
+        "amount": 17
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -17
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeInOut",
+        "repeat": "pingpong"
+      }
+    },
+    {
+      "kind": "bob",
+      "label": "params+overrides",
+      "input": {
+        "kind": "bob",
+        "amount": 17,
+        "ease": "easeIn",
+        "repeat": "loop",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -17
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "loop",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "bounce",
+      "label": "bare",
+      "input": {
+        "kind": "bounce"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -100
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeOutBounce",
+        "repeat": "loop"
+      }
+    },
+    {
+      "kind": "bounce",
+      "label": "params",
+      "input": {
+        "kind": "bounce",
+        "height": 42
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -42
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeOutBounce",
+        "repeat": "loop"
+      }
+    },
+    {
+      "kind": "bounce",
+      "label": "params+overrides",
+      "input": {
+        "kind": "bounce",
+        "height": 42,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -42
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "bounce",
+      "label": "h-alias",
+      "input": {
+        "kind": "bounce",
+        "h": 63
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 0
+          },
+          {
+            "t": 0.5,
+            "y": -63
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeOutBounce",
+        "repeat": "loop"
+      }
+    },
+    {
+      "kind": "emerge",
+      "label": "bare",
+      "input": {
+        "kind": "emerge"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.6
+          },
+          {
+            "t": 1,
+            "depth": 0
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "emerge",
+      "label": "params",
+      "input": {
+        "kind": "emerge",
+        "from": 0.2,
+        "to": 0.85
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.39999999999999997
+          },
+          {
+            "t": 1,
+            "depth": 0.25
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "emerge",
+      "label": "params+overrides",
+      "input": {
+        "kind": "emerge",
+        "from": 0.2,
+        "to": 0.85,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "depth": -0.39999999999999997
+          },
+          {
+            "t": 1,
+            "depth": 0.25
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "marquee",
+      "label": "bare",
+      "input": {
+        "kind": "marquee"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 855
+          },
+          {
+            "t": 1,
+            "x": -1310
+          }
+        ],
+        "ease": "linear",
+        "repeat": "loop",
+        "duration": 36.083333333333336
+      }
+    },
+    {
+      "kind": "marquee",
+      "label": "params",
+      "input": {
+        "kind": "marquee",
+        "speed": 137
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 855
+          },
+          {
+            "t": 1,
+            "x": -1310
+          }
+        ],
+        "ease": "linear",
+        "repeat": "loop",
+        "duration": 15.802919708029197
+      }
+    },
+    {
+      "kind": "marquee",
+      "label": "params+overrides",
+      "input": {
+        "kind": "marquee",
+        "speed": 137,
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 855
+          },
+          {
+            "t": 1,
+            "x": -1310
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "duration": 3.75,
+        "start": 2.5
+      }
+    },
+    {
+      "kind": "slide",
+      "label": "bare",
+      "input": {
+        "kind": "slide"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": 0,
+            "y": 0
+          },
+          {
+            "t": 1,
+            "x": 0,
+            "y": 0
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "slide",
+      "label": "params",
+      "input": {
+        "kind": "slide",
+        "from": [
+          -13,
+          7
+        ],
+        "to": [
+          250,
+          -40
+        ]
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": -13,
+            "y": 7
+          },
+          {
+            "t": 1,
+            "x": 250,
+            "y": -40
+          }
+        ],
+        "ease": "linear",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "slide",
+      "label": "params+overrides",
+      "input": {
+        "kind": "slide",
+        "from": [
+          -13,
+          7
+        ],
+        "to": [
+          250,
+          -40
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": -13,
+            "y": 7
+          },
+          {
+            "t": 1,
+            "x": 250,
+            "y": -40
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    },
+    {
+      "kind": "slide-in",
+      "label": "bare",
+      "input": {
+        "kind": "slide-in"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "x": -1310
+          },
+          {
+            "t": 1,
+            "x": 0
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "slide-in",
+      "label": "params",
+      "input": {
+        "kind": "slide-in",
+        "from": "bottom"
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 450
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeOut",
+        "repeat": "once"
+      }
+    },
+    {
+      "kind": "slide-in",
+      "label": "params+overrides",
+      "input": {
+        "kind": "slide-in",
+        "from": "bottom",
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      },
+      "output": {
+        "keys": [
+          {
+            "t": 0,
+            "y": 450
+          },
+          {
+            "t": 1,
+            "y": 0
+          }
+        ],
+        "ease": "easeIn",
+        "repeat": "pingpong",
+        "start": 2.5,
+        "duration": 3.75
+      }
+    }
+  ]
+}

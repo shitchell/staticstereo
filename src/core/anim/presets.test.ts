@@ -1,17 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { compilePreset, PRESETS } from './presets.js'
 import { evalTrack } from './track.js'
-
-/**
- * The shared fixture. `marginLeft`/`marginRight` are the shipped `shift`
- * margins for `sepFar: 110` (design §10.3), and they are deliberately
- * **unequal** — a preset that added the wrong one, or added the same one
- * twice, would still pass with a symmetric fixture.
- */
-const ctx = {
-  sceneW: 800, sceneH: 450, contentW: 1200, contentH: 90, layerDepth: 1,
-  marginLeft: 110, marginRight: 55,
-}
+import { CTX as ctx } from './ctx.fixture.js'
 
 /** Fully off the plate on each side, in stage coordinates (§10). */
 const OFF_LEFT = -(ctx.contentW + ctx.marginLeft)   // -1310
