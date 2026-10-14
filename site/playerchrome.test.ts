@@ -53,6 +53,36 @@ function rolesOf(spec: ChromeNode): string[] {
   return nodesOf(spec).map(n => n.role)
 }
 
+/**
+ * Is every part of the transport — the container and each control — inside the
+ * subtree of `spec` named by `targetRole`?
+ *
+ * Design §8.2's reason for targeting the wrapper is about the transport and
+ * not about the canvas: *"Fullscreening the canvas would make sibling
+ * transport unrenderable and R15+R16 unimplementable together."* A fullscreen
+ * element's siblings are not painted, so anything of the transport left
+ * outside the target vanishes at the exact moment R16 says play/pause must
+ * work.
+ *
+ * Takes the target as a **role rather than a node**, which is the only thing
+ * that makes it falsifiable at all: against today's specs the target is the
+ * root, so the answer is trivially yes. Parameterised, the same predicate can
+ * be pointed at a target one box in — the shape a future "fullscreen just the
+ * stage" edit would produce — and the positive control below does exactly
+ * that.
+ *
+ * `false` for a target that is not in the tree, and for a tree with no
+ * transport at all: every clause here is "nothing is outside X", and both of
+ * those satisfy it vacuously.
+ */
+function transportSurvivesFullscreen(spec: ChromeNode, targetRole: string): boolean {
+  const target = nodesOf(spec).find(n => n.role === targetRole)
+  const parts = nodesOf(spec).filter(n => n.role === ROLE_TRANSPORT || isControlRole(n.role))
+  if (target === undefined || parts.length === 0) return false
+  const inside = new Set(nodesOf(target))
+  return parts.every(part => inside.has(part))
+}
+
 describe('the framings are enumerable, and every one of them has a spec', () => {
   it('enumerates exactly the framings this test knows about', () => {
     expect([...FRAMING_NAMES].sort()).toEqual([...EVERY_FRAMING].sort())
@@ -185,6 +215,22 @@ describe('fullscreen targets the wrapper, and clicks still reach the canvas', ()
         expect(target).not.toBe(canvas)
       })
 
+      it('keeps the transport inside it too — the reason it names the wrapper', () => {
+        // The assertion above checks only that the *canvas* is a descendant,
+        // which is not what design §8.2 gives as the reason: "Fullscreening
+        // the canvas would make sibling transport unrenderable and R15+R16
+        // unimplementable together." The clause carrying that reason had no
+        // assertion behind it at all.
+        //
+        // Unfalsifiable against today's four specs, knowingly: the target IS
+        // the root, so every node is inside it and this cannot fail. That is
+        // a statement about the current tree, not about the rule — the rule
+        // is what stops the next person retargeting fullscreen at an inner
+        // box. The positive control below is what proves the predicate
+        // discriminates, and it is the load-bearing half of this pair.
+        expect(transportSurvivesFullscreen(spec, fullscreenTarget(spec))).toBe(true)
+      })
+
       it('makes the transport container transparent to pointers', () => {
         const transport = nodesOf(spec).find(n => n.role === ROLE_TRANSPORT)!
         expect(transport.pointerEvents).toBe('none')
@@ -223,6 +269,41 @@ describe('fullscreen targets the wrapper, and clicks still reach the canvas', ()
       })
     })
   }
+
+  it('would reject a target holding the canvas but not the transport', () => {
+    // The positive control for the clause above, and the only way to show the
+    // two clauses are not the same clause. `stage` contains the canvas, so
+    // "keeps the canvas a proper descendant" is perfectly satisfied by
+    // fullscreening it — and the transport, left outside as a sibling, stops
+    // being painted. That is design §8.2's sentence, made falsifiable.
+    const canvasNode: ChromeNode = { role: ROLE_CANVAS, tag: 'canvas', flow: 'flow' }
+    const stage: ChromeNode = { role: 'stage', tag: 'div', flow: 'flow', children: [canvasNode] }
+    const retargeted: ChromeNode = {
+      role: ROLE_WRAPPER,
+      tag: 'div',
+      flow: 'flow',
+      children: [
+        stage,
+        {
+          role: ROLE_TRANSPORT,
+          tag: 'div',
+          flow: 'absolute',
+          pointerEvents: 'none',
+          children: [{ role: ROLE_PLAY, tag: 'button', flow: 'flow', pointerEvents: 'auto' }],
+        },
+      ],
+    }
+    // The canvas clause cannot tell the two candidate targets apart...
+    expect(nodesOf(stage)).toContain(canvasNode)
+    expect(stage).not.toBe(canvasNode)
+    // ...and the transport clause can, which is the whole point of adding it.
+    expect(transportSurvivesFullscreen(retargeted, ROLE_WRAPPER)).toBe(true)
+    expect(transportSurvivesFullscreen(retargeted, 'stage')).toBe(false)
+    // Neither a target absent from the tree nor a tree with no transport is a
+    // pass: both would satisfy "nothing is outside the target" vacuously.
+    expect(transportSurvivesFullscreen(retargeted, 'invented-tomorrow')).toBe(false)
+    expect(transportSurvivesFullscreen(stage, 'stage')).toBe(false)
+  })
 
   it('refuses a tree that is not rooted at a wrapper', () => {
     // Positive control for the two assertions above: they would both hold
