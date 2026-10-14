@@ -123,6 +123,20 @@ const ALIASES: Readonly<Record<string, SmoothMode>> = {
  * spelling names the parameter without choosing among its values. There is
  * nothing for it to toggle *to*, and falling back is the only reading that
  * does not invent an intent the author did not express.
+ *
+ * Both lookups are `Object.hasOwn`-guarded, and **both** have to be: `in` and a
+ * bare index access each walk the prototype chain, so `?smooth=constructor`
+ * read as the `SmoothMode` `'constructor'` through the first and as the
+ * `Object` **function** through the second. Guarding only one leaves the other
+ * live — the two registries are plain object literals and therefore share a
+ * prototype, so nothing can reach one guard without reaching the other. This is
+ * the same defect `fit.ts` had, present here because the idiom was copied
+ * along with the rest of the parse policy.
+ *
+ * Unlike `fit.ts`'s, this one had no visible symptom: `imageRenderingFor` falls
+ * through to the `auto` policy for any mode that is neither `on` nor `off`, so
+ * a `Function` flowing through as a `SmoothMode` does not throw. The parameter
+ * just quietly stopped being parsed.
  */
 export function parseSmooth(search: string): SmoothMode {
   const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search)
@@ -130,7 +144,8 @@ export function parseSmooth(search: string): SmoothMode {
   const value = all[all.length - 1]
   if (value === undefined) return DEFAULT_SMOOTH
   const key = value.trim().toLowerCase()
-  if (key in SMOOTH_MODES) return key as SmoothMode
+  if (Object.hasOwn(SMOOTH_MODES, key)) return key as SmoothMode
+  if (!Object.hasOwn(ALIASES, key)) return DEFAULT_SMOOTH
   return ALIASES[key] ?? DEFAULT_SMOOTH
 }
 

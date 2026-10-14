@@ -96,12 +96,19 @@ export const FIT_MODES: Record<FitMode, FitModeInfo> = {
  * *recognised* one. `?fit=snap&fit=typo` is therefore the default, not `snap`:
  * reaching back past an unreadable later assignment would make the URL behave
  * in a way no reader of it could predict, and the fallback is already harmless.
+ *
+ * `Object.hasOwn` and **not** `key in FIT_MODES`: `in` walks the prototype
+ * chain, so `'constructor' in FIT_MODES` is `true` and this function returned
+ * `'constructor'` as a `FitMode`. `planFit`'s exhaustive switch then threw on
+ * it and the player laid out nothing — the one outcome the permissive read
+ * above exists to rule out. The value is attacker-chosen in the only sense
+ * that matters here: it comes from a URL nobody in this repo wrote.
  */
 export function parseFit(search: string): FitMode {
   const value = lastValue(search, FIT_PARAM)
   if (value === undefined) return DEFAULT_FIT
   const key = normalise(value)
-  return key in FIT_MODES ? (key as FitMode) : DEFAULT_FIT
+  return Object.hasOwn(FIT_MODES, key) ? (key as FitMode) : DEFAULT_FIT
 }
 
 /**
@@ -194,11 +201,22 @@ export interface FitNotice {
  * `parseFit`, so the two cannot disagree about which spelling is operative —
  * a page that letterboxed for one reason while explaining a different one
  * would be worse than silence.
+ *
+ * The `Object.hasOwn` guard is load-bearing and was the **worse** half of the
+ * same prototype-chain defect `parseFit` had. A bare `REJECTED_FIT_MODES[key]`
+ * answers `Object` itself for `?fit=constructor`, and `Object` is not
+ * `undefined`, so the guard below passed and this function returned a notice
+ * that was structurally valid and semantically empty: `requested` and `reason`
+ * both `undefined`, which the player interpolates into a message reading
+ * `“undefined”: undefined`. A wrong enum is at least visible; a notice that
+ * explains nothing in well-formed prose is not.
  */
 export function fitNotice(search: string): FitNotice | undefined {
   const value = lastValue(search, FIT_PARAM)
   if (value === undefined) return undefined
-  const rejected = REJECTED_FIT_MODES[normalise(value)]
+  const key = normalise(value)
+  if (!Object.hasOwn(REJECTED_FIT_MODES, key)) return undefined
+  const rejected = REJECTED_FIT_MODES[key]
   if (rejected === undefined) return undefined
   return { requested: rejected.mode, reason: rejected.reason, fallback: parseFit(search) }
 }

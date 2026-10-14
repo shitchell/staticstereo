@@ -128,6 +128,55 @@ describe('parseSmooth', () => {
   })
 })
 
+describe('parseSmooth and the names Object.prototype already answers to', () => {
+  /**
+   * The same defect `fit.ts` had, copied here with the idiom, and **twice**:
+   * `'constructor' in SMOOTH_MODES` is `true`, and the alias fallback
+   * `ALIASES[key]` is an index access on a prototype-bearing object. Fixing
+   * only the first leaves the second live, because both registries are plain
+   * object literals and therefore share a prototype — nothing can reach one
+   * guard without reaching the other.
+   *
+   * What it shipped: `?smooth=constructor` returned the `Object` **function**
+   * typed as a `SmoothMode`. It does not throw — `imageRenderingFor` falls
+   * through to the `auto` policy for any mode that is neither `on` nor `off` —
+   * so the only symptom is a parameter that silently stopped being parsed.
+   * That is why this is pinned on the returned value's membership of the
+   * registry, not merely on the absence of a throw.
+   *
+   * Pinned as inputs and observed behaviour, so `Object.hasOwn`, a `Map` and a
+   * null-prototype record all satisfy it.
+   */
+  const INHERITED = ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']
+
+  it('is not vacuous: each name is on Object.prototype and is not a smooth mode', () => {
+    expect(INHERITED.length).toBeGreaterThan(3)
+    for (const name of INHERITED) {
+      // The hazard, as a fact about the name rather than about our registry.
+      expect(name in Object.prototype, name).toBe(true)
+      expect(Object.hasOwn(SMOOTH_MODES, name), name).toBe(false)
+    }
+  })
+
+  it('falls back to the default for every inherited name', () => {
+    for (const name of INHERITED) {
+      expect(() => parseSmooth(`?smooth=${name}`), name).not.toThrow()
+      expect(parseSmooth(`?smooth=${name}`), name).toBe(DEFAULT_SMOOTH)
+    }
+  })
+
+  it('returns a registered mode and never a function off the prototype', () => {
+    // The symptom-free half: a `Function` flows on as a `SmoothMode` and the
+    // only visible effect is that the parameter stopped working. Assert
+    // membership rather than type, so a string that is not a mode fails too.
+    for (const name of INHERITED) {
+      const got = parseSmooth(`?smooth=${name}`)
+      expect(Object.hasOwn(SMOOTH_MODES, got as string), name).toBe(true)
+      expect(['auto', 'pixelated'], name).toContain(imageRenderingFor(got, 0.5))
+    }
+  })
+})
+
 describe('imageRenderingFor', () => {
   /**
    * A sweep rather than two hand-picked points: the claim is "every downscale"

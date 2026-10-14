@@ -8,6 +8,7 @@ import {
   parseFit,
 } from './fit.js'
 import { encodeSceneHash, parseSceneHash } from './hash.js'
+import { planFit } from './scale.js'
 import { validateScene } from './scene.js'
 import type { Scene } from '../src/core/types.js'
 
@@ -187,6 +188,74 @@ describe('parseFit and fitNotice on a rejected mode', () => {
     expect(fitNotice('?fit=cover&fit=snap')).toBeUndefined()
     expect(fitNotice('?fit=snap&fit=cover')?.requested).toBe('cover')
     expect(parseFit('?fit=snap&fit=cover')).toBe(DEFAULT_FIT)
+  })
+})
+
+describe('parseFit and the names Object.prototype already answers to', () => {
+  /**
+   * **A registry lookup written as `key in REGISTRY` walks the prototype
+   * chain**, so every property of `Object.prototype` was silently a fit mode:
+   * `'constructor' in FIT_MODES` is `true`, `parseFit('?fit=constructor')`
+   * returned `'constructor'` as a `FitMode`, and `planFit` then threw on it and
+   * the player laid out nothing. That is the precise outcome this module's
+   * permissive reading exists to prevent — "a typo in an embed URL should cost
+   * the embedder their preferred fit mode, not the stereogram".
+   *
+   * `fitNotice` had the same defect one layer worse: indexing
+   * `REJECTED_FIT_MODES` by the same key returned `Object` itself, which is not
+   * `undefined`, so the guard passed and the notice came back **well-formed
+   * with `undefined` in both of its string fields** — rendered by the player as
+   * `“undefined”: undefined`.
+   *
+   * Pinned as **inputs and observed behaviour** rather than as a lookup style,
+   * so that re-introducing the idiom in any spelling is caught here. Both
+   * `Object.hasOwn` and a null-prototype registry satisfy these.
+   */
+  const INHERITED = ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']
+
+  const box = { scene: SCENE, availableWidth: 800, availableHeight: 600, dpr: 1 }
+
+  it('is not vacuous: each name is on Object.prototype and is not a fit mode', () => {
+    expect(INHERITED.length).toBeGreaterThan(3)
+    for (const name of INHERITED) {
+      // The hazard, as a fact about the name rather than about our registry:
+      // this is what a `key in FIT_MODES` lookup would say yes to.
+      expect(name in Object.prototype, name).toBe(true)
+      // ...and it is genuinely not a mode, so falling back is the right answer.
+      expect(Object.hasOwn(FIT_MODES, name), name).toBe(false)
+      expect(Object.hasOwn(REJECTED_FIT_MODES, name), name).toBe(false)
+    }
+  })
+
+  it('falls back to the default for every inherited name', () => {
+    for (const name of INHERITED) {
+      expect(() => parseFit(`?fit=${name}`), name).not.toThrow()
+      expect(parseFit(`?fit=${name}`), name).toBe(DEFAULT_FIT)
+    }
+  })
+
+  it('still lays out, which is the outcome the fallback exists to protect', () => {
+    // The end of the chain, and the only part a reader of an embed URL would
+    // ever notice: `planFit`'s exhaustive switch throws on anything outside
+    // `FitMode`, so a parser that hands it `'constructor'` shows nothing at all.
+    for (const name of INHERITED) {
+      expect(() => planFit(parseFit(`?fit=${name}`), box), name).not.toThrow()
+    }
+    // The sweep is live: the mode the parser must never return really does
+    // take the layout down.
+    expect(() => planFit('constructor' as never, box)).toThrow(/unhandled fit mode/)
+  })
+
+  it('never answers with a notice carrying undefined in a string field', () => {
+    for (const name of INHERITED) {
+      const got = fitNotice(`?fit=${name}`)
+      // Either absent or meaningful. Never a well-formed object a renderer
+      // prints as `“undefined”: undefined`.
+      expect(got, name).toBeUndefined()
+    }
+    // ...and the one mode that IS understood and refused still reports itself,
+    // so the loop above is not passing by answering `undefined` to everything.
+    expect(fitNotice('?fit=cover')?.reason).toBe(REJECTED_FIT_MODES.cover?.reason)
   })
 })
 
