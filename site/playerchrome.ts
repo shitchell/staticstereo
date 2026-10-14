@@ -339,3 +339,123 @@ export function fullscreenTarget(spec: ChromeNode): string {
   }
   return spec.role
 }
+
+/* ------------------------------------------------- flow around the canvas */
+
+/** What {@link flowViolations} found. */
+export type FlowViolationKind =
+  /** An in-flow node precedes the canvas's branch, displacing its origin. */
+  | 'above-canvas'
+  /** The transport is in flow and not after the canvas. */
+  | 'transport-placement'
+  /** The spec has no canvas, or no transport, so the rules above say nothing. */
+  | 'absent'
+
+export interface FlowViolation {
+  readonly kind: FlowViolationKind
+  /** The offending node's role — or, for `absent`, the role that is missing. */
+  readonly role: string
+  /** Where it was found, or where it was looked for. */
+  readonly parentRole: string
+  /** Why it is a violation, in prose a reviewer can act on. */
+  readonly detail: string
+}
+
+/**
+ * Everything in `root` that breaks design §8.3. An empty array is conformance.
+ *
+ * ## The measurement this enforces — read before moving a control
+ *
+ * This is not a style preference and it is not tunable. The page's own record,
+ * quoted by design §8.3: adding a control **above** the canvas moved its
+ * fractional device-pixel origin and took edge-row disagreement from
+ * **13 device px to 445 at dpr 1.5** — a 34× worsening — and "the sensitivity
+ * is to the exact sub-pixel and is not something to tune". `site/main.ts:345`
+ * records the other half: a negative-margin correction for the same fractional
+ * origin was measured across 96 (viewport, dpr, mode) combinations, produced
+ * byte-identical output, and was deleted. There is no nudge that buys this
+ * back. The only thing that works is not displacing the canvas.
+ *
+ * So: **transport chrome goes below the canvas, or out of flow entirely.**
+ * Somebody will want a toolbar up there. This is the answer, and the number is
+ * what makes it an answer rather than an opinion.
+ *
+ * ## What is actually checked
+ *
+ * Not "the canvas is the first child" — that is a statement about one tree
+ * shape. What displaces the canvas is any in-flow box preceding **its branch**
+ * at **any** level, because a strip above the box the canvas is inside moves
+ * it by exactly as much as one beside it. So the walk goes from the root down
+ * to the canvas and inspects the preceding siblings at every step. A preceding
+ * sibling is permitted only when it is `absolute` or `fixed`: out of flow, it
+ * contributes nothing to its parent's layout and the canvas's origin does not
+ * know it exists.
+ *
+ * A missing canvas or transport is itself reported. Every other rule here is
+ * of the form "nothing does X", so without this an empty wrapper — the exact
+ * shape a half-finished renderer produces — would be perfectly conformant.
+ */
+export function flowViolations(root: ChromeNode): FlowViolation[] {
+  const found: FlowViolation[] = []
+  const canvasPath = pathToRole(root, ROLE_CANVAS)
+  const transportPath = pathToRole(root, ROLE_TRANSPORT)
+
+  if (canvasPath === undefined) {
+    found.push({
+      kind: 'absent',
+      role: ROLE_CANVAS,
+      parentRole: root.role,
+      detail: 'no canvas in this spec, so no rule about what sits above it can hold',
+    })
+  }
+  if (transportPath === undefined) {
+    found.push({
+      kind: 'absent',
+      role: ROLE_TRANSPORT,
+      parentRole: root.role,
+      detail: 'no transport container in this spec, so no rule about where it sits can hold',
+    })
+  }
+  if (canvasPath === undefined || transportPath === undefined) return found
+
+  for (let i = 0; i + 1 < canvasPath.length; i++) {
+    const parent = canvasPath[i]!
+    const siblings = parent.children ?? []
+    const onPath = siblings.indexOf(canvasPath[i + 1]!)
+    for (const before of siblings.slice(0, onPath)) {
+      if (before.flow !== 'flow') continue
+      found.push({
+        kind: 'above-canvas',
+        role: before.role,
+        parentRole: parent.role,
+        detail:
+          'in normal flow before the canvas’s branch: it moves the canvas’s fractional ' +
+          'device-pixel origin, which took edge-row disagreement from 13 device px to 445 ' +
+          'at dpr 1.5 the one time it was measured (design §8.3)',
+      })
+    }
+  }
+
+  const transport = transportPath[transportPath.length - 1]!
+  if (transport.flow === 'flow') {
+    const canvasParent = canvasPath[canvasPath.length - 2]
+    const transportParent = transportPath[transportPath.length - 2]
+    const siblings = canvasParent?.children ?? []
+    const after =
+      canvasParent !== undefined &&
+      transportParent === canvasParent &&
+      siblings.indexOf(transport) > siblings.indexOf(canvasPath[canvasPath.length - 1]!)
+    if (!after) {
+      found.push({
+        kind: 'transport-placement',
+        role: transport.role,
+        parentRole: transportParent?.role ?? '',
+        detail:
+          'an in-flow transport must be a following sibling of the canvas; anywhere else its ' +
+          'height is part of what the canvas is laid out against (design §8.3)',
+      })
+    }
+  }
+
+  return found
+}

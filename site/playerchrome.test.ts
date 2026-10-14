@@ -12,6 +12,7 @@ import {
   chromeSpec,
   fullscreenTarget,
   isControlRole,
+  flowViolations,
   nodesOf,
   pathToRole,
 } from './playerchrome.js'
@@ -186,5 +187,108 @@ describe('fullscreen targets the wrapper, and clicks still reach the canvas', ()
     // element that is not in the tree.
     const canvasRooted: ChromeNode = { role: ROLE_CANVAS, tag: 'canvas', flow: 'flow' }
     expect(() => fullscreenTarget(canvasRooted)).toThrow(/wrapper/)
+  })
+})
+
+describe('nothing sits above the canvas in normal flow (design §8.3)', () => {
+  /** A toolbar — the thing somebody will one day want above the plate. */
+  const toolbar = (flow: 'flow' | 'absolute' | 'fixed'): ChromeNode => ({
+    role: 'toolbar',
+    tag: 'div',
+    flow,
+  })
+  const canvasNode: ChromeNode = { role: ROLE_CANVAS, tag: 'canvas', flow: 'flow' }
+  const transportNode: ChromeNode = {
+    role: ROLE_TRANSPORT,
+    tag: 'div',
+    flow: 'flow',
+    pointerEvents: 'none',
+    children: [{ role: ROLE_PLAY, tag: 'button', flow: 'flow', pointerEvents: 'auto' }],
+  }
+  const rooted = (children: readonly ChromeNode[]): ChromeNode => ({
+    role: ROLE_WRAPPER,
+    tag: 'div',
+    flow: 'flow',
+    children,
+  })
+
+  for (const framing of EVERY_FRAMING) {
+    it(`${framing} puts nothing above the canvas and nothing in its way`, () => {
+      expect(flowViolations(chromeSpec(framing))).toEqual([])
+    })
+  }
+
+  it('rejects an in-flow node above the canvas', () => {
+    // The positive control. Every assertion above is "the list is empty", and
+    // a predicate that never finds anything satisfies all four of them.
+    const bad = rooted([toolbar('flow'), canvasNode, transportNode])
+    const found = flowViolations(bad)
+    expect(found.map(v => v.kind)).toContain('above-canvas')
+    expect(found.find(v => v.kind === 'above-canvas')!.role).toBe('toolbar')
+  })
+
+  it('permits the same node once it is out of flow', () => {
+    // And the negative half of the control: the rule is about flow, not about
+    // document order, so a predicate that rejected any preceding sibling
+    // whatsoever would pass the test above for the wrong reason.
+    expect(flowViolations(rooted([toolbar('absolute'), canvasNode, transportNode]))).toEqual([])
+    expect(flowViolations(rooted([toolbar('fixed'), canvasNode, transportNode]))).toEqual([])
+  })
+
+  it('looks at every level, not just the canvas’s own parent', () => {
+    // The displacement is of the canvas's *branch*: a strip above the box the
+    // canvas is inside moves the canvas by exactly as much as one beside it.
+    const nested = rooted([
+      toolbar('flow'),
+      { role: 'stage', tag: 'div', flow: 'flow', children: [canvasNode] },
+      transportNode,
+    ])
+    expect(flowViolations(nested).map(v => v.kind)).toContain('above-canvas')
+
+    const deep = rooted([
+      {
+        role: 'stage',
+        tag: 'div',
+        flow: 'flow',
+        children: [{ role: 'label', tag: 'p', flow: 'flow' }, canvasNode],
+      },
+      transportNode,
+    ])
+    const inner = flowViolations(deep).find(v => v.kind === 'above-canvas')!
+    expect(inner.role).toBe('label')
+    expect(inner.parentRole).toBe('stage')
+  })
+
+  it('rejects a transport placed above the canvas in flow, on both counts', () => {
+    const bad = rooted([transportNode, canvasNode])
+    const kinds = flowViolations(bad).map(v => v.kind)
+    expect(kinds).toContain('above-canvas')
+    expect(kinds).toContain('transport-placement')
+  })
+
+  it('permits an overlaid transport wherever it sits in the children', () => {
+    const overlay = { ...transportNode, flow: 'absolute' as const }
+    expect(flowViolations(rooted([overlay, canvasNode]))).toEqual([])
+    expect(flowViolations(rooted([canvasNode, overlay]))).toEqual([])
+  })
+
+  it('rejects a transport that is in flow but not after the canvas', () => {
+    // In flow and in a different branch: it neither follows the canvas nor is
+    // out of its way, so the canvas's origin depends on how tall it is.
+    const sideways = rooted([
+      { role: 'strip', tag: 'div', flow: 'flow', children: [transportNode] },
+      canvasNode,
+    ])
+    expect(flowViolations(sideways).map(v => v.kind)).toContain('transport-placement')
+  })
+
+  it('reports a missing canvas or transport rather than holding vacuously', () => {
+    // Without this the whole predicate is satisfied by an empty wrapper, which
+    // is the exact shape a half-finished renderer would hand it.
+    const empty = rooted([])
+    const kinds = flowViolations(empty).map(v => v.kind)
+    expect(kinds).toEqual(['absent', 'absent'])
+    expect(flowViolations(rooted([canvasNode])).map(v => v.role)).toEqual([ROLE_TRANSPORT])
+    expect(flowViolations(rooted([transportNode])).map(v => v.role)).toEqual([ROLE_CANVAS])
   })
 })
