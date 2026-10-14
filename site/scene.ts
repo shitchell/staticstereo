@@ -1,4 +1,4 @@
-import { PRESETS, EASINGS, resolveStereo, STEREO_KEYS } from '../src/core/index.js'
+import { CHANNELS, PRESETS, EASINGS, resolveStereo, STEREO_KEYS } from '../src/core/index.js'
 import type { Anim, Easing, Key, Layer, MaskSource, Scene, StereoOpts, Track } from '../src/core/types.js'
 
 /**
@@ -129,7 +129,13 @@ function validateKey(v: unknown, path: string): Key {
   if (!isRecord(v)) fail(`${path} must be an object, got ${JSON.stringify(v)}`)
   requireFinite(v['t'], `${path}.t`)
   const key: Record<string, unknown> = { t: v['t'] }
-  for (const field of ['x', 'y', 'depth', 'scale', 'rotate'] as const) {
+  // Looping over `CHANNELS` rather than a list written out here, because this
+  // validator **rebuilds** the key instead of checking it: anything the loop
+  // does not copy is not rejected, it is silently discarded, and the layer
+  // renders motionless on that channel with no error raised anywhere. The
+  // inline list this replaces had missed `rotateX`/`rotateY` since they were
+  // added, so a shared link animating a flip arrived as a still.
+  for (const field of CHANNELS) {
     if (v[field] !== undefined) key[field] = requireFinite(v[field], `${path}.${field}`)
   }
   return key as Key

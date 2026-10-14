@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { validateScene } from './scene.js'
+import { CHANNELS } from '../src/core/index.js'
+import type { Track } from '../src/core/types.js'
 
 /**
  * A scene arriving from `location.hash` is **untrusted input** — it came from a
@@ -153,6 +155,24 @@ describe('validateScene', () => {
       size: [8, 8],
       layers: [{ type: 'text', text: 'A', anim: { keys: [{ y: 3 }] } }],
     })).toThrowError(/\.t\b/)
+  })
+
+  // Unlike the CLI validator, this one rebuilds every object field by field
+  // and keeps only what it explicitly copies, so an unlisted channel is not
+  // rejected — it is silently dropped, and the layer renders motionless on that
+  // axis with no error anywhere. Widening a list would not have been enough:
+  // the copy itself has to be the loop over `CHANNELS`.
+  it('keeps every animatable channel in a keyframe rather than dropping it', () => {
+    const key: Record<string, number> = { t: 0 }
+    CHANNELS.forEach((ch, i) => { key[ch] = i + 1 })
+    const out = validateScene({
+      size: [8, 8],
+      layers: [{ type: 'text', text: 'A', anim: { keys: [key] } }],
+    })
+    const track = out.layers[0]?.anim as Track | undefined
+    const got = (track?.keys[0] ?? {}) as Record<string, number>
+    expect(new Set(Object.keys(got))).toEqual(new Set(['t', ...CHANNELS]))
+    for (const ch of CHANNELS) expect(got[ch]).toBe(key[ch])
   })
 
   it('rejects an animator that is neither a track nor a preset', () => {
