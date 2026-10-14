@@ -62,9 +62,31 @@ layers:
     # parks the tail on screen again -- the bug `-contentW` exists to prevent.
     # As a token it cannot go stale and nothing here is recomputed by hand.
     #
-    # Measured when the tokens landed: they resolve to 855 and
-    # -2885.550048828125, byte-for-byte what this file used to spell out, so
-    # the swap moved no pixel. 3740.55px at 220px/s = 17.0s against a 6s scene.
+    # AND A WRONG FAR ENDPOINT WOULD NOT SHOW UP IN THIS SCENE'S OUTPUT, which
+    # is the part worth knowing. The ease is linear and `speed` sets
+    # `duration = travel / speed`, so inside the move the position is
+    # `x(s) = from - speed*s`: `to` cancels out of every rendered position and
+    # survives only in the duration. The derived move is ~17s and the scene is
+    # 6s, so every frame emitted is strictly inside it. Verified by rendering
+    # this file: substituting `to: [-2000, 0]` or `to: [-9999, 0]` for the
+    # token leaves all 72 frames byte-identical. That check is not vacuous --
+    # `to: [-100, 0]` shortens the move to 4.34s and does change 19 frames --
+    # but the break-even is about -447, so any endpoint beyond it, right or
+    # wrong, renders the same picture. This is the mechanism by which the
+    # website's copy of this scroll carried a `to` that was 17.33px short of
+    # clearing the plate for several commits with nothing red and nothing
+    # visibly wrong (see `site/examples.ts`; `raster.test.ts` pins the
+    # duration-to-scene ratio that makes it so for all three scrolls). So the
+    # token is not merely tidier than a correct number: a correct number here
+    # would be unfalsifiable, and that is the whole argument for deriving it.
+    #
+    # Measured at the commit that landed the tokens and recomputed at the one
+    # that wrote the paragraph above -- same values both times, but they are a
+    # snapshot of a derived quantity rather than a property of this file, so
+    # recompute before citing them: the tokens resolve to 855 and
+    # -2885.550048828125, byte-for-byte the two literals this file used to
+    # spell out, so the swap moved no pixel. Travel 3740.550048828125px at
+    # 220px/s derives a 17.002500221946022s move.
     anim:
       - kind: move
         from: [offRight, 0]
