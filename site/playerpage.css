@@ -1,0 +1,139 @@
+/**
+ * The player **document**'s own rules — not the player component's.
+ *
+ * `site/player.css` is the component stylesheet: it styles the `stst-` chrome
+ * that `applyChrome` builds, and its header records exactly which properties
+ * it may and may not claim. This file is the other half, and the split is
+ * deliberate rather than tidy-minded: everything here is about the standalone
+ * page `site/player.html` puts the component on, and **none of it travels**
+ * when P3 lifts the component into the editor shell, which has its own page,
+ * its own reset and its own font declarations already.
+ *
+ * Nothing here may say anything about a `stst-` class. That is `player.css`'s
+ * job and `chromedom.test.ts` asserts the absences in it; a second sheet with
+ * an opinion about the plate or the transport would be exactly the "two
+ * artifacts claim one property and specificity decides" problem that file was
+ * written to avoid, with the added twist that the test would not see it.
+ */
+
+/**
+ * The faces, declared again.
+ *
+ * ## Why this is a second copy, and what it is a copy of
+ *
+ * `site/styles.css` declares the same three faces for the editor. This is a
+ * duplicate and it is a forced one: that sheet is the editor's, the player
+ * shares nothing with it by design (`player.css`'s header: "the player is
+ * embedded in pages we will never see and lifted into the editor shell by P3,
+ * so it carries its own sheet and its own `stst-` class namespace and shares
+ * nothing"), and a shared partial would mean editing `styles.css`, which this
+ * phase may not touch. The family name, the weights and the file paths all
+ * come from `src/shared/fontspec.ts`, which is the single source for them;
+ * what is duplicated is three CSS rules, not the policy.
+ *
+ * ## Why the player needs them at all
+ *
+ * `site/fonts.ts` *loads* the face; it cannot *declare* it. `document.fonts.
+ * load()` resolves against the faces the document already declares, and
+ * resolves to an **empty array** — not an error — when none match. So without
+ * these rules `loadVendoredFont` reports a problem and every text layer is
+ * rasterised in whatever sans the engine picked, which is the same shape of
+ * silent failure as `sans-serif` resolving to dingbats in `@napi-rs/canvas`:
+ * the picture is not broken, it is merely measured wrong, and nothing says so.
+ *
+ * `font-display: block` and not `swap`, for `styles.css`'s recorded reason:
+ * the thing being rendered is a stereogram graded for stroke width, and a
+ * frame drawn in the fallback face is a frame whose depth map is wrong.
+ */
+@font-face {
+  font-family: "Staticstereo Sans";
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url("../assets/fonts/inter-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Staticstereo Sans";
+  font-style: normal;
+  font-weight: 700;
+  font-display: block;
+  src: url("../assets/fonts/inter-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Staticstereo Sans";
+  font-style: normal;
+  font-weight: 900;
+  font-display: block;
+  src: url("../assets/fonts/inter-900.woff2") format("woff2");
+}
+
+/**
+ * The page is the container, and the container is what the plan is planned
+ * against.
+ *
+ * `margin: 0` is load-bearing, not a reset reflex: the player measures
+ * `#player`'s `clientWidth`/`clientHeight` and hands them to `playerPlan` as
+ * the box it may use. The user-agent's default 8px body margin would make
+ * every plan 16 CSS px too generous on both axes, which at `fit=snap` is the
+ * difference between an integer scale that fits and one that overflows.
+ */
+html,
+body {
+  height: 100%;
+}
+
+/**
+ * A column, and never a reversed one.
+ *
+ * The notice strip is a following sibling of the player, so it sits *below*
+ * the plate. That is the same rule `playerchrome.ts` enforces inside the
+ * chrome tree and for the same measured reason: a box in normal flow above
+ * the canvas moves its fractional device-pixel origin, which took edge-row
+ * disagreement from 13 device px to 445 at dpr 1.5, and "the sensitivity is
+ * to the exact sub-pixel and is not something to tune" (design §8.3). A
+ * `column-reverse` here, or an `order` on either child, would put the notices
+ * on top and undo it with every structural test still green.
+ */
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  font-family: "Staticstereo Sans", system-ui, sans-serif;
+}
+
+/**
+ * The mount. `flex: 1` so it is the whole viewport minus whatever the notice
+ * strip needs, and `min-height: 0` because a flex item's default
+ * `min-height: auto` refuses to shrink below its content — which here is a
+ * plate that may be far larger than the screen, and would silently push the
+ * notices off the bottom.
+ *
+ * `overflow: auto` rather than `hidden`: `scale.ts` floors `snap` at 1 and
+ * deliberately "lets an over-large plate scroll" rather than shrink it, and
+ * clipping here would turn that documented behaviour into a cropped plate
+ * whose missing columns are the fusion partners of the ones still visible.
+ */
+#player {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+}
+
+/**
+ * The notices.
+ *
+ * Text, in flow, below everything — not an overlay. A `PlayerNotice` is
+ * mostly bad news about the link ("this link carries no scene"), so it has to
+ * be readable rather than glanceable, and an overlay on a plate the viewer is
+ * trying to fuse is the one thing design §8.2 spends its whole auto-hide
+ * budget avoiding.
+ */
+#notices {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.4;
+}

@@ -34,6 +34,19 @@ const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
 const DIST = join(ROOT, 'dist-site')
 const built = existsSync(join(DIST, 'index.html'))
 
+/**
+ * The player's own output directory, built by `vite.player.config.ts`.
+ *
+ * **A sibling directory, not a second rollup entry into `dist-site/`.** With
+ * two entries code-split into one directory "the player bundle" stops being a
+ * well-defined set of files — a shared chunk belongs to both — and the
+ * no-editor-code assertion below would have nothing to point at. Two
+ * directories make the set exact: every file under here is the player's.
+ */
+const DIST_PLAYER = join(ROOT, 'dist-player')
+const PLAYER_ENTRY = 'player.html'
+const builtPlayer = existsSync(join(DIST_PLAYER, PLAYER_ENTRY))
+
 function filesUnder(dir: string): string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -65,16 +78,33 @@ function newestMtime(paths: string[]): number {
  * matching the policy below that `vitest run` on a clean checkout is green.
  * The real enforcement is CI, which builds immediately before testing.
  */
-const fresh =
-  built &&
-  newestMtime(filesUnder(DIST)) >=
+function newerThanSources(dir: string, config: string): boolean {
+  return (
+    newestMtime(filesUnder(dir)) >=
     newestMtime([
-      join(ROOT, 'vite.site.config.ts'),
+      join(ROOT, config),
       // Test files are excluded: editing an assertion does not invalidate a
       // bundle, and including them would make this file invalidate itself.
       ...filesUnder(join(ROOT, 'site')).filter(p => !p.endsWith('.test.ts')),
       ...filesUnder(join(ROOT, 'src')).filter(p => !p.endsWith('.test.ts')),
     ])
+  )
+}
+
+const fresh = built && newerThanSources(DIST, 'vite.site.config.ts')
+
+/**
+ * The same gate for the player, and it has to be the same *kind* of gate.
+ *
+ * The player directory is the one a mistake hides in most easily: if
+ * `npm run build:site` built only `dist-site/`, this would be absent or stale
+ * on every machine, every block below would skip, and the suite would still
+ * report green — a no-editor-code check that never ran reads exactly like one
+ * that passed. That is why `build:site` builds both rather than leaving the
+ * player to a script CI never calls, and why the skip message below names
+ * `dist-player` specifically: a silent skip has to be legible in the output.
+ */
+const freshPlayer = builtPlayer && newerThanSources(DIST_PLAYER, 'vite.player.config.ts')
 
 /** Every `src=` / `href=` value in the document. */
 function assetRefs(html: string): string[] {
@@ -178,6 +208,83 @@ describe.skipIf(!fresh)('the built site', () => {
     expect(js.some(f => statSync(f).size > 10_000)).toBe(true)
   })
 })
+
+/* ===================================================================== */
+/*  the player bundle                                                     */
+/* ===================================================================== */
+
+describe.skipIf(!freshPlayer)('the built player', () => {
+  const html = freshPlayer ? readFileSync(join(DIST_PLAYER, PLAYER_ENTRY), 'utf8') : ''
+  const files = freshPlayer ? filesUnder(DIST_PLAYER) : []
+
+  it('references no asset by an absolute path', () => {
+    // Same reason as the site, and the player needs it more: it is designed to
+    // be loaded as an `<iframe src>` from a page on a host we will never see
+    // (R14), so there is no deployment path on which a leading slash is right.
+    const absolute = assetRefs(html).filter(ref => ref.startsWith('/'))
+    expect(absolute).toEqual([])
+  })
+
+  it('resolves every local asset reference to a file that exists', () => {
+    const local = assetRefs(html).filter(ref => !isExternal(ref))
+    expect(local.length).toBeGreaterThan(0)
+    const missing = local.filter(ref => {
+      if (!ref.startsWith('./')) return true
+      return !existsSync(join(DIST_PLAYER, ref.slice(2)))
+    })
+    expect(missing).toEqual([])
+  })
+
+  it('references a script and a stylesheet, so the greps are not vacuous', () => {
+    const local = assetRefs(html).filter(ref => !isExternal(ref))
+    expect(local.some(r => r.endsWith('.js'))).toBe(true)
+    // The stylesheet half is not decoration: `site/player.css` is what gives
+    // the transport its `pointer-events` and the wrapper its positioning
+    // context, and a build that dropped it would still render a plate.
+    expect(local.some(r => r.endsWith('.css'))).toBe(true)
+  })
+
+  it('uses no root-relative URL in its CSS either', () => {
+    for (const file of files.filter(f => f.endsWith('.css'))) {
+      const urls = [...readFileSync(file, 'utf8').matchAll(/url\(\s*['"]?([^'")]+)/g)]
+        .map(m => m[1]!)
+        .filter(u => u.startsWith('/'))
+      expect(urls, relative(ROOT, file)).toEqual([])
+    }
+  })
+
+  it('emitted a non-trivial script, so an empty build cannot pass', () => {
+    // The positive control for every grep above, and the floor the acceptance
+    // criterion asks for: a failed or empty build leaves an HTML file that
+    // satisfies all four checks above by containing nothing to violate them.
+    const js = files.filter(f => f.endsWith('.js'))
+    expect(js.length).toBeGreaterThan(0)
+    const text = js.map(f => readFileSync(f, 'utf8')).join('\n')
+    expect(text.length).toBeGreaterThan(10_000)
+    // `resolveStereo`'s own wording — the player really did bundle `src/core`,
+    // which is the only thing that can draw a plate.
+    expect(text).toContain('depth budget')
+  })
+
+  it('contains no code from src/node or src/cli', () => {
+    const leaks = files.filter(f => readFileSync(f, 'utf8').includes('yuv444p'))
+    expect(leaks.map(f => relative(ROOT, f))).toEqual([])
+  })
+})
+
+if (!freshPlayer) {
+  it(
+    builtPlayer
+      ? 'skipped the built-player checks because dist-player is older than site/ or src/'
+      : 'skipped the built-player checks because dist-player is absent',
+    () => {
+      // Same policy as `dist-site` below: a clean checkout is green, and CI —
+      // which runs `npm run build:site`, the script that builds *both*
+      // directories — is where these actually gate.
+      expect(freshPlayer).toBe(false)
+    },
+  )
+}
 
 if (!fresh) {
   it(
