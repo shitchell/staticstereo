@@ -223,6 +223,30 @@ fiction**, and a phase that economises on them is not saving effort, it is remov
 sensor. Both PMs volunteered their own failure lists unprompted; treat that as the
 expected standard for a stand-down report rather than as unusual candour.
 
+### 1.2e-ter A PM's acceptance criteria are the weakest thing it produces
+
+PM-SHELL named this about itself and it is sharper than §1.2e-bis:
+
+> "My acceptance criteria are the weakest artefact I produce, because they are the one
+> thing I write that I cannot check against the code."
+
+A PM's *reports* being unverifiable is bad. Its *acceptance criteria* being unverifiable is
+worse, because criteria are **prescriptive** — a worker handed an impossible one must
+either obey it, which produces wrong work, or refuse it, which costs a round trip and
+only happens if the worker has been told it may. In one cluster, three separate workers
+declined to build on their PM's assertions: two refused unsatisfiable acceptance criteria
+and proved why, and a third re-derived a premise its brief had explicitly filed under
+*"what is already ruled out, so do not re-derive it"* — and found it false.
+
+Two consequences:
+
+1. **Every acceptance criterion a PM writes should be checkable by the worker before it
+   starts**, and the brief should say so in as many words. A criterion the worker cannot
+   evaluate up front is a criterion the PM could not evaluate either.
+2. **"Already ruled out, do not re-derive" is the most dangerous sentence in a brief.** It
+   is an instruction to skip exactly the cheap check §1.2e says never to skip. Use it only
+   for things settled by a command whose output is quoted in the brief.
+
 ### 1.2f Escalate on conflict, not only on uncertainty
 
 The worker that stopped a cluster rather than comply was not being careful in general. It
@@ -755,6 +779,7 @@ Each already cost a correction. Hand this table to every worker.
 | Trap | Reality |
 |---|---|
 | `npm run typecheck \| tail` exited 0, so it is clean | `$?` after a pipeline is **`tail`'s** status. Redirect to a file and echo `$?`. |
+| a freshness gate skips when stale | Not always — and the other failure is worse. `purity.test.ts` had **no freshness gate at all**, only `existsSync`, so it *silently passed* over stale output rather than skipping. On a tree stale by `touch` alone: 62 files, 1349 passed, **22 skipped, exit 0**. A silent pass is a green claim about output nobody checked; a silent skip is at least absent. |
 | the suite is 862 tests | 855 on `main`; 862 with `400ba98`; ±8 move with ffmpeg/tsc availability, and `dist.test.ts` freshness is **mtime**-based. Build first or two suites skip silently. |
 | `purity.test.ts` guards `site/` | It parses `dist/core` only. Nothing in `site/` can turn it red. |
 | the channel list is guarded | Guarded in `track.ts` only; duplicated unguarded in `src/cli/scene.ts` and `site/scene.ts`. |
@@ -774,6 +799,8 @@ Each already cost a correction. Hand this table to every worker.
 | the plate can be cropped to the stage | Margins are the fusion partners of the stage's edge columns. |
 | `comm -12` reported no overlap, so there is none | Not without `LC_ALL=C`. `sort` and `comm` disagree on collation otherwise and silently report **no** overlap — a fail-open answer to "do these two sets intersect". Nearly cost a rebase check. |
 | `grep -n` gave me the line number | Not over diff output it did not — that numbers the *diff*, not the file. It produced `:1665` and `:1728` for a 1281-line file, and the impossible numbers then travelled through two reports before anyone checked them against `git show <sha>:<path> \| grep -n`. |
+| "build 0" is evidence the import is absent | It is not. `tsc` **elides** an unused import, so `dist/` is clean and the build is green while the dependency is right there in the source. A `.svelte` import from `src/` was measured to resolve and execute under vitest, and for the package form `typecheck` **and** `build` are both 0. The only sensor is a test that reads the source. |
+| a numeric floor chosen from today's count is a check | It is the same defect as a hand-written list, in numeric form. A specifier floor of 160 was **overtaken inside its own cluster** — `src/core` reached 162 before the phase ended. Derive it, or make it a ratchet; never a literal picked from a measurement taken once. |
 | a hand-written list of "the places that do X" is a check | It goes stale silently the day a second place does X. Derive it from the thing that makes a site one of them — the call sites, the registry, the token table — never from an enumeration someone typed. |
 | a stale comment is a stale comment | Two kinds, and the cheaper one is not worth a third edit. A **pointer** (a path, a file name) goes stale when the target moves: the comment is wrong, a `grep` finds the truth, and nothing silently passes. An **assertion** (a test title, a measured value, a claimed mechanism) goes stale when the subject changes: the comment is now **false**, and a reader who trusts it is misled. Fix false assertions; let stale pointers wait for the file to reopen. |
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
