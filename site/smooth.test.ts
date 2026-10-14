@@ -420,7 +420,12 @@ describe('parseSmooth and the fragment', () => {
     const hash = `#${body}`
     for (const search of ['', '?smooth=on', '?smooth=off&fit=snap']) {
       const url = `/p/${search}${hash}`
-      expect(url.endsWith(hash), search).toBe(true)
+      // Not `url.endsWith(hash)`, for the reason spelled out at the same place
+      // in `fit.test.ts`: it could not fail for any input, because `url` was
+      // built from `hash` one line earlier. The premise that CAN fail is the
+      // one the cast below rests on — exactly one `#`, so the fragment
+      // boundary is unambiguous and the scene reaches the parser whole.
+      expect(url.split('#'), search).toHaveLength(2)
       const [before, after] = url.split('#') as [string, string]
       expect(after).toBe(body)
       expect(parseSceneHash(`#${after}`)).toEqual(SCENE)

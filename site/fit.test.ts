@@ -274,8 +274,15 @@ describe('parseFit and the fragment', () => {
     const hash = `#${body}`
     for (const search of ['', '?fit=snap', '?fit=render&present=1']) {
       const url = `/p/${search}${hash}`
-      // The hash is the tail of the URL, byte for byte.
-      expect(url.endsWith(hash), search).toBe(true)
+      // **Not** `url.endsWith(hash)`, which stood here and could not fail for
+      // any input: a string always ends with a suffix it was built from one
+      // line earlier, so that assertion tested this file's own template
+      // literal. What CAN fail is the premise everything below rests on —
+      // exactly one `#` in the whole URL, which is what makes the fragment
+      // boundary unambiguous. A search carrying a `#` gives `split('#')` three
+      // parts, and the two-element cast on the next line then silently
+      // truncates the scene before the parser ever sees it.
+      expect(url.split('#'), search).toHaveLength(2)
       const [before, after] = url.split('#') as [string, string]
       expect(after).toBe(body)
       expect(parseSceneHash(`#${after}`)).toEqual(SCENE)
