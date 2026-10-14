@@ -18,6 +18,7 @@
  * The drawing surface is injected (`CanvasLike`), so this file is isomorphic:
  * it imports nothing from `src/node/` or `src/web/` and has no dependencies.
  */
+import { degToRad } from './angle.js'
 import { composeAnim, compilePreset } from './anim/index.js'
 import type { PresetCtx } from './anim/index.js'
 import { sceneMargins } from './plate.js'
@@ -412,8 +413,10 @@ function arcSpan(
       `(${start}); the wedge is swept clockwise from 3 o'clock`,
     )
   }
-  const RAD = Math.PI / 180
-  return [start * RAD, end * RAD]
+  // `degToRad`, not a local `Math.PI / 180`: this was the private converter
+  // `angle.ts` was created to replace, and leaving it here while that module
+  // claimed to have ended the duplication made the claim false.
+  return [degToRad(start), degToRad(end)]
 }
 
 /**
