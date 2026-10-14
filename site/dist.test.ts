@@ -95,6 +95,30 @@ const PLAYER_ENTRY = 'index.html'
  * directory index", below) and never a gate. The phase has already lost one
  * suite to a silent skip — `1130 passed | 20 skipped`, with every
  * Pages-critical check not running — and that is the shape it took.
+ *
+ * ## What this flag cannot see, which the argument above does not cover
+ *
+ * Keying on *any* emitted document closes the rename hole and leaves a
+ * different one open, in the opposite direction: **a failed player build is
+ * indistinguishable from an unbuilt one, silently.** `vite build` empties
+ * `dist-player/` before `generateBundle` runs, so when
+ * {@link directoryIndexEntry} throws — which it is written to do, deliberately,
+ * if a vite upgrade changes the emitted name — the directory is left present
+ * and empty. No HTML, so `builtPlayer` is false, so every player block skips
+ * and the suite reports green with "skipped because dist-player is absent".
+ *
+ * That is not fixable here and should not be attempted: a flag that treated an
+ * empty directory as a *failure* would make `vitest run` on a clean checkout
+ * red, which is the policy this file states at the bottom and keeps on purpose.
+ * The thing standing between a failed build and a green suite is therefore
+ * `npm run build:site` exiting non-zero as a **separate CI step**, which
+ * `.github/workflows/pages.yml` does hold today — the builds are their own
+ * steps, ahead of `npm test`, so a throwing plugin fails the job before the
+ * suite is ever reached.
+ *
+ * Written down because it is load-bearing and invisible: collapse those into
+ * one step, or make the build non-fatal, and this file goes quiet about the
+ * player without a single assertion changing.
  */
 const builtPlayer =
   existsSync(DIST_PLAYER) && filesUnder(DIST_PLAYER).some(f => f.endsWith('.html'))
@@ -1168,7 +1192,16 @@ if (!freshPlayer) {
   it(
     builtPlayer
       ? 'skipped the built-player checks because dist-player is older than site/ or src/'
-      : 'skipped the built-player checks because dist-player is absent',
+      // Three states, not two. A directory that exists and holds no document is
+      // a build that *failed*, not one that never ran: `vite build` empties the
+      // outDir before `generateBundle`, so a throwing plugin leaves exactly
+      // this. It said "absent" for it, which is the one reading that suggests
+      // nothing is wrong. See {@link builtPlayer} for why the flag cannot
+      // simply fail instead.
+      : existsSync(DIST_PLAYER)
+        ? 'skipped the built-player checks because dist-player exists and is EMPTY — the ' +
+          'player build failed; check build:site’s exit code, which is what gates this in CI'
+        : 'skipped the built-player checks because dist-player is absent',
     () => {
       // Same policy as `dist-site` below: a clean checkout is green, and CI —
       // which runs `npm run build:site`, the script that builds *both*
