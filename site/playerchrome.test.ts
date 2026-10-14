@@ -502,6 +502,67 @@ describe('chrome auto-hides, as a pure policy (design §8.2)', () => {
     expect(CODE.length).toBeGreaterThan(1500)
   })
 
+  /**
+   * The file header's rule, verbatim: *"**No DOM types appear in this file, by
+   * rule** — not `HTMLElement`, not `Element`, not `CSSStyleDeclaration`.
+   * `tag` is a string because this module is not allowed to know what a tag
+   * resolves to."*
+   *
+   * It was true and nothing asserted it, which is the worst combination
+   * available: the whole reason the policy is **data** rather than
+   * DOM-building code is that no tier of this project has a browser, so a DOM
+   * type arriving here does not fail — it quietly moves the module's rules out
+   * of reach of every test in the repo at once. The same guard already exists
+   * one directory over, in the sense that `chromedom.test.ts` asserts the
+   * renderer may not mention a framing; this is the other half of that line.
+   *
+   * It reuses `CODE` for the reason `CODE` exists: the header argues about
+   * `HTMLElement` and `Element` **by name**, so a grep over the raw source
+   * would match the prose explaining the prohibition.
+   *
+   * **Word-boundaried, and that is load-bearing rather than tidy.** A bare
+   * `Node` matches `ChromeNode`, `nodesOf` and `MIN_CHROME_NODES` thirteen
+   * times in this very module, so the naive pattern is red on arrival — and
+   * the obvious way to make it green is to drop the term, which is the one
+   * term a renderer dragged in here would most plausibly arrive as.
+   */
+  const DOM_VOCABULARY: readonly string[] = [
+    'HTMLElement', 'Element', 'Node', 'NodeList', 'Document', 'document',
+    'DocumentFragment', 'ShadowRoot', 'CSSStyleDeclaration', 'window',
+    'createElement', 'appendChild', 'classList', 'querySelector',
+    'getElementById', 'addEventListener', 'innerHTML', 'textContent',
+  ]
+
+  it('names no DOM vocabulary at all, which its header states as a rule', () => {
+    for (const term of DOM_VOCABULARY) {
+      expect(CODE, `${term} appears in playerchrome.ts`).not.toMatch(new RegExp(`\\b${term}\\b`))
+    }
+    // Vacuity floors, both halves. The list has to be a list...
+    expect(DOM_VOCABULARY.length).toBeGreaterThanOrEqual(15)
+    // ...and the stripped source has to still be the module rather than a
+    // regex's leftovers, or every absence above is proved at once.
+    expect(CODE).toContain('export function chromeSpec')
+    expect(CODE).toContain('export interface ChromeNode')
+    expect(CODE.length).toBeGreaterThan(1500)
+  })
+
+  it('bans it with a pattern that spares this module’s own near-misses', () => {
+    const banned = (text: string): string[] =>
+      DOM_VOCABULARY.filter(term => new RegExp(`\\b${term}\\b`).test(text))
+    // Positive controls: the shapes a renderer leaking back in here takes.
+    expect(banned('function applyTo(n: ChromeNode, element: HTMLElement): void {'))
+      .toContain('HTMLElement')
+    expect(banned('element.classList.add(n.role)')).toContain('classList')
+    expect(banned('const element = doc.createElement(node.tag)')).toContain('createElement')
+    expect(banned('function parentOf(n: Node): Node | null { return n.parentNode }'))
+      .toContain('Node')
+    // ...and the near-misses, every one of them a live identifier in the
+    // module under test. A substring grep reds on all three.
+    expect(banned('export interface ChromeNode { readonly role: string }')).toEqual([])
+    expect(banned('export function nodesOf(spec: ChromeNode): ChromeNode[]')).toEqual([])
+    expect(banned('export const MIN_CHROME_NODES = 6')).toEqual([])
+  })
+
   it('records activity without disturbing anything else about the state', () => {
     const before = playing(1_000)
     const after = noteActivity(before, 4_321)
