@@ -624,13 +624,20 @@ export function fitScale({
  *
  * The clause above is correct and is tested (`scale.test.ts`, *"is idempotent:
  * re-fitting a plate into its own result changes nothing"*). What it does not
- * say is that it rests on a **convention this module never states**: that
- * "the box this function just gave it" means feeding `cssWidth`/`cssHeight`
+ * say is that it rests on a **convention this module never states as a rule**:
+ * that "the box this function just gave it" means feeding `cssWidth`/`cssHeight`
  * back in as `availableWidth`/`availableHeight`. Those are four different
- * fields and the mapping between them is an interpretation, not a definition —
- * grepping either `scale.ts` or `scale.test.ts` for the word `convention`
- * returns nothing, and the one test embodies the mapping in a single call
- * without naming it as the rule the clause means.
+ * fields and the mapping between them is an interpretation, not a definition,
+ * and the one test embodies the mapping in a single call without naming it as
+ * the rule the clause means.
+ *
+ * (That last sentence read "grepping either `scale.ts` or `scale.test.ts` for
+ * the word `convention` returns nothing". It was true when written and false
+ * when committed — the commit that wrote it put three occurrences of the word
+ * into this very docblock. Evidence a comment offers about the file it lives in
+ * has to survive being added to that file; this one did not, so it is restated
+ * as the thing it was actually claiming: the mapping is nowhere written down as
+ * a rule, whatever the word count now says.)
  *
  * Two things follow that a reader is entitled to know, both measured:
  *
