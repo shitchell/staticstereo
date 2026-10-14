@@ -821,6 +821,19 @@ describe('move\'s off-frame endpoints against the plate', () => {
       const { depth } = await frameOf(parked(shift), 0)
       expect(firstPaintedColumn(depth, STAGE[0]), `slid right by ${shift}`).toBe(-1)
     }
+    // Both samples above are empty frames, and emptiness is satisfied by *any*
+    // over-measurement however gross — so on its own this test is one-sided in
+    // exactly the way the header describes. A third sample closes it: slide the
+    // layer right by the whole endpoint, `marginLeft + measured`, and the
+    // string's leading edge lands on column 0, so it must paint. The shift is
+    // derived from the width the rasteriser measured rather than written here,
+    // which is what makes this the sample an over-measured `contentW` takes
+    // *off* the map instead of further off it — `12345.678` reddens this line
+    // and neither line above.
+    const probe = await frameOf(parked(0), 0)
+    const arrived = await frameOf(parked(layout.margins.left + probe.measured), 0)
+    expect(firstPaintedColumn(arrived.depth, STAGE[0]), 'slid right by the endpoint')
+      .toBeGreaterThanOrEqual(0)
   })
 
   it('computes that endpoint from the measured width, in both directions', async () => {
