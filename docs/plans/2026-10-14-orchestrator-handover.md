@@ -129,6 +129,7 @@ orchestrator.
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 | 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 17 | **On the third pass at the same table, dropped a clause from criterion 13** — its registration test, which R-ac makes part of it by explicit ruling, leaving a landed commit unbudgeted by any criterion. Also promoted a PM's labelled *inference* to established fact, inside the document that carries the rule against doing so | the PM re-audited all nine rows again |
 | 16 | **Reconstructed those nine criteria wrongly: five rows defective, and criterion 15 deleted** by putting criterion 14's content in its row. Nine rows, no gap, internally consistent — quote-diff clean, row count nine, both checks pass. A cure for an absence that produced a better-hidden absence | the PM checked all nine against its ledger after two of the three I asked about came back wrong |
 | 15 | **Adopted criteria 12–20 and ruling E14 in a message and never wrote them into any document.** Three of them are what cluster D is aimed at; one had already cost two tasks; two briefs quoted E14 as "verbatim". Invisible to the quote-diff rule, because a diff is blind to what was never written | the PM asked what its criteria said and found they said nothing |
 | 14 | Amended criterion 3 in the execution plan and **not in the design document**, leaving two tier-0 documents in conflict for a whole sub-cluster — in a phase whose idiom parses the design document | the PM read both and reported it rather than editing |
@@ -148,6 +149,19 @@ binding on tier 0 as on tier 1.
   second one is added. Confirmed by measurement, not inferred.
 - **P4 — `site/depthmap.ts`'s recorded rationale** still argues against a default colour
   ramp; P4 owns amending it in place (plan §7 P4.12).
+- **P4 — `UNIVERSAL_PARAMS` ships with no consumer.** D-3's four descriptors are correct,
+  tested and **unreachable from `CONTROLS`**. The honest wiring needs a new `MODEL_ROSTERS`
+  field with two upstreams plus a `ControlRosters` widening, deliberately reddening five
+  tests — a cross-file population change the PM routed out of cluster D rather than repeat
+  a scope error it had already refused. **It said plainly it would not pretend that makes
+  it fine, and it must appear in the gate report.**
+- **P4/P5 — layer retype silently drops data.** `gif`→`image` **loads and drops `loop`**,
+  measured. The recorded hazard's mechanism was also wrong: 10 of 12 retypes are refused
+  by *the missing required key of the target*, not by leftover keys.
+- **No compile-time sensor exists for `MODEL_ROSTERS` provenance.** Re-pointing it at
+  hand-written copies left the **entire suite and the entire type gate green**, and
+  `ControlRosters` is loosely typed on purpose, so a worker correctly declined to
+  manufacture one.
 - **Open from E14's sweep:** three more P2 rosters share the `SMOOTH_MODES` defect —
   `DepthView`, `Legibility`, `FitLimit`, the last in live non-orphaned code.
 - **P3b — criterion 14 / `EDITOR_ONLY_MODULES`**: three cluster-C modules are absent from
