@@ -240,6 +240,117 @@ export function disparityBudget(stereo: StereoOpts): number {
   return stereo.sepFar - stereo.sepNear
 }
 
+/**
+ * The widest budget the fusion sweep measured as comfortable, in scene px.
+ *
+ * **Where it comes from.** `docs/2026-10-12-legibility-findings.md` §1's fusion
+ * subsection: *"88-110 was pretty comfortable with no perceived
+ * increase/decrease in difficulty."* At the `sepFar` of 110 that sweep ran at,
+ * `sepNear` 88 is a budget of 22 — which is the figure §2's table carries as
+ * "flat to ~22px".
+ *
+ * **How weak the evidence is, stated because the number looks like the table's
+ * other numbers and is not.** The stroke-legibility rounds above it in that
+ * document are blinded trials; this is Shaun's own sweep, run sighted, labelled
+ * in the document itself as *"not a blinded trial"*, one observer. The
+ * document's own §4.1 warm-up confound applies to it in full, and it is a
+ * difficulty ranking — exactly the kind of judgement that section says is *not*
+ * robust, unlike the reads.
+ */
+export const FUSION_PLATEAU_BUDGET = 22
+
+/**
+ * The budget past which the sweep reported fusion failing, in scene px.
+ *
+ * **Where it comes from.** The same quote: *"80 for sepNear was right at the
+ * edge of what's easy to focus on. 78 was the true limit. once i went below
+ * that, it became exceedingly difficult to keep my eyes focused on the text for
+ * more than a second or so at a time."* At `sepFar` 110 that is a budget of 32,
+ * and the difficulty is reported *below* `sepNear` 78 — i.e. *above* a budget
+ * of 32 — which is why {@link fusionComfort} grades 32 itself as unresolved
+ * rather than hard, and why §2's table says "cliff **past** ~32px".
+ *
+ * **`sepNear` 78 is this budget's value only at `sepFar` 110**, and writing the
+ * rule on `sepNear` is the error R22 was raised in response to: it would stay
+ * silent at `sepFar: 140, sepNear: 78` (a budget of 62, twice past the cliff)
+ * while firing at `sepFar: 100, sepNear: 80` (a budget of 20, inside the
+ * plateau). Design §10.2, and a row of its own in the execution plan's §9.
+ *
+ * Same weakness as {@link FUSION_PLATEAU_BUDGET}: one observer, unblinded,
+ * warm-up unaddressed.
+ */
+export const FUSION_CLIFF_BUDGET = 32
+
+/**
+ * Where a budget sits against the fusion sweep.
+ *
+ * Three grades rather than two, and the middle one is the point. The sweep's
+ * budgets run 0, 22, 30, 32 and "below 78" — so between 22 and 30 it has **no
+ * point at all**, and a two-grade scale would have to put a boundary in that
+ * hole. `unresolved` says the band exists and that nothing measured it; it is
+ * not a severity between the other two so much as an admission.
+ *
+ * (The band is not quite empty of evidence: budget 30 is the sweep's "right at
+ * the edge of what's easy" and 32 its "true limit", so degradation does begin
+ * inside it. What is missing is any point that could say *where* — which is the
+ * same thing as saying the boundary is not there to be found yet.)
+ */
+export type FusionComfort = 'comfortable' | 'unresolved' | 'hard'
+
+/** What {@link fusionComfort} measured, and only then what it thinks of it. */
+export interface FusionReading {
+  /** `sepFar − sepNear`, in scene px. Not scaled by `noiseScale` — design §10.6. */
+  budget: number
+  /** The threshold it was graded against. {@link FUSION_PLATEAU_BUDGET}. */
+  plateau: number
+  /** The threshold it was graded against. {@link FUSION_CLIFF_BUDGET}. */
+  cliff: number
+  grade: FusionComfort
+}
+
+/**
+ * How hard this depth budget is to *hold fused* — the other axis.
+ *
+ * **Not legibility, and pointing the other way.** The findings document's §2
+ * separates the two: resolving the letters tracks stroke width absolutely and
+ * was 4/4 across a 3× range of budget, while holding fusion tracks the budget
+ * and nothing else. They point in opposite directions, which is why conflating
+ * them produces actively bad advice — a thin stroke makes the legibility rule
+ * suggest widening the budget, which does nothing for the letters and makes
+ * *this* worse. Two functions, deliberately, reading two different quantities.
+ *
+ * **Keys on the budget, not on `sepNear`.** See {@link FUSION_CLIFF_BUDGET} for
+ * the two configurations that tell the implementations apart.
+ *
+ * **Advisory only** (R22, design §10's second obligation): it returns a reading
+ * and never throws, clamps or corrects, including for a `sepNear` at or above
+ * `sepFar`. That is a misconfiguration `describeLegibility` already reports in
+ * its own words, and duplicating it here would mean warning about a cliff that
+ * nothing is near. Zero disparity is also the far end of the sweep's own
+ * plateau — `sepNear` 110 at `sepFar` 110 — so the quiet answer is what the
+ * evidence says as well as what the obligation requires. The one wrinkle worth
+ * recording: at a budget of 0 there is no disparity to fuse at all, so that end
+ * of the plateau is comfortable in a sense the rest of it is not.
+ *
+ * The numbers and the grade are separable (design §10): a view that wants to
+ * draw a margin reads `budget`, `plateau` and `cliff` and never looks at
+ * `grade`, and it gets the thresholds from the reading rather than inlining
+ * them, which is §2.6.
+ */
+export function fusionComfort(stereo: StereoOpts): FusionReading {
+  const budget = disparityBudget(stereo)
+  // Ordered widest-first so a non-finite budget falls through to the quiet
+  // answer rather than to a warning: every comparison against NaN is false.
+  // Silence on a number this function cannot read is the advisory-only stance,
+  // and the caller still sees the NaN in `budget`.
+  const grade: FusionComfort = budget > FUSION_CLIFF_BUDGET
+    ? 'hard'
+    : budget > FUSION_PLATEAU_BUDGET
+      ? 'unresolved'
+      : 'comfortable'
+  return { budget, plateau: FUSION_PLATEAU_BUDGET, cliff: FUSION_CLIFF_BUDGET, grade }
+}
+
 export type Legibility = 'unmeasured' | 'illegible' | 'tight' | 'clear'
 
 /**
