@@ -39,8 +39,8 @@
  *
  * `src/core/purity.test.ts` parses `dist/core`, because `files: ["dist"]` is
  * what ships. That is necessary here too — `src/cli/`, `src/node/` and
- * `src/web/` consume `dist/shared` — but it is **not sufficient**, for a reason
- * the plan's §9 states outright: `tsc` *elides* an unused or type-only import,
+ * `src/web/` consume `dist/shared` — but it is **not sufficient**, for two
+ * reasons. The first is that `tsc` *elides* an unused or type-only import,
  * so the source can name a dependency that never appears in `dist/` and both
  * `build` and `typecheck` exit 0. Measured on this tree while planting the
  * controls below: `import { createCanvas } from '@napi-rs/canvas'` in
@@ -50,6 +50,28 @@
  * built from **these sources**. So the source walk is the one that covers the
  * browser, and the `dist` walk is the one that covers the published package.
  * Both run.
+ *
+ * The second reason is the one that made the first half of this file blind for
+ * its whole life, and it is plan §7's amended P1 criterion 8. **A source walk
+ * whose roster is derived from `dist/` is still a `dist/` walk.** Until
+ * 2026-10-15 `guardedSources()` enumerated `dist/shared/*.js` and paired each
+ * back to `src/shared/*.ts`, so a module that had never been compiled appeared
+ * in neither instrument. Measured here, same file and same import, varying
+ * only whether the build had run:
+ *
+ * ```
+ * src/shared/zzzLeak.ts = import { readFileSync } from 'node:fs'
+ *   src only, no dist/shared/zzzLeak.js   -> 13 passed (13)        [blind]
+ *   after npm run build                   -> 2 failed | 11 passed  [sighted]
+ * src/shared/zzzLeak.ts = export const leak = (): string => document.title
+ *   src only, no dist/shared/zzzLeak.js   -> 13 passed (13)        [blind]
+ *   after npm run build                   -> 1 failed | 12 passed  [sighted]
+ * ```
+ *
+ * That is the class of file the rest of P1 and all of P5 add, and it is the
+ * class most likely to carry a leak, being the one nobody has built yet. The
+ * roster now comes from TypeScript's own answer to "what does this tsconfig
+ * compile", which is upstream of the build rather than downstream of it.
  *
  * **And the site build is not the sensor you would hope.** `src/shared/pixels.ts`
  * is in the site's module graph — planting `import '../node/canvas.js'` there
@@ -265,24 +287,53 @@ const installation: Installation = {
 /* ===================================================================== */
 
 /**
- * Which sources are guarded, derived from what the build emitted.
+ * Which sources are guarded, asked of the compiler rather than of the build.
  *
- * Every `dist/shared/X.js` names its own input, `src/shared/X.ts`, under
- * `rootDir: "src"` / `outDir: "dist"`. Pairing that way means nothing here
- * transcribes `tsconfig.json`'s `exclude` globs — `**​/*.test.ts` and
- * `src/shared/testing/**` emit nothing, so they are simply never paired, and a
- * fourth glob added later needs no edit here. `src/core/purity.test.ts`'s
- * freshness gate derives its roster the same way and for the same reason.
+ * The roster has to be `include: ["src"]` minus `tsconfig.json`'s three
+ * `exclude` globs, and there are three ways to get it. Transcribing the globs
+ * here is §9's "a hand-written list of 'the places that do X' is a check" in
+ * glob form — it goes wrong in silence the day a fourth is added. Pairing back
+ * from `dist/shared/*.js` is what this file used to do: it needs no list, but
+ * it makes the roster a function of the last build, which is the blindness the
+ * docblock at the top of this file measures. The third option is to ask
+ * TypeScript, which is the authority both of the others are approximating:
+ * `parseJsonConfigFileContent` returns exactly the files `tsc -p tsconfig.json`
+ * compiles. A fourth `exclude` glob needs no edit here *and* a never-built
+ * module is in the roster the moment it is on disk.
+ *
+ * Measured against today's tree: 13 files, the same 13 the old pairing walk
+ * produced, with `src/shared/testing/gifFixtures.ts` excluded — by
+ * `"src/shared/testing/**"`, not by the accident of emitting nothing. That
+ * file reaches `Buffer` at its line 100 and is Node-only test scaffolding by
+ * design, so excluding it is the correct answer and not a gap: it is never in
+ * the site bundle and never in `dist/`.
  */
-function guardedSources(): string[] {
-  if (!existsSync(DIST_SHARED)) return []
-  const out: string[] = []
-  for (const file of filesUnder(DIST_SHARED)) {
-    if (!file.endsWith('.js')) continue
-    const source = join(SRC, relative(DIST, file).replace(/\.js$/, '.ts'))
-    if (existsSync(source)) out.push(source)
+function compiledFiles(): readonly string[] {
+  const configPath = join(ROOT, 'tsconfig.json')
+  const read = ts.readConfigFile(configPath, ts.sys.readFile)
+  // Fail closed, both here and below. An unparseable or unresolvable config
+  // must not read as "no files to guard" — a roster that is empty because the
+  // question could not be answered is the fail-open shape §9 keeps naming,
+  // and it would report a clean `src/shared` over every module in it.
+  if (read.error) {
+    throw new Error(
+      `tsconfig.json did not parse: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`,
+    )
   }
-  return out.sort()
+  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, ROOT, undefined, configPath)
+  if (parsed.errors.length > 0) {
+    throw new Error(
+      `tsconfig.json did not resolve to a file list: ` +
+        parsed.errors.map(d => ts.flattenDiagnosticMessageText(d.messageText, ' ')).join('; '),
+    )
+  }
+  return parsed.fileNames.map(f => resolve(f))
+}
+
+function guardedSources(): string[] {
+  return compiledFiles()
+    .filter(f => f.startsWith(SRC_SHARED + sep))
+    .sort()
 }
 
 const built = existsSync(DIST_SHARED)
@@ -343,7 +394,17 @@ describe('the shared/ rule, as a predicate', () => {
 /*  the guard                                                             */
 /* ===================================================================== */
 
-describe.skipIf(!built)('src/shared and dist/shared import only what runs in both runtimes', () => {
+/*
+ * The source walk runs unconditionally; only the three `dist/` assertions are
+ * gated on the build. The gate used to sit on the whole block, and its stated
+ * reason — "the roster here is derived from the build, so there is nothing to
+ * guard until `npm run build` has run" — expired with the roster change above.
+ * Leaving it would have kept the same blindness in a different coordinate:
+ * `rm -rf dist && npx vitest run` would report green over a `node:fs` sitting
+ * in `src/shared/`. The clean-checkout policy the gate exists for is
+ * unaffected, because the source walk needs no `dist/`.
+ */
+describe('src/shared and dist/shared import only what runs in both runtimes', () => {
   /** Every specifier in a set of files, with the file it came from. */
   function census(files: readonly string[]): { file: string; spec: string }[] {
     const out: { file: string; spec: string }[] = []
@@ -372,29 +433,51 @@ describe.skipIf(!built)('src/shared and dist/shared import only what runs in bot
     return { count: all.length, bad: bad.sort() }
   }
 
-  it('the walks cover the same modules, so neither can be silently empty', () => {
+  it.skipIf(!built)('every emitted module pairs back to a guarded source, so neither walk can be silently empty', () => {
     // The vacuity floor, and deliberately **not** the incumbent's literal.
     //
     // `src/core/purity.test.ts:221` uses `expect(total).toBeGreaterThan(10)`,
     // which is the right idiom — a parser that found nothing would also report
     // no leaks. The literal is the part not to copy: §9 says "a numeric floor
     // chosen from today's count is a check ... a specifier floor of 160 was
-    // overtaken inside its own cluster". `dist/shared` holds 14 specifiers as
-    // this is written, so a floor of 10 would be 71% of the live count and
-    // would redden on four deletions while still passing an empty `src` walk.
+    // overtaken inside its own cluster". This comment said `dist/shared` held
+    // 14; it holds **22** as this is rewritten, which is the row firing in
+    // miniature — and a floor of 10 would still have passed an empty `src`
+    // walk the whole time, because the two walks share no number.
     //
-    // A relation has neither problem. The two walks are independent — one
-    // enumerates `dist/shared/*.js`, the other pairs each back to `src/` — so
-    // requiring them to agree, and to be non-empty, fails loudly for a
-    // mis-pathed root, a changed extension filter, or an `outDir` that moved,
-    // and needs no number maintained by hand.
-    const sources = guardedSources()
+    // A relation has neither problem. The two walks are now independent in a
+    // stronger sense than before — one is TypeScript's answer to "what does
+    // this tsconfig compile", the other is what `tsc` actually wrote to disk —
+    // so requiring the second to be contained in the first fails loudly for a
+    // mis-pathed root, a changed extension filter, an `outDir` that moved, an
+    // `exclude` glob that grew to cover a module still being emitted, and an
+    // orphan in `dist/` whose source is gone.
+    //
+    // **Containment, not equality**, and the direction is the whole point of
+    // the roster change. The other direction — every guarded source has an
+    // emitted counterpart — is false of exactly the file this criterion
+    // exists for: a module written and not yet built. Asserting it would make
+    // a new leaky module redden *here*, with a message about the build, and
+    // its paired control (the same new module with the import removed) redden
+    // identically — which is §9's "my control proves the diff works": it would
+    // prove the instrument functions, not that it saw the import. Whether an
+    // unbuilt source is itself a defect is a freshness question, and
+    // `src/core/purity.test.ts`'s `dist/ is either absent or current` already
+    // owns it over the whole of `dist/`, `dist/shared` included, with its own
+    // paired control.
+    const sources = new Set(guardedSources())
     const emitted = filesUnder(DIST_SHARED).filter(f => f.endsWith('.js'))
-    expect(sources.length, 'no src/shared source paired to an emitted dist/shared/*.js').toBeGreaterThan(0)
-    expect(sources.length, 'every emitted module must pair back to a source').toBe(emitted.length)
+    expect(sources.size, 'tsconfig.json compiles nothing under src/shared, so the source walk guards nothing').toBeGreaterThan(0)
+    expect(emitted.length, 'dist/shared holds no emitted .js, so the dist walk guards nothing').toBeGreaterThan(0)
+    const unpaired = emitted
+      .map(f => join(SRC, relative(DIST, f).replace(/\.js$/, '.ts')))
+      .filter(s => !sources.has(s))
+      .map(s => relative(ROOT, s))
+      .sort()
+    expect(unpaired, 'these modules were emitted into dist/shared but their sources are not in the set tsconfig.json compiles').toEqual([])
     // And the parser must have produced something from them, or "no leaks" is
     // a statement about the empty set.
-    expect(census(sources).length, 'the parser found no specifier at all in src/shared').toBeGreaterThan(0)
+    expect(census([...sources]).length, 'the parser found no specifier at all in src/shared').toBeGreaterThan(0)
   })
 
   it('src/shared — the sources site/ actually bundles', () => {
@@ -403,14 +486,14 @@ describe.skipIf(!built)('src/shared and dist/shared import only what runs in bot
     expect(bad).toEqual([])
   })
 
-  it('dist/shared — the sources the published package and the CLI load', () => {
+  it.skipIf(!built)('dist/shared — the sources the published package and the CLI load', () => {
     const files = filesUnder(DIST_SHARED).filter(f => /\.(js|mjs|cjs|d\.ts)$/.test(f))
     const { count, bad } = violations(files, DIST_SHARED, join(DIST, 'core'))
     expect(count).toBeGreaterThan(0)
     expect(bad).toEqual([])
   })
 
-  it('emits no test file and no testing/ helper into dist/shared', () => {
+  it.skipIf(!built)('emits no test file and no testing/ helper into dist/shared', () => {
     // `src/core/purity.test.ts` already asserts this over the whole of `dist/`
     // and this is not a second copy of that: it is the one assertion here that
     // would notice `src/shared/testing/gifFixtures.ts` starting to emit, which
@@ -450,8 +533,12 @@ describe.skipIf(!built)('src/shared and dist/shared import only what runs in bot
  *   `TextEncoder`, `CompressionStream` and `DecompressionStream` are.
  *
  * `crypto` passes on both and so is allowed — which is the point. The absence
- * claim this file can make about DOM globals is now a measurement: 20 ambient
- * globals are reached from the eleven modules and all 20 clear both tests.
+ * claim this file can make about DOM globals is now a measurement: **21**
+ * ambient globals are reached from the **13** modules `tsconfig.json` compiles
+ * under `src/shared/`, and all 21 clear both tests. (This read "20 ... from
+ * the eleven modules"; both figures were stale, and the roster change of
+ * 2026-10-15 is what made them worth re-measuring rather than what moved
+ * them.)
  *
  * ## What it still cannot see
  *
@@ -508,7 +595,7 @@ describe('the ambient-global rule, as a predicate', () => {
   })
 })
 
-describe.skipIf(!built)('src/shared reaches no global that is missing from either runtime', () => {
+describe('src/shared reaches no global that is missing from either runtime', () => {
   const sources = guardedSources()
 
   /**
@@ -535,7 +622,7 @@ describe.skipIf(!built)('src/shared reaches no global that is missing from eithe
     const checker = program.getTypeChecker()
     const anchor = program.getSourceFiles().find(s => basename(s.fileName) === 'lib.es5.d.ts')
     // Instrument check: without the lib directory every declaration looks
-    // external and the rule would reject all 20 of today's globals — loudly,
+    // external and the rule would reject all 21 of today's globals — loudly,
     // not silently, but it would be the wrong failure and worth naming.
     expect(anchor, 'TypeScript standard libs did not load, so the rule cannot be evaluated').toBeDefined()
     const libDir = dirname(anchor!.fileName)
@@ -612,10 +699,14 @@ describe.skipIf(!built)('src/shared reaches no global that is missing from eithe
 })
 
 if (!built) {
-  it('skipped the src/shared purity checks because dist/shared is absent', () => {
+  it('skipped the dist/shared checks because dist/shared is absent', () => {
     // Same policy as `src/core/purity.test.ts`: `npx vitest run` on a clean
-    // checkout must be green, and the roster here is derived from the build,
-    // so there is nothing to guard until `npm run build` has run.
+    // checkout must be green, and there is no published output to guard until
+    // `npm run build` has run. **Only the `dist/` assertions skip** — the
+    // source walk and the ambient-global walk roster themselves from
+    // `tsconfig.json` and run on a tree that has never been built, which is
+    // the half that covers the site bundle and the half an unbuilt tree is
+    // most likely to be wrong about.
     expect(built).toBe(false)
   })
 }
