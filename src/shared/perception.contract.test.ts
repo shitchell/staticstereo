@@ -3,7 +3,8 @@ import { DEFAULT_STEREO, STEREO_KEYS } from '../core/index.js'
 import type { Scene } from '../core/types.js'
 import * as perception from './perception.js'
 import {
-  PARAM_KINDS, PERCEPTION_FUNCTIONS, SIGNATURES, argumentFor,
+  GRADED_FUNCTIONS, GRADING, PARAM_KINDS, PERCEPTION_FUNCTIONS, SIGNATURES,
+  argumentFor, callWith,
 } from './testing/perceptionRoster.js'
 
 /**
@@ -121,6 +122,67 @@ describe('no perception signature takes a subjective parameter', () => {
       })
       expect(strip(fn(...dirty)), `${name} reads a subjective field it was handed`)
         .toEqual(strip(fn(...clean)))
+    }
+  })
+})
+
+/**
+ * **P7 criterion 2** (design §10): a graded function returns quantities *and*
+ * a grade, so a caller that wants numbers never reads the judgement.
+ *
+ * The roster and the reasoning are in `perceptionRoster.ts`'s `GRADING`. The
+ * short version: this criterion had no sensor, and the ratchet one section up
+ * structurally cannot be one, because `SIGNATURES` and `ArityDrift` both read
+ * `Parameters<F>` and a return type moves no key. `legibilityOf` returned a
+ * bare `Legibility` string until 2026-10-15 — a grade with no numbers beside
+ * it, which is R22 obligation 4's subjective score in its quietest form — and
+ * nothing in this file moved when it was widened into a reading.
+ */
+describe('a graded perception function returns quantities beside the grade', () => {
+  it('classifies exactly the module\'s functions as graded or objective', () => {
+    // The runtime witness for `GRADING`'s `AssertNever` pair, same as the
+    // roster's above: `npm run typecheck` enforces the types, and without
+    // this the declaration is invisible to `npm test`.
+    expect(Object.keys(GRADING).sort()).toEqual([...PERCEPTION_FUNCTIONS].sort())
+  })
+
+  it('looked at some graded functions, so the sweep below is not empty', () => {
+    // The vacuity floor. A table that classified everything `objective` would
+    // satisfy the sweep by having nothing to sweep, which is this project's
+    // most-recorded failure shape.
+    expect(GRADED_FUNCTIONS.length).toBeGreaterThan(0)
+  })
+
+  it('answers every graded call with an object carrying a finite number', () => {
+    // Criterion 2's checkable half. *Which* numbers are right is each
+    // function's own test; what is checkable here, over a set that cannot go
+    // short, is that a caller wanting numbers is never handed a bare verdict.
+    //
+    // `DEFAULT_STEREO` and not a sweep: this is a shape claim, and the
+    // stereo sweep belongs to `perception.throws.test.ts`, which drives the
+    // same roster.
+    for (const name of GRADED_FUNCTIONS) {
+      const answer = callWith(name, DEFAULT_STEREO)
+      expect(typeof answer, `${name} answers a ${typeof answer}, not a reading`)
+        .toBe('object')
+      const numbers = Object.entries(answer as Record<string, unknown>)
+        .filter(([, v]) => typeof v === 'number' && Number.isFinite(v))
+        .map(([k]) => k)
+      expect(numbers, `${name} grades without returning a single quantity`)
+        .not.toHaveLength(0)
+    }
+  })
+
+  it('records a reason for every classification, graded or not', () => {
+    // The half a machine cannot check is *whether* a function should be
+    // graded, so the table forces the author to write the reason a reviewer
+    // reads. Identical in kind to `PARAM_KINDS` above, and identically
+    // honest about its limits.
+    for (const name of PERCEPTION_FUNCTIONS) {
+      const [kind, why] = GRADING[name]
+      expect(['graded', 'objective']).toContain(kind)
+      expect(why.length, `${name}'s ${kind} classification has no recorded reason`)
+        .toBeGreaterThan(20)
     }
   })
 })

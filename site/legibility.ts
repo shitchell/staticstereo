@@ -5,8 +5,18 @@
  * P7's: `perception.ts` is the socket the rest of the perception functions
  * plug into, and `src/shared/` is where both the CLI and the page can reach
  * them. Nothing about the rule changed in the move — no threshold, no grade
- * boundary, no verdict — and `site/legibility.test.ts` is unmodified and still
- * imports through this file, which is what proves it.
+ * boundary, no verdict — and the proof was that `site/legibility.test.ts` was
+ * unmodified and still imported through this file.
+ *
+ * **That proof has been spent, and the sentence above is kept in the past
+ * tense rather than deleted so nobody re-asserts it.** P7 criterion 5 then
+ * changed the verdict *string* deliberately (the budget is not a lever on
+ * legibility — `perception.ts`'s `describeLegibility` carries the finding)
+ * and criterion 2 widened `legibilityOf` from a bare grade to a reading, so
+ * that test file is modified and can no longer witness "nothing changed". The
+ * thresholds still have not moved, and what witnesses *that* is now
+ * `src/shared/perception.test.ts`'s boundary tests, every one of which derives
+ * its budgets from the module's own constants.
  *
  * **The shim exists because P7 must not touch `site/main.ts`.** That file is
  * the rule's one production importer and a later phase deletes it, so rewiring

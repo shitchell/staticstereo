@@ -1275,10 +1275,26 @@ export interface FusionReading {
  * **Not legibility, and pointing the other way.** The findings document's §2
  * separates the two: resolving the letters tracks stroke width absolutely and
  * was 4/4 across a 3× range of budget, while holding fusion tracks the budget
- * and nothing else. They point in opposite directions, which is why conflating
- * them produces actively bad advice — a thin stroke makes the legibility rule
- * suggest widening the budget, which does nothing for the letters and makes
- * *this* worse. Two functions, deliberately, reading two different quantities.
+ * and nothing else. Two functions, deliberately, reading two different
+ * quantities.
+ *
+ * **This paragraph used to end with a sentence that was wrong, and it is
+ * recorded rather than deleted because it was wrong in four documents at
+ * once.** It read: *"which is why conflating them produces actively bad advice
+ * — a thin stroke makes the legibility rule suggest widening the budget, which
+ * does nothing for the letters and makes* this *worse."* The rule it describes
+ * suggested the opposite: `describeLegibility` told the author to raise
+ * `sepNear`, which **shrinks** the budget, which moves it *toward* the plateau
+ * below and makes fusion **easier**. The sentence sat roughly eighty lines
+ * above code that said the reverse, so the module contradicted itself in its
+ * own comments. The findings document corrected it at source on 2026-10-15;
+ * the conclusion survives and the mechanism does not. Never re-cite the
+ * sentence.
+ *
+ * What the conflation actually cost: the advice **traded away depth range and
+ * bought nothing**, because the legibility threshold is an absolute stroke
+ * width and the budget is not a lever on it. The verdict has stopped offering
+ * the trade — see {@link describeLegibility}.
  *
  * **Keys on the budget, not on `sepNear`.** See {@link FUSION_CLIFF_BUDGET} for
  * the two configurations that tell the implementations apart.
@@ -1314,18 +1330,61 @@ export function fusionComfort(stereo: StereoOpts): FusionReading {
 
 export type Legibility = 'unmeasured' | 'illegible' | 'tight' | 'clear'
 
+/** What {@link legibilityOf} measured, and only then what it thinks of it. */
+export interface LegibilityReading {
+  /**
+   * The measured median ink-run width in scene px, carried through from
+   * {@link InkMeasurement.medianRun}. `NaN` where the layer had no ink.
+   */
+  medianRun: number
+  /**
+   * The budget it was graded against, in scene px — and the boundary below
+   * which the grade is `illegible`. Exactly the budget grades `tight`, not
+   * `illegible`: the rule is "narrower than the budget cannot carry a shift",
+   * so a stroke of exactly the budget still has one.
+   */
+  budget: number
+  /**
+   * `budget × ` {@link TIGHT_MULTIPLE}, in scene px — the stroke at or above
+   * which the grade is `clear`.
+   *
+   * **This field is why this function returns a shape rather than a string.**
+   * It is the one quantity the grading derives that a caller cannot recover
+   * from the arguments it passed: `medianRun` and `budget` are both in hand,
+   * and `TIGHT_MULTIPLE` is not. Without it a view that wants to draw the
+   * margin has to import the constant and repeat the multiply, which is a
+   * downstream copy of a perceptual boundary (P7 criterion 6) and leaves this
+   * function returning a bare judgement with no numbers beside it (R22
+   * obligation 4). {@link FusionReading} carries `plateau` and `cliff` for the
+   * same reason on the other axis.
+   */
+  clearAt: number
+  grade: Legibility
+}
+
 /**
- * Grade a measured stroke against a budget.
+ * Grade a measured stroke against a budget, and report both boundaries.
  *
- * The boundary at exactly one budget falls on the `tight` side: the rule is
- * "narrower than the budget cannot carry a shift", so a stroke of exactly the
- * budget still has one.
+ * **The quantities are reported even where the grade is withheld.** A panel
+ * drawing an axis still needs the budget it could not grade against, and the
+ * caller that wants numbers is exactly the caller that must never have to read
+ * the grade (design §10, P7 criterion 2).
+ *
+ * The thresholds are unchanged by the 2026-10-12 findings and deliberately so:
+ * that document's §5 declines to ship its own replacement number — *"it is one
+ * observer, one stroke level across budgets, and the warm-up confound is
+ * unaddressed"* — so what moved here is the shape and the wording, not the
+ * rule. Design §10.3.
  */
-export function legibilityOf(ink: InkMeasurement, budget: number): Legibility {
-  if (!ink.measured || !Number.isFinite(budget) || budget <= 0) return 'unmeasured'
-  if (ink.medianRun < budget) return 'illegible'
-  if (ink.medianRun < budget * TIGHT_MULTIPLE) return 'tight'
-  return 'clear'
+export function legibilityOf(ink: InkMeasurement, budget: number): LegibilityReading {
+  const clearAt = budget * TIGHT_MULTIPLE
+  const reading = { medianRun: ink.medianRun, budget, clearAt }
+  if (!ink.measured || !Number.isFinite(budget) || budget <= 0) {
+    return { ...reading, grade: 'unmeasured' }
+  }
+  if (ink.medianRun < budget) return { ...reading, grade: 'illegible' }
+  if (ink.medianRun < clearAt) return { ...reading, grade: 'tight' }
+  return { ...reading, grade: 'clear' }
 }
 
 /**
@@ -1335,11 +1394,42 @@ export function legibilityOf(ink: InkMeasurement, budget: number): Legibility {
  * The order is deliberate and is the same contract `describeReadout` keeps —
  * the numbers come first so the margin is visible, and the verdict is something
  * the reader can check rather than something they have to accept.
+ *
+ * ## The advice this line used to give, and why it is gone
+ *
+ * Both warning branches used to end by offering a second fix: *"raise sepNear
+ * to shrink the budget — that buys legibility with depth range."* The
+ * 2026-10-12 findings call that **worse than silence**, and the reason is not
+ * the one three documents recorded until 2026-10-15.
+ *
+ * It is **not** that shrinking the budget makes fusion harder. It makes it
+ * easier: §1's fusion sweep is flat from a budget of 0 to 22 and only degrades
+ * above it, so moving the budget down moves it toward the plateau. See
+ * {@link fusionComfort}, which carries the same correction.
+ *
+ * It is that **the purchase does not exist**. §1 round 2 held the stroke at
+ * 14px and swept the budget over 10, 18, 24 and 30px — a 3× range — and read
+ * 4/4, exact. The legibility threshold is an **absolute stroke width**; the
+ * budget is not a lever on it. So the line advertised a real cost — depth
+ * range *is* `sepFar − sepNear`, and the string said so — against nothing.
+ * Advice that names its own price and delivers no goods is worse than no
+ * advice, which is the finding in one sentence.
+ *
+ * What is *not* claimed here: that the shipped threshold is right. It is
+ * budget-relative and the findings say the real one is not, but §5 of that
+ * document declines to name a replacement on one observer's data, so the rule
+ * stands and only the advice went. Design §10.3; P7 criterion 5.
+ *
+ * The `tight` branch prints the clear boundary **twice**, as px and as the
+ * multiple. `${TIGHT_MULTIPLE}×` was that constant's only user-facing
+ * appearance, so dropping it would hide the grade boundary from the one reader
+ * who can see the verdict; the px figure leads because every other number on
+ * the line is in px and design §10.3 says lead with quantities.
  */
 export function describeLegibility(ink: InkMeasurement, stereo: StereoOpts): string {
   const budget = disparityBudget(stereo)
   const how = `budget ${budget} px (sepFar ${stereo.sepFar} − sepNear ${stereo.sepNear})`
-  const grade = legibilityOf(ink, budget)
+  const { grade, clearAt } = legibilityOf(ink, budget)
 
   if (grade === 'unmeasured') {
     if (!ink.measured) {
@@ -1356,13 +1446,12 @@ export function describeLegibility(ink: InkMeasurement, stereo: StereoOpts): str
   if (grade === 'illegible') {
     return `${measured} — narrower than the budget, so there is no room for an ` +
       `unambiguous shift and this will not fuse however long you stare. Enlarge ` +
-      `the type, or raise sepNear to shrink the budget — that buys legibility ` +
-      `with depth range, since the gap between the two separations *is* the range.`
+      `the type.`
   }
   if (grade === 'tight') {
-    return `${measured} — over the budget but under ${TIGHT_MULTIPLE}× it, so ` +
-      `expect it to be hard work. Enlarging the type or raising sepNear (which ` +
-      `trades depth range for legibility) both widen the margin.`
+    return `${measured} — over the budget but under the ${clearAt} px ` +
+      `(${TIGHT_MULTIPLE}× the budget) that would clear it, so expect it to be ` +
+      `hard work. Enlarge the type to widen the margin.`
   }
   return `${measured} — comfortably over the budget.`
 }

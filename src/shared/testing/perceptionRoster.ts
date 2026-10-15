@@ -144,6 +144,64 @@ type ArityDrift = {
 
 type _NoArityDrift = AssertNever<ArityDrift>
 
+/* ─────────────────── the graded/objective classification ─────────────────── */
+
+/**
+ * **P7 criterion 2**, which had no sensor either: *"graded functions return
+ * quantities **and** a grade; a caller wanting numbers never reads the
+ * grade."*
+ *
+ * Both halves of the criterion need this table, and the second half is the
+ * reason it is a table rather than a blanket rule. The criterion was rescoped
+ * on 2026-10-15 because it read "each returns", which design §10.1's own title
+ * contradicts — *"objective, no perception involved"* — and `encodableDepths`
+ * is `sepFar − sepNear + 1`, arithmetic over the encoder. **Forcing a grade
+ * onto an objective count invents the subjective score R22 obligation 4
+ * forbids.** So "is this function graded?" is a judgement, exactly like "is
+ * this parameter objective?" above, and it gets the same treatment: a
+ * declaration that cannot go short, with a recorded reason per entry, checked
+ * by a runtime witness.
+ *
+ * What the witness checks is the *first* half, because that is the half a
+ * machine can see: a function declared `graded` must answer with an object
+ * carrying at least one finite number, so a caller that wants the margin never
+ * has to read the verdict. A function declared `objective` is not required to
+ * carry a grade and must not be made to.
+ *
+ * The hole this closes was live until 2026-10-15: `legibilityOf` returned a
+ * bare `Legibility` string union — a grade with no quantities at all — while
+ * `fusionComfort` beside it returned `{budget, plateau, cliff, grade}`. The
+ * parameter-side ratchet above cannot see it, by construction: `SIGNATURES`
+ * and `ArityDrift` both read `Parameters<F>`, so a return type can change in
+ * either direction without moving a single key. Measured: widening
+ * `legibilityOf`'s return from a string to a reading reddened nothing in this
+ * file.
+ */
+export const GRADING = {
+  measureInk: ['objective', 'A statistic over a depth map: median run width, count, peak, threshold'],
+  disparityBudget: ['objective', 'sepFar − sepNear, arithmetic over the StereoOpts'],
+  encodableDepths: ['objective', 'sepFar − sepNear + 1, arithmetic over the encoder — design §10.1'],
+  quantisationStep: ['objective', 'The separation step the encoder can resolve, derived from sepAt'],
+  restingDepth: ['objective', 'The layer\'s own depth field, defaulted — a document fact'],
+  collidingPairs: ['objective', 'Which layer pairs encode identically: a fact about the encoder, not the viewer'],
+  depthStops: ['objective', 'Separations spaced across the encodable range; each stop carries its own numbers'],
+  reliefOf: ['objective', 'Does this layer\'s depth vary across its surface — geometry, and the one quantity it derives (restingDepth) is an export the caller can call on the same argument'],
+  cardboarding: ['graded', 'Whether the scene reads as cut-out planes — a perceptual verdict, and it carries depthBlur and blurRelief beside it'],
+  fusionComfort: ['graded', 'How hard the budget is to hold fused, against the 2026-10-12 sweep'],
+  legibilityOf: ['graded', 'How a stroke grades against the budget, with both boundaries in scene px'],
+  describeLegibility: ['objective', 'The prose formatter, not a grader: it reads legibilityOf\'s grade and renders it. Exempt by nature — its whole answer is one string and the quantities are in it as text'],
+  soloLayerScene: ['objective', 'A Scene with one layer kept'],
+} as const satisfies Record<PerceptionFunctionName, readonly [Grading, string]>
+
+export type Grading = 'graded' | 'objective'
+
+type _NoGradingMissing = AssertNever<Exclude<PerceptionFunctionName, keyof typeof GRADING>>
+type _NoGradingExtra = AssertNever<Exclude<keyof typeof GRADING, PerceptionFunctionName>>
+
+/** The functions declared to carry a verdict, as runtime data. */
+export const GRADED_FUNCTIONS = (Object.keys(GRADING) as PerceptionFunctionName[])
+  .filter(n => GRADING[n][0] === 'graded')
+
 /* ──────────────────── building a call from the roster ──────────────────── */
 
 /**

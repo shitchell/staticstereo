@@ -76,6 +76,42 @@ const SEP_FAR = DEFAULT_STEREO.sepFar
 const SEP_NEAR = DEFAULT_STEREO.sepNear
 const BUDGET = SEP_FAR - SEP_NEAR
 
+/**
+ * The depth a sample must exceed to count as ink here — **absolute, 0..1**,
+ * and deliberately not `perception.ts`'s `INK_FRACTION`.
+ *
+ * `runLengths` takes an absolute threshold and compares `depth > threshold`.
+ * `measureInk` takes a *fraction of the layer's own peak* and compares
+ * `depth >= peak × INK_FRACTION`. Both numbers are 0.5 today, and that is a
+ * coincidence of two unrelated choices, not a shared constant:
+ *
+ * - On a layer at full depth they agree. On a `depth: 0.4` layer this one
+ *   measures an empty map and the module measures the stroke, because 0.4
+ *   never exceeds 0.5. Every scene below renders a text layer at the default
+ *   depth of 1, which is the only reason the question has never bitten.
+ * - The comparison differs as well as the scale — `>` here, `>=` there — so a
+ *   sample sitting exactly on the threshold is ink to one and not to the
+ *   other. Unobservable today, because depth arrives from 8-bit alpha and a
+ *   sample is k/255, which is never exactly 0.5. Written down rather than
+ *   relied on.
+ *
+ * **Importing `INK_FRACTION` here because the numbers match is a standing
+ * ruling against**, and the reason is what it would cost: these call sites are
+ * the authority for the calibration table `src/shared/perception.ts` publishes
+ * (9px regular, 14px bold and 19px at 900 for 90px type, which the README
+ * reprints). Coupling them to a constant that is scheduled to move — design
+ * §10.3's calibration round is effort #2 — would silently re-measure the
+ * published table against a different ink definition the day it moves, and
+ * nothing in the suite compares the table to anything. A guard whose cheapest
+ * satisfying action is wrong will eventually be satisfied wrongly; this is the
+ * note that makes the right action the cheap one.
+ *
+ * The *peak-relative* sibling of this threshold, which **does** import the
+ * constant because it really is the same quantity, is `inkExtent` in
+ * `canvas.generics.test.ts`.
+ */
+const ABSOLUTE_INK_DEPTH = 0.5
+
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 const canvas = nodeCanvas()
 
@@ -101,10 +137,53 @@ async function strokeMedian(text: string, size: number, weight: string): Promise
   const h = Math.round(size * 1.8)
   const scene: Scene = { size: [w, h], layers: [{ type: 'text', text, size, weight, at: [20, 10] }] }
   const depth = await rasterDepth(scene, 0, canvas)
-  return median(runLengths(depth, w, h, 0.5))
+  return median(runLengths(depth, w, h, ABSOLUTE_INK_DEPTH))
 }
 
 describe('feature size on real glyphs', () => {
+  it('counts ink by an absolute depth, which is not the module\'s peak-relative rule', async () => {
+    // **The sensor behind {@link ABSOLUTE_INK_DEPTH}'s "do not import
+    // `INK_FRACTION`".** The two thresholds are both 0.5 and a reader can
+    // only tell them apart on a layer whose peak is not 1, so the difference
+    // is demonstrated here rather than asserted in a comment.
+    //
+    // Same glyphs, same size, same weight; only the layer depth differs. At
+    // depth 1 the strokes measure. At 0.4 nothing in the map exceeds an
+    // absolute 0.5, so this definition reports an empty map — while
+    // `measureInk`, which scales its threshold to the peak, reports the
+    // stroke unchanged (`src/shared/perception.test.ts` carries that half,
+    // and the two files deliberately share no import).
+    //
+    // What this protects: every scene in this file renders text at the
+    // default depth of 1, so swapping in a peak-relative threshold would
+    // leave all of its numbers — and the published calibration table they
+    // are the authority for — exactly where they are, and go unnoticed until
+    // the calibration round moved the constant.
+    const w = 400, h = 200
+    const glyphs = (depth: number): Scene => ({
+      size: [w, h],
+      layers: [{ type: 'text', text: 'STATIC', size: 90, weight: 'bold', at: [20, 10], depth }],
+    })
+    const shallow = glyphs(0.4)
+    const full = glyphs(1)
+
+    const shallowDepth = await rasterDepth(shallow, 0, canvas)
+    let peak = 0
+    for (let i = 0; i < shallowDepth.length; i++) if (shallowDepth[i]! > peak) peak = shallowDepth[i]!
+    report('peak depth of a depth:0.4 text layer vs the absolute ink threshold',
+      `${peak.toFixed(4)} vs ${ABSOLUTE_INK_DEPTH}`)
+    expect(peak).toBeGreaterThan(0.39)
+    expect(peak).toBeLessThan(ABSOLUTE_INK_DEPTH)
+
+    // The positive control: the same glyphs at full depth do measure, so the
+    // empty answer below is the threshold talking and not an empty canvas.
+    const fullRuns = runLengths(await rasterDepth(full, 0, canvas), w, h, ABSOLUTE_INK_DEPTH)
+    report('runs at depth 1 vs depth 0.4, absolute threshold',
+      `${fullRuns.length} vs ${runLengths(shallowDepth, w, h, ABSOLUTE_INK_DEPTH).length}`)
+    expect(median(fullRuns)).toBeGreaterThan(0)
+    expect(runLengths(shallowDepth, w, h, ABSOLUTE_INK_DEPTH)).toHaveLength(0)
+  })
+
   const CASES = [
     ['normal', 90], ['normal', 150], ['bold', 90], ['bold', 150],
     ['bold', 240], ['bold', 360],
@@ -229,7 +308,7 @@ describe('feature size on real glyphs', () => {
       size: [w, h], layers: [{ type: 'text', text: 'STATIC', size: 150, weight: 'bold', at: [40, 60] }],
     }
     const depth = await rasterDepth(scene, 0, canvas)
-    const runs = runLengths(depth, w, h, 0.5)
+    const runs = runLengths(depth, w, h, ABSOLUTE_INK_DEPTH)
     const floor = SEP_NEAR + MIN_OVERLAP
     const above = runs.filter(r => r >= floor).length / runs.length
     report('150px bold text run lengths: median / max / floor',

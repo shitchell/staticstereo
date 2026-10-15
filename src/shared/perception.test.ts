@@ -14,14 +14,21 @@ import type {
  * one resolving.
  *
  * This file is deliberately not a second copy of `site/legibility.test.ts`.
- * That file is the behaviour-preservation proof for the move: it is unchanged,
- * it imports through `site/legibility.ts`, and every arithmetic claim about the
- * rule is already asserted there, so a move that altered a median, a boundary
- * or a verdict reddens it. What that file cannot say is anything about the new
- * path — it never names it — so this one exercises each export where the code
- * now lives, and pins the one relationship neither file could state alone:
- * **the shim's public surface and the module's are the same set, name for name
- * and binding for binding.**
+ * That file was the behaviour-preservation proof for the move: it was
+ * unchanged, it imports through `site/legibility.ts`, and every arithmetic
+ * claim about the rule is asserted there, so a move that altered a median, a
+ * boundary or a verdict reddened it. What that file cannot say is anything
+ * about the new path — it never names it — so this one exercises each export
+ * where the code now lives, and pins the one relationship neither file could
+ * state alone: **the shim's public surface and the module's are the same set,
+ * name for name and binding for binding.**
+ *
+ * **"Unchanged" is past tense as of 2026-10-15.** P7 criteria 2 and 5 changed
+ * `legibilityOf`'s return shape and the verdict string on purpose, so that
+ * file is modified and is no longer a witness that nothing moved. The
+ * thresholds still have not moved; what witnesses that is the boundary tests
+ * below, which derive every budget from the module's own constants and so
+ * cannot be satisfied by a number someone retyped.
  *
  * Why a set comparison rather than the three names `site/main.ts` imports: a
  * shim that silently drops an export is the failure mode here, and spot-checks
@@ -106,6 +113,40 @@ describe('measureInk, at the new path', () => {
     expect(m.runs).toBe(4)
   })
 
+  it('thresholds against the layer peak, which an absolute 0.5 is not', () => {
+    // **Why `INK_FRACTION` is not importable into the places that pass `0.5`
+    // to `runLengths`, even though the two numbers are equal today.**
+    //
+    // `measureInk` counts a sample as ink at `depth >= peak * INK_FRACTION`.
+    // `src/core/testing/metamorphic.ts`'s `runLengths` counts it at
+    // `depth > threshold`, with the threshold **absolute**. On a layer at
+    // full depth the two agree; on this one, at 0.4, the module measures a
+    // 6px stroke and the absolute definition measures an empty map. They are
+    // different definitions that coincide at one value of one field, and
+    // importing the constant into the absolute call sites would assert a
+    // coupling that does not exist — a guard whose cheapest satisfying action
+    // is wrong. `src/node/metamorphic.real.test.ts` carries the other half of
+    // this pair, at the call sites, and deliberately does not import from
+    // here.
+    //
+    // Note the comparison differs too, and not only the scale: `>=` here
+    // against `>` there. A sample exactly at the threshold is ink to this
+    // function and is not to that one. Nothing can observe it today — depth
+    // comes from 8-bit alpha, so a sample is k/255 and never exactly 0.5 —
+    // which is precisely why it is written down rather than relied on.
+    const peak = 0.4
+    const depth = map(20, 4, x => (x >= 5 && x < 11 ? peak : 0))
+    const m = perception.measureInk(depth, 20, 4)
+    expect(m.measured).toBe(true)
+    expect(m.medianRun).toBe(6)
+    expect(m.peak).toBeCloseTo(peak, 6)
+    expect(m.threshold).toBeCloseTo(peak * perception.INK_FRACTION, 6)
+    // The absolute reading of the same map, written out rather than imported
+    // so this assertion does not depend on a core testing helper: nothing at
+    // all clears a flat 0.5.
+    expect([...depth].filter(v => v > 0.5)).toHaveLength(0)
+  })
+
   it('still refuses a depth map that does not match its dimensions', () => {
     // The argument guard is the needle `site/dist.test.ts` greps for to prove
     // the player bundle left the editor's legibility code out. Exercised here
@@ -143,14 +184,56 @@ describe('legibilityOf, at the new path', () => {
     // one budget falls on the `tight` side.
     const stroke = 9
     const ink = inkOf(stroke)
-    expect(perception.legibilityOf(ink, stroke + 1)).toBe('illegible')
-    expect(perception.legibilityOf(ink, stroke)).toBe('tight')
-    expect(perception.legibilityOf(ink, stroke / perception.TIGHT_MULTIPLE)).toBe('clear')
+    expect(perception.legibilityOf(ink, stroke + 1).grade).toBe('illegible')
+    expect(perception.legibilityOf(ink, stroke).grade).toBe('tight')
+    expect(perception.legibilityOf(ink, stroke / perception.TIGHT_MULTIPLE).grade).toBe('clear')
   })
 
   it('refuses to grade what it cannot measure', () => {
-    expect(perception.legibilityOf({ ...inkOf(9), measured: false }, 18)).toBe('unmeasured')
-    expect(perception.legibilityOf(inkOf(9), 0)).toBe('unmeasured')
+    expect(perception.legibilityOf({ ...inkOf(9), measured: false }, 18).grade).toBe('unmeasured')
+    expect(perception.legibilityOf(inkOf(9), 0).grade).toBe('unmeasured')
+  })
+
+  it('returns the boundaries it graded against, so no caller re-derives one', () => {
+    // **P7 criterion 2, measured rather than argued.** The criterion is
+    // "graded functions return quantities *and* a grade; a caller wanting
+    // numbers never reads the grade", and the question put to this phase was
+    // whether a bare `Legibility` string satisfies it with rationale. It does
+    // not, and the discriminator the orchestrator named is whether the
+    // function derives a quantity the caller cannot recover from the arguments
+    // it was passed.
+    //
+    // It derives exactly one: `budget × TIGHT_MULTIPLE`, the stroke width in
+    // scene px at which the grade turns `clear`. `budget` is an argument and
+    // `medianRun` is a field of one, but `TIGHT_MULTIPLE` is neither — a
+    // caller can only reach it by importing a second name from this module and
+    // repeating the multiply. There was a live witness of exactly that before
+    // this change: `site/legibility.test.ts` wrote
+    // `legibilityOf(at(18 * TIGHT_MULTIPLE - 1), 18)`, which is a downstream
+    // copy of a perceptual boundary's arithmetic and is the shape criterion 6
+    // exists to stop.
+    //
+    // `fusionComfort` already honours this — it returns `plateau` and `cliff`
+    // beside its grade "so a view that wants to draw a margin reads them
+    // rather than inlining them". This is the same contract, stated the same
+    // way, for the other axis.
+    const r = perception.legibilityOf(inkOf(9), 18)
+    expect(r.medianRun).toBe(9)
+    expect(r.budget).toBe(18)
+    expect(r.clearAt).toBe(18 * perception.TIGHT_MULTIPLE)
+    expect(r.grade).toBe('illegible')
+  })
+
+  it('reports the boundaries even where it declines to grade', () => {
+    // The quantities are not a reward for a gradeable input. A panel drawing
+    // an axis still needs the budget it could not grade against, and the
+    // alternative — `undefined` on the one path where the caller most needs to
+    // explain itself — is the "subjective score and nothing else" shape R22
+    // obligation 4 forbids, in its quiet form.
+    const r = perception.legibilityOf({ ...inkOf(9), measured: false }, 18)
+    expect(r.grade).toBe('unmeasured')
+    expect(r.budget).toBe(18)
+    expect(r.clearAt).toBe(18 * perception.TIGHT_MULTIPLE)
   })
 })
 
@@ -158,12 +241,66 @@ describe('describeLegibility, at the new path', () => {
   it('leads with the quantities and puts the verdict after them', () => {
     // Design §10.3's contract, asserted as an ordering rather than as a
     // sentence: the reader must be able to see the margin before being told
-    // what it means. Pinning the wording would pin the verdict text this
-    // phase is explicitly not allowed to change.
+    // what it means.
+    //
+    // **The second half of this comment was superseded 2026-10-15 and is
+    // amended in place rather than deleted, because it is why nobody touched
+    // the string for a week.** It read: "Pinning the wording would pin the
+    // verdict text this phase is explicitly not allowed to change." The
+    // ruling is the opposite — a verdict *string* is not a threshold, so
+    // design §10.3's "lead with quantities" does land here, and the shipped
+    // advice is the thing P7 criterion 5 exists to remove. What may not move
+    // is the numbers: `INK_FRACTION`, `TIGHT_MULTIPLE` and the grade
+    // boundaries in `legibilityOf`. The assertions below are deliberately
+    // still structural — they are an ordering claim, not a wording one — so
+    // they survived the reword untouched, which is the reason to write them
+    // this way and not a reason to leave the comment stale.
     const line = perception.describeLegibility(inkOf(9), DEFAULT_STEREO)
     const verdict = line.indexOf('—')
     expect(verdict).toBeGreaterThan(0)
     expect(line.slice(0, verdict)).toMatch(/\d/)
+  })
+
+  it('does not offer the budget as a legibility lever', () => {
+    // **P7 criterion 5.** The shipped line told the author to "raise sepNear
+    // to shrink the budget — that buys legibility with depth range". The
+    // 2026-10-12 findings call the advice worse than silence, and the reason
+    // recorded in three documents before 2026-10-15 was wrong: it is *not*
+    // that shrinking the budget makes fusion harder. Shrinking moves the
+    // budget toward the measured plateau (§1's sweep: comfortable from a
+    // budget of 0 to 22), so fusion gets **easier**.
+    //
+    // It is bad because the purchase does not exist. §1 round 2 held the
+    // stroke at 14px and varied the budget across a 3× range — 10, 18, 24,
+    // 30px — and read 4/4. The legibility threshold is an **absolute stroke
+    // width**; the budget is not a lever on it at all. So the string
+    // advertised a real cost (depth range *is* `sepFar − sepNear`) against
+    // nothing, which is strictly worse than saying nothing.
+    const line = perception.describeLegibility(inkOf(9), DEFAULT_STEREO)
+    expect(line).not.toMatch(/depth range|shallower|less depth/i)
+    // `sepNear` by itself is not the tell and must not be asserted on: the
+    // line names it anyway, in `(sepFar 110 − sepNear 92)`, so that the
+    // budget is checkable. What must be gone is sepNear as an *instruction*.
+    expect(line).toContain('sepNear 92')
+    expect(line).not.toMatch(/rais\w*\s+sepNear|sepNear\s+to\s+\w/i)
+  })
+
+  it('keeps the clear boundary visible, as a quantity and as the multiple', () => {
+    // The trap in rewording this branch: `${TIGHT_MULTIPLE}×` was the grade
+    // boundary's **only** user-facing appearance, so a reword that dropped it
+    // would make the boundary invisible to the one reader who can see the
+    // verdict. Resolved by printing both — the derived px figure first,
+    // because design §10.3 says lead with quantities and px is the unit every
+    // other number on the line is in, and the multiple after it, because that
+    // is the form `TIGHT_MULTIPLE`'s own docblock reasons about.
+    const stereo = DEFAULT_STEREO
+    const budget = perception.disparityBudget(stereo)
+    const ink = inkOf(budget + 1)
+    const reading = perception.legibilityOf(ink, budget)
+    expect(reading.grade).toBe('tight')
+    const line = perception.describeLegibility(ink, stereo)
+    expect(line).toContain(`${reading.clearAt} px`)
+    expect(line).toContain(`${perception.TIGHT_MULTIPLE}×`)
   })
 
   it('never formats an unmeasured stroke as a quantity', () => {

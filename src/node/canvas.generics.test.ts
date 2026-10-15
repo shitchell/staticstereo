@@ -64,6 +64,7 @@ import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
 import { nodeCanvas, resolveFontGenerics, CSS_GENERIC_FAMILIES } from './canvas.js'
 import { rasterDepth } from '../core/raster.js'
 import { report } from '../core/testing/metamorphic.js'
+import { INK_FRACTION } from '../shared/perception.js'
 import type { Scene } from '../core/types.js'
 
 const canvas = nodeCanvas()
@@ -96,14 +97,31 @@ const LATIN_RATIO = 2
  * 3.69× — overlapping ranges once a third family is involved — while the
  * extents differ by 0.944 against 4.210.
  *
- * Thresholded at half the peak, matching `site/legibility.ts`'s `INK_FRACTION`,
- * so the antialiasing fringe does not add a pixel per side to a narrow stem.
+ * Thresholded at `src/shared/perception.ts`'s {@link INK_FRACTION} of the
+ * peak, so the antialiasing fringe does not add a pixel per side to a narrow
+ * stem.
+ *
+ * **Imported, not written out, and the comment used to point at the wrong
+ * file.** The threshold was spelled `peak * 0.5` here with a comment saying it
+ * matched the constant — which is a perceptual threshold inlined outside the
+ * module that owns it (P7 criterion 6), so the day a calibration round moves
+ * `INK_FRACTION` this metric would silently keep measuring the old definition
+ * and nothing would go red. The comment named `site/legibility.ts`, which is
+ * now a bare `export *` shim over `src/shared/perception.ts` and holds no
+ * constant of its own; a pointer at a shim is a pointer that rots quietly.
+ *
+ * The same shape, deliberately *not* unified: `src/node/metamorphic.real.ts`'s
+ * and `metamorphic.test.ts`'s `runLengths(…, 0.5)` calls. That threshold is
+ * **absolute**, not peak-relative, so the two numbers coincide only on a
+ * full-depth layer — see `ABSOLUTE_INK_DEPTH` in `metamorphic.real.test.ts`.
+ * This one is peak-relative and is the same quantity `measureInk` computes,
+ * which is why it imports.
  */
 function inkExtent(depth: ArrayLike<number>, w: number, h: number): number {
   let peak = 0
   for (let i = 0; i < depth.length; i++) if (depth[i]! > peak) peak = depth[i]!
   if (peak <= 0) return 0
-  const t = peak * 0.5
+  const t = peak * INK_FRACTION
   let lo = Infinity
   let hi = -Infinity
   for (let y = 0; y < h; y++) {
@@ -136,6 +154,53 @@ async function widthRatio(size: number, font?: string): Promise<number> {
   expect(narrow).toBeGreaterThan(0)
   return wide / narrow
 }
+
+/* --------------------------------------------------- the metric's wiring */
+
+describe('the ink metric', () => {
+  it('thresholds at the module\'s INK_FRACTION rather than a number of its own', () => {
+    // **The sensor for P7 criterion 6 at this site.** Importing the constant
+    // is invisible while `INK_FRACTION` is 0.5, because that is what the
+    // inlined literal was — so this map is built *from* the constant and is
+    // the thing that goes red if the import is ever unwound.
+    //
+    // Three samples on one row. The peak is 1, so the module's threshold is
+    // `INK_FRACTION` exactly: the sample at `INK_FRACTION` is ink (the
+    // comparison is `>=`, as in `measureInk`) and the one just below it is
+    // not. The extent therefore starts at x=1, and an implementation that
+    // kept a literal 0.5 answers 8 at any `INK_FRACTION` above 0.5 and 1 at
+    // any value below it. Both were measured against an unmodified copy of
+    // this file before the import landed.
+    //
+    // **A plain array rather than a `Float32Array`, and that is not tidiness.**
+    // The first draft used one and went red under the `INK_FRACTION = 0.9`
+    // arm of that control — not because the wiring was wrong but because
+    // float32 stores 0.9 as 0.899999976…, so the deliberately-at-threshold
+    // sample landed *below* a float64 threshold and the sensor measured the
+    // representation instead of the metric. `inkExtent` takes `ArrayLike`
+    // precisely so either works; the boundary case needs the one that can
+    // hold the value it is testing.
+    const w = 8, h = 1
+    const d: number[] = new Array<number>(w * h).fill(0)
+    d[0] = INK_FRACTION * 0.99
+    d[1] = INK_FRACTION
+    d[7] = 1
+    expect(inkExtent(d, w, h)).toBe(7)
+  })
+
+  it('is the same ink definition the perception module measures', () => {
+    // Not a duplicate of the above: that one pins the *number*, this one pins
+    // the *comparison*. `measureInk` counts a sample at or above the
+    // threshold; a metric written with `>` would agree on every real glyph
+    // and disagree exactly here, which is where a reader would never look.
+    // Plain array for the reason the test above records.
+    const w = 4, h = 1
+    const d: number[] = new Array<number>(w * h).fill(0)
+    d[1] = INK_FRACTION
+    d[3] = 1
+    expect(inkExtent(d, w, h)).toBe(3)
+  })
+})
 
 /* ------------------------------------------------------- the environment */
 
