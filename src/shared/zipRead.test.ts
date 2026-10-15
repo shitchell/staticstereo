@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -29,11 +29,13 @@ import { readZip } from './zipRead.js'
  * asserts on the status, so a vanished `/usr/bin/zip` turns these tests red
  * rather than skipping them. A skip guard fails *open*, and the environment
  * where the binary has gone is exactly the environment where a skip teaches
- * nothing (§9's `purity.test.ts` row is this shape). Pointing `zipTree` at a
- * binary that does not exist was measured to turn **12 of these 13 tests
- * red** — the thirteenth being the writer round trip, which uses no foreign
- * binary, and that asymmetry is itself the evidence that the round trip is
- * not the criterion-2 test.
+ * nothing (§9's `purity.test.ts` row is this shape). Pointing every
+ * `spawnSync` here at a binary that does not exist was re-measured after the
+ * streaming fixtures were added and turns **15 of these 16 tests red** — the
+ * sixteenth being the writer round trip, which uses no foreign binary, and
+ * that asymmetry is itself the evidence that the round trip is not the
+ * criterion-2 test. (It read "12 of these 13" and named only `zipTree`; the
+ * property is unchanged, the figures and the scope are not.)
  *
  * `ci.yml` installs neither binary and does not need to: it runs on
  * `ubuntu-latest`, and the `actions/runner-images` Ubuntu 24.04 manifest
@@ -53,8 +55,15 @@ import { readZip } from './zipRead.js'
  * | method 0 (stored) for incompressible/small files | yes | yes |
  * | method 8 (deflate) for compressible files | yes | yes |
  * | extra fields | none | **local 28 B, central 24 B** |
- * | data descriptor (flag 0x8) | no | no, even piping to stdout |
+ * | data descriptor (flag 0x8) | no | no |
  * | UTF-8 name flag (0x800) | only on the non-ASCII name | only on the non-ASCII name |
+ *
+ * **The data-descriptor row used to end "no, even piping to stdout", and that
+ * was false.** It is true of these two invocations, which write to a named
+ * output file; it is not true of `zip` writing the archive itself through a
+ * pipe. See the streaming section below — the correction matters because the
+ * false version was the stated reason both refusals were driven only by
+ * patched flag words and never by an archive a producer actually wrote.
  *
  * **The extra-field row is the one that matters and the one that is easy to
  * get wrong.** A survey reported "28 bytes per entry"; that is the *local*
@@ -67,6 +76,46 @@ import { readZip } from './zipRead.js'
  * record's `extraLen` to make that step lands 4 bytes early. The second is the
  * nastier bug, because it is what you write if you have correctly decided the
  * central directory is authoritative and then over-applied it.
+ *
+ * ## The two streaming archives, and why they were missed
+ *
+ * Until 2026-10-15 this file and `zipRead.ts` both asserted that Info-ZIP 3.0
+ * could produce neither a ZIP64 archive nor a data descriptor here, and that
+ * the two refusal paths were therefore untestable. Both halves are false, and
+ * the second is false for a reason worth writing down because it is how the
+ * measurement went wrong rather than merely what the answer is.
+ *
+ * - **ZIP64 needs no size at all, only a stream.** `zip -h2` says so itself:
+ *   *"streaming stdin creates Zip64 archives by default"*. `zipStdinArchive`
+ *   below pipes 5 KiB into `zip - ` and gets a ZIP64 EOCD record, a ZIP64
+ *   locator and a `0x0001` local extra field. The whole search had been for a
+ *   4 GiB input.
+ * - **A shell redirect is not a pipe.** `zip -X - soup.txt > out.zip` gives
+ *   `zip` a *seekable* stdout; it writes a placeholder local header, seeks
+ *   back after deflating and patches in the sizes and CRC, and bit 3 comes out
+ *   **clear**. Put a pipe there instead — `| cat > out.zip`, or `spawnSync`
+ *   with a piped stdout, which is what `zipStdoutArchive` does — and stdout is
+ *   unseekable, so the numbers have to go *after* the data and bit 3 comes out
+ *   **set**. Measured side by side, same command and same input:
+ *
+ *   ```
+ *   /usr/bin/zip -q -X - soup.txt > h_file.zip       flags 0x0000  BIT3 false
+ *   /usr/bin/zip -q -X - soup.txt | cat > h_pipe.zip flags 0x0008  BIT3 true
+ *   ```
+ *
+ *   Anyone re-measuring with `>` will get the old answer and conclude the row
+ *   above is right. That is the trap, and it is the whole content of this
+ *   paragraph.
+ *
+ * **These are Info-ZIP 3.0 behaviours, and only the ZIP64 one is documented**
+ * (by `-h2`); the seekability rule is the tool's implementation choice, not a
+ * line in APPNOTE. So each streaming fixture asserts the property it was built
+ * for — a locator present, bit 3 set — **before** the archive is handed to
+ * `readZip`. A future host whose `zip` behaves differently gets a failure that
+ * says *the fixture no longer has the shape this test needs*, which is a
+ * different sentence from *the reader stopped refusing*. Telling those two
+ * apart is the point of asserting the shape separately, and a reader on such
+ * a host should change the fixture, not the reader.
  */
 
 // ---------------------------------------------------------------------------
@@ -168,6 +217,87 @@ function zipTree(flags: readonly string[]): Uint8Array {
 const DEFAULT_ARCHIVE = (): Uint8Array => zipTree(['-r'])
 const NO_EXTRA_ARCHIVE = (): Uint8Array => zipTree(['-r', '-X'])
 
+/**
+ * The two streaming archives, memoised the same way and for the same reason.
+ *
+ * Four spawns in total, two of them negative controls. They are built lazily
+ * and cached rather than in a `beforeAll`, so a run that selects only the
+ * tree tests pays for none of them — and `zip` on this fixture is a few
+ * milliseconds, measured below in the file's own runtime.
+ *
+ * Both go through `spawnSync` rather than a shell, which also removes the
+ * question of what the shell did to the stream. `expect` on `status` in each,
+ * for the fail-closed reason the no-`HAVE_ZIP` note above gives: `spawnSync`
+ * returns `status === null` for a missing binary, so these turn red rather
+ * than skipping.
+ */
+const streamed = new Map<string, Uint8Array>()
+
+/**
+ * `zip` reading its *entry* from stdin, which it answers with ZIP64 — `-h2`:
+ * *"streaming stdin creates Zip64 archives by default"*.
+ *
+ * Not a seekability effect, which is worth stating because the sibling below
+ * is: measured, `zip -q out.zip - < soup.txt` and `cat soup.txt | zip -q
+ * out.zip -` produce byte-identical ZIP64 archives. `zip` reserves ZIP64
+ * because it cannot know the entry's size before reading it, pipe or not.
+ * Pass `['-fz-']` for the control, which is Info-ZIP's own off switch.
+ */
+function zipStdinArchive(flags: readonly string[]): Uint8Array {
+  const key = `stdin ${flags.join(' ')}`
+  const hit = streamed.get(key)
+  if (hit !== undefined) return hit
+
+  const out = join(KEEP, `stdin-${streamed.size}.zip`)
+  const res = spawnSync('/usr/bin/zip', [...flags, '-q', out, '-'], { input: SOUP })
+  expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
+
+  const bytes = new Uint8Array(readFileSync(out))
+  streamed.set(key, bytes)
+  return bytes
+}
+
+/**
+ * `zip` writing the *archive* to stdout, where seekability decides everything.
+ *
+ * `seekable: false` leaves stdout as `spawnSync`'s pipe and the archive comes
+ * back in `res.stdout`; `true` points stdout at a real file descriptor. Same
+ * argv, same input, and the difference is general-purpose bit 3 — that is the
+ * measurement the docblock above records, performed here rather than quoted.
+ */
+function zipStdoutArchive(seekable: boolean): Uint8Array {
+  const key = `stdout seekable=${seekable}`
+  const hit = streamed.get(key)
+  if (hit !== undefined) return hit
+
+  const root = join(KEEP, `stream-${streamed.size}`)
+  mkdirSync(root, { recursive: true })
+  writeFileSync(join(root, 'soup.txt'), SOUP)
+
+  let bytes: Uint8Array
+  if (seekable) {
+    const out = join(root, 'out.zip')
+    const fd = openSync(out, 'w')
+    try {
+      const res = spawnSync('/usr/bin/zip', ['-q', '-X', '-', 'soup.txt'], {
+        cwd: root,
+        stdio: ['ignore', fd, 'pipe'],
+      })
+      expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
+    } finally {
+      closeSync(fd)
+    }
+    bytes = new Uint8Array(readFileSync(out))
+  } else {
+    const res = spawnSync('/usr/bin/zip', ['-q', '-X', '-', 'soup.txt'], { cwd: root })
+    expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
+    bytes = new Uint8Array(res.stdout)
+  }
+
+  streamed.set(key, bytes)
+  return bytes
+}
+
 // ---------------------------------------------------------------------------
 // A test-local structural peek, for asserting properties of the *fixture*
 // that `readZip`'s API deliberately does not expose (header flags, extra-field
@@ -221,6 +351,41 @@ function recordFor(archive: Uint8Array, name: string): Peek {
   )
   if (hit === undefined) throw new Error(`fixture has no entry named ${name}`)
   return hit
+}
+
+/**
+ * Every offset at which a 4-byte little-endian signature appears.
+ *
+ * Deliberately a whole-buffer scan and not a structured lookup: the ZIP64
+ * records this is used for are the ones the reader is refusing to parse, so
+ * locating them by parsing them would be circular. A signature can occur by
+ * chance inside deflate output, which is why the assertions below pin the
+ * *position* (`eocd - 20` for the locator) rather than merely the count.
+ */
+function signatureOffsets(archive: Uint8Array, sig: number): number[] {
+  const v = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
+  const out: number[] = []
+  for (let i = 0; i + 4 <= archive.length; i++) if (v.getUint32(i, true) === sig) out.push(i)
+  return out
+}
+
+/** The extra-field ids carried in one entry's **local** header, in order. */
+function localExtraIds(archive: Uint8Array, rec: Peek): number[] {
+  const v = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
+  const nameLen = v.getUint16(rec.localAt + 26, true)
+  const start = rec.localAt + 30 + nameLen
+  const ids: number[] = []
+  for (let p = start; p + 4 <= start + rec.localExtraLen; p += 4 + v.getUint16(p + 2, true)) {
+    ids.push(v.getUint16(p, true))
+  }
+  return ids
+}
+
+/** The sole entry of a single-entry archive, which the streaming fixtures are. */
+function onlyRecord(archive: Uint8Array): Peek {
+  const records = peek(archive)
+  expect(records, 'the streaming fixtures are single-entry by construction').toHaveLength(1)
+  return records[0] as Peek
 }
 
 /** A copy with `patch` applied, so the original fixture stays usable. */
@@ -439,11 +604,18 @@ describe('readZip', () => {
   })
 
   it('refuses ZIP64 markers explicitly instead of mis-parsing them', async () => {
-    // Nothing in this repo has ever produced or read a ZIP64 archive, and
-    // `/usr/bin/zip` 3.0 was measured not to emit one for these inputs. The
-    // decision is therefore to refuse: the 32-bit fields a ZIP64 archive
-    // leaves at 0xffffffff are sentinels, and a reader that takes them at face
-    // value computes a 4 GiB offset into a 2 KiB file or, worse, wraps.
+    // The sentinels, reached by patching a tree archive. This test used to
+    // open by saying nothing here had ever produced a ZIP64 archive and that
+    // `/usr/bin/zip` 3.0 could not emit one for these inputs; both are false
+    // and the test below this one holds the specimen. What survives is the
+    // reason for the refusal, which is unchanged: the 32-bit fields a ZIP64
+    // archive leaves at 0xffffffff are sentinels, and a reader that takes
+    // them at face value computes a 4 GiB offset into a 2 KiB file or wraps.
+    //
+    // A real archive cannot reach these four, because a `zip` that needed
+    // the sentinels would need a 4 GiB member to put under them. They stay
+    // synthetic on purpose; the three *structural* ZIP64 guards are driven by
+    // the real article next door.
     const archive = DEFAULT_ARCHIVE()
     const v0 = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
     const eocd = eocdAt(archive, v0)
@@ -454,27 +626,143 @@ describe('readZip', () => {
     const sentinelCount = mutate(archive, (_b, v) => v.setUint16(eocd + 10, 0xffff, true))
     await expect(readZip(sentinelCount)).rejects.toThrow(/zip64/i)
 
+    // Three disjuncts guard the per-entry record — uncompressed size,
+    // compressed size and local offset — and only the first was exercised,
+    // measured by instrumenting the branch and running this file. One
+    // satisfied disjunct cannot show the other two are wired, so all three
+    // are patched, each on its own copy.
     const rec = recordFor(archive, 'ref/soup.txt')
-    const sentinelSize = mutate(archive, (_b, v) => v.setUint32(rec.centralAt + 24, 0xffffffff, true))
-    await expect(readZip(sentinelSize)).rejects.toThrow(/zip64/i)
+    for (const [field, at] of [['uncompressed size', 24], ['compressed size', 20], ['local offset', 42]] as const) {
+      const sentinel = mutate(archive, (_b, v) => v.setUint32(rec.centralAt + at, 0xffffffff, true))
+      await expect(readZip(sentinel), field).rejects.toThrow(/zip64/i)
+      await expect(readZip(sentinel), field).rejects.toThrow(/ref\/soup\.txt/)
+    }
+
+    // And the central-side `rejectZip64Extra` call, which the local-side one
+    // in the real-specimen test does not cover: the default tree archive
+    // carries real central extra fields, so relabelling the first field's id
+    // as 0x0001 is a one-field edit to a record `zip` actually wrote.
+    const withZip64Extra = mutate(archive, (_b, v) => {
+      const nameLen = v.getUint16(rec.centralAt + 28, true)
+      v.setUint16(rec.centralAt + 46 + nameLen, 0x0001, true)
+    })
+    expect(rec.centralExtraLen, 'the mutation needs a central extra field to relabel').toBeGreaterThan(4)
+    await expect(readZip(withZip64Extra)).rejects.toThrow(/zip64 extra field/i)
   })
 
-  it('refuses a data descriptor rather than reading one untested', async () => {
+  // -- Criterion 2: ZIP64 and data descriptors, from the real producer -------
+
+  it('CRITERION 2 — refuses a real ZIP64 archive from /usr/bin/zip, and reads the -fz- control', async () => {
+    const archive = zipStdinArchive([])
+    const v = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
+    const eocd = eocdAt(archive, v)
+
+    // The fixture, before the reader sees it. If `zip` ever stops emitting
+    // ZIP64 here these three fail and say so — which is the sentence "the
+    // fixture is no longer the archive this test needs", and is deliberately
+    // not the same sentence as "the reader stopped refusing".
+    expect(signatureOffsets(archive, 0x07064b50), 'ZIP64 locator, immediately before the EOCD')
+      .toContain(eocd - 20)
+    expect(signatureOffsets(archive, 0x06064b50).length, 'a ZIP64 end-of-central-directory record')
+      .toBeGreaterThan(0)
+    expect(localExtraIds(archive, onlyRecord(archive)), 'a 0x0001 ZIP64 extra field locally')
+      .toContain(0x0001)
+
+    await expect(readZip(archive)).rejects.toThrow(/zip64/i)
+    await expect(readZip(archive)).rejects.toThrow(/locator/i)
+
+    // The control, and it is doing two jobs. It shows the refusal is keyed to
+    // ZIP64 rather than to "an archive whose entry came from stdin" — same
+    // command, one extra flag — and it shows `readZip` can read this producer
+    // at all, so the throw above is not the reader failing on the shape.
+    const control = zipStdinArchive(['-fz-'])
+    expect(signatureOffsets(control, 0x07064b50), '-fz- suppresses the locator').toEqual([])
+    expect(signatureOffsets(control, 0x06064b50), '-fz- suppresses the ZIP64 EOCD').toEqual([])
+    expect(localExtraIds(control, onlyRecord(control)), '-fz- suppresses the 0x0001 extra').not.toContain(0x0001)
+
+    const read = await readZip(control)
+    expect(read.files.map(f => f.data)).toEqual([SOUP])
+  })
+
+  it('reaches the two ZIP64 guards the locator throw shadows, on the same real archive', async () => {
+    // The locator sits before every other ZIP64 check, so the specimen above
+    // proves one guard and hides two. Each is reached by disabling exactly
+    // the guard in front of it — on the real archive, so the bytes each one
+    // reads are still Info-ZIP's and not this file's.
+    const archive = zipStdinArchive([])
+    const v0 = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
+    const eocd = eocdAt(archive, v0)
+
+    // Locator signature blanked. What catches the archive next is its own
+    // `0x0001` local extra field, which `-X` does not even remove — asserted
+    // present above, so this is the real field and not a planted one.
+    const noLocator = mutate(archive, (_b, v) => v.setUint32(eocd - 20, 0x0a0b0c0d, true))
+    await expect(readZip(noLocator)).rejects.toThrow(/zip64 extra field/i)
+
+    // And with the central directory pointed at the ZIP64 end-of-central-
+    // directory record this archive genuinely contains, at the offset it
+    // genuinely sits at. `cdSize` moves with it so the bounds check passes
+    // and the ZIP64 branch is what reports, rather than a truncation.
+    const z64Eocd = signatureOffsets(archive, 0x06064b50)[0] as number
+    const atZip64Eocd = mutate(noLocator, (_b, v) => {
+      v.setUint32(eocd + 16, z64Eocd, true)
+      v.setUint32(eocd + 12, eocd - 20 - z64Eocd, true)
+    })
+    await expect(readZip(atZip64Eocd)).rejects.toThrow(/points at a ZIP64 record/i)
+  })
+
+  it('refuses a data descriptor on flag bit 3 alone, nothing else changed', async () => {
     // Flag bit 3 moves the CRC and both sizes to a record *after* the data,
-    // leaving the local header's copies zero. The central directory would in
-    // principle still carry the truth, so this reader could probably handle
-    // it — but `/usr/bin/zip` 3.0 does not emit one even when writing to a
-    // pipe (measured), so there is no specimen to test the path against, and
-    // an untested path through a container reader is how a project file gets
-    // silently mis-read. The throw is about the absence of evidence, and it
-    // is loud and recoverable; a mis-parse is neither.
+    // leaving the local header's copies zero. This comment used to go on to
+    // say that `/usr/bin/zip` 3.0 does not emit one "even when writing to a
+    // pipe (measured)", and that the refusal was therefore about an absence
+    // of evidence. It emits one whenever its stdout is a pipe; the earlier
+    // measurement used a shell redirect, which is seekable. The specimen is
+    // in the next test and the mechanism is in this file's docblock.
+    //
+    // What the refusal is really about, now that the evidence exists: this
+    // reader takes both sizes and the CRC from the central directory, so it
+    // would very likely cope — and `likely` is not the standard for a user's
+    // only copy of their project (plan §1.2k). Refusing a format we can now
+    // produce and test is a decision, not a gap.
+    //
+    // The patched version stays because it is the *narrow* control: it is the
+    // default tree archive with two flag words changed and nothing else, so
+    // bit 3 alone is what the refusal keys on, which a real streamed archive
+    // (different producer invocation, different entry, no extra fields)
+    // cannot show on its own.
     const archive = DEFAULT_ARCHIVE()
     const rec = recordFor(archive, 'ref/soup.txt')
-    const streamed = mutate(archive, (_b, v) => {
+    const patched = mutate(archive, (_b, v) => {
       v.setUint16(rec.centralAt + 8, rec.flags | 0x08, true)
       v.setUint16(rec.localAt + 6, rec.flags | 0x08, true)
     })
-    await expect(readZip(streamed)).rejects.toThrow(/data descriptor/i)
+    await expect(readZip(patched)).rejects.toThrow(/data descriptor/i)
+    await expect(readZip(archive), 'the same archive without bit 3 reads').resolves.toBeDefined()
+  })
+
+  it('CRITERION 2 — refuses a real data-descriptor archive from /usr/bin/zip, and reads the seekable control', async () => {
+    const piped = zipStdoutArchive(false)
+    const redirected = zipStdoutArchive(true)
+
+    // The fixture property, asserted before the reader runs and asserted on
+    // both halves, because the pair *is* the evidence: identical argv and
+    // identical input, and bit 3 differs. Either assertion failing means this
+    // host's `zip` no longer patches a seekable header, which is a statement
+    // about the host and not about `readZip`.
+    expect(onlyRecord(piped).flags & 0x08, 'stdout a pipe: bit 3 set').toBe(0x08)
+    expect(onlyRecord(redirected).flags & 0x08, 'stdout a file: bit 3 clear').toBe(0)
+
+    await expect(readZip(piped)).rejects.toThrow(/data descriptor/i)
+    // Naming the entry is the part a caller can act on, and `soup.txt` is the
+    // real name Info-ZIP recorded rather than one this file chose.
+    await expect(readZip(piped)).rejects.toThrow(/soup\.txt/)
+
+    // The control reads, bytes exact. Without it the test would be satisfied
+    // by a reader that refused everything this producer writes.
+    const read = await readZip(redirected)
+    expect(read.files.map(f => f.name)).toEqual(['soup.txt'])
+    expect(read.files.map(f => f.data)).toEqual([SOUP])
   })
 
   it('refuses an encrypted entry by name instead of failing its CRC', async () => {

@@ -59,21 +59,41 @@
  * best effort: a bad CRC, a truncation, an unsupported method, encryption, a
  * data descriptor, a ZIP64 marker, a name whose encoding is undeclared.
  *
- * Two of those are refusals of things that are not actually broken, and both
- * are deliberate:
+ * Two of those are refusals of things that are not actually broken. Both are
+ * deliberate, and **both are refusals of archives this host can produce** —
+ * which is the point, and is the opposite of what this docblock said until
+ * 2026-10-15. It claimed no local producer could emit either, so the paths
+ * were untested of necessity. Measured, with Info-ZIP `zip` 3.0, the only
+ * `zip` on this machine:
  *
- * - **ZIP64** has never been produced or read anywhere in this repository,
- *   and `/usr/bin/zip` 3.0 does not emit it for inputs of this size. Its
- *   32-bit fields are left at `0xffffffff` as sentinels, so a reader that
- *   takes them literally computes a 4 GiB offset into a 2 KiB file.
+ * - **ZIP64.** `zip -h2` says it in its own words — *"streaming stdin creates
+ *   Zip64 archives by default"*. `cat soup.txt | zip -q out.zip -` writes a
+ *   ZIP64 end-of-central-directory record, a ZIP64 locator **and** a `0x0001`
+ *   extra field in the local header, from a 5 KiB input with no 4 GiB in
+ *   sight. `-fz-` suppresses all three and is the negative control. The
+ *   refusal stands because a ZIP64 archive's 32-bit fields are left at
+ *   `0xffffffff` as sentinels, so a reader that takes them literally computes
+ *   a 4 GiB offset into a 2 KiB file.
  * - **Data descriptors** (general-purpose bit 3) move the CRC and sizes after
- *   the data and zero the local header's copies. Since this reader reads
- *   neither from the local header, it would probably cope — but
- *   `/usr/bin/zip` 3.0 does not emit one even when writing to a pipe
- *   (measured), so there is no specimen to test the path against, and an
- *   untested path through a project-file reader is how work gets lost
- *   quietly. The throw records an absence of evidence, and is loud and
- *   recoverable where a mis-parse is neither.
+ *   the data and zero the local header's copies. **A shell redirect is not a
+ *   pipe, and that is why this was measured wrong the first time.** With
+ *   `zip -X - soup.txt > out.zip` the tool's stdout is seekable: it seeks back
+ *   and patches the local header, and bit 3 comes out **clear**. Send the same
+ *   bytes through a pipe — `| cat > out.zip`, or `spawnSync` with a piped
+ *   stdout, as the test does — and stdout is unseekable, so the descriptor
+ *   goes in and bit 3 comes out **set**. Measured side by side, same command,
+ *   same input: `> out.zip` → flags `0x0000`; `| cat` → flags `0x0008`.
+ *
+ * So the data-descriptor refusal is **no longer an absence of evidence**, and
+ * the previous wording must not be allowed to read as prescient. This reader
+ * takes both sizes and the CRC from the central directory, so it would very
+ * likely cope with bit 3 — and it still refuses, because *likely* is the wrong
+ * standard for a `.stst`. Plan §1.2k again: a silently mis-read project file
+ * destroys work that exists nowhere else, and a format this repo neither
+ * writes (`zip.ts` sets bit 3 on nothing) nor has a reason to read is not
+ * worth the surface. **Refusing a format we can now produce and test is a
+ * decision, not a gap**, and `zipRead.test.ts` drives both refusals with real
+ * `/usr/bin/zip` output rather than with a patched flag word.
  */
 
 import { crc32, type ZipEntry, type ZipMethod } from './zip.js'
@@ -432,9 +452,14 @@ export async function readZip(archive: Uint8Array): Promise<ZipArchive> {
     }
 
     if ((c.flags & FLAG_DATA_DESCRIPTOR) !== 0) {
+      // The message has to be actionable, because the commonest way to get
+      // here is a producer that streamed to a pipe rather than to a file —
+      // which the caller can usually just redo. It must not repeat the old
+      // claim that nothing here can emit one; `zipRead.test.ts` emits one.
       throw new Error(
         `zip entry ${c.name} uses a data descriptor (general-purpose bit 3); not supported — ` +
-          `no producer available here emits one, so the path is untested`
+          `the CRC and sizes follow the data because the producer's output was not seekable. ` +
+          `Re-create the archive writing to a file rather than to a pipe`
       )
     }
 
