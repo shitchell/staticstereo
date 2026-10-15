@@ -713,8 +713,17 @@ The orchestrator reads the report of 1–6 and merges. It does not re-verify.
 
 ## 7. Phase specifications
 
-**Preamble, binding on every phase.** No tier in this system has a browser, and design §12
-excludes Svelte component DOM from testing. **Every criterion below must be restated by
+**Preamble, binding on every phase.** Design §12 excludes Svelte component DOM from
+testing.
+
+**Corrected 2026-10-15.** This read "No tier in this system has a browser", and a P1/P7
+survey worker measured it false of this host: `/snap/bin/chromium`, `Xvfb`, and a
+populated `~/.cache/ms-playwright` are all present — including `chromium-1234`, the exact
+build `site/playerplan.test.ts:776` already names. The true statement is narrower: **the
+default test harness has no browser, and a phase wanting one must fund a harness and say
+so.** The wide reading had already caused a criterion to be deferred on it. A browser is
+available to any phase the orchestrator funds it for; it is not available by default, and
+CI must be shown to have it before anything depends on it. **Every criterion below must be restated by
 the PM as a predicate over a plain, importable module before it becomes a task.** A
 criterion that cannot be is an escalation *before* any worker is spawned; the orchestrator
 then funds a harness, restates it, or cuts it.
@@ -790,22 +799,108 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
 5. **Determinism specified**: fixed mtimes, fixed entry order, fixed compression level.
 6. `stst` reads and writes `.stst`. **Subcommand names are an escalation** — `args.ts`'s
    `COMMANDS` is `['render','still','preview']` and the design names no new one.
-7. CLI and site produce identical bytes for one scene. **If `CompressionStream` is not
-   bit-identical across Node and Chromium this is unachievable** — the survey worker
-   checks this first, and it is an escalation if false.
+7. CLI and site produce identical bytes for one scene — **by construction, not by the
+   coincidence of two zlib wrappers agreeing on a default.**
+
+   **Rewritten 2026-10-15 on measurement.** The survey measured
+   `CompressionStream('deflate-raw')` byte-identical between Node 22.14.0 and Chromium 151
+   across 9 fixtures with paired controls — **but Firefox 153 emits +59% and WebKit 26
+   emits 10.7×**, differing at byte 0 or 1. All four round-trip exactly. Nothing guarantees
+   the Node/Chromium agreement: the Streams spec fixes no level, strategy, `memLevel` or
+   `windowBits`, and they agree only because both wrap zlib at default 6. The original
+   criterion was therefore satisfiable today and would have silently stopped being true.
+
+   **Ruling: the container is written with `method:'store'`**, which `writeZip` already
+   supports. This makes the criterion hold **by construction in every engine**, needs no
+   browser in the suite, and removes a whole class of escalation. The cost is file size,
+   and it is close to nothing in practice because **a `.stst` is overwhelmingly already-
+   compressed image data** — baked masks and original sources are PNG/GIF, where deflate
+   buys ~0%; only `scene.json` and the manifest are compressible and both are small.
+
+   **This is conditional on measurement, not on the above reasoning being right.** A worker
+   measures the stored-versus-deflated size of a representative multi-layer scene with a
+   real imported PNG. If the delta is material, that is an escalation **to Shaun** carrying
+   the numbers, because trading file size for engine-independence is a product decision.
+   Narrowing to Chromium-family was rejected: the site is a public static page and the
+   player is designed to be embedded in other people's pages.
 8. A purity guard for `src/shared/`. There is none today, and both P1 and P7 put
    browser-reachable code there.
+
+   **Measured hole, 2026-10-15:** the guard as shipped **cannot see a new, unbuilt
+   `src/shared/` module**, because its roster comes from `dist/shared/*.js`. Paired control
+   over the same file and the same import, varying only whether `dist/shared/zzzLeak.js`
+   exists: **13 passed (blind) → 2 failed (sighted).** That is exactly the class of file
+   the rest of P1 and all of P5 will add. The roster must come from the source tree minus
+   the `tsconfig` excludes, keeping the pairing assertion as a cross-check.
+9. **A `.stst` round-trips a multi-frame / GIF layer.** *(Added 2026-10-15.)* This is
+   R17's own stated motivation — *"that would also save the multi-frame / gif layer if i
+   want to share the full editable project"* — and **no criterion covered it**. The
+   container's scope limit is currently recorded only in a test comment, and §9's last row
+   says a note is not a sensor.
+10. **The site reads a `.stst`, not only the CLI.** *(Added 2026-10-15.)* R17 is
+    *"someone else can import"*, and design §6.2's own argument is that a one-sided format
+    "would be the first asymmetry in an architecture that is otherwise one core with a CLI
+    and a site at parity." In the surveying worker's words: **the criteria encode the
+    asymmetry they were written to prevent.** Scope here is the *shared reader being
+    browser-reachable and exercised by site-side code*; the import **UI** is P5's (R19).
+
+**Criteria 9 and 10 are plan §3's lesson firing for the second time in this phase** — a
+phase can pass its own gate with a design item simply missing, because the criteria list
+is derived from the plan rather than from the design or from the requirement.
 
 ### P7 — Perception module · PM-SHARED · design §10
 
 1. `src/shared/perception.ts` — `encodableDepths`, `quantisationStep`, `collidingPairs`,
-   `fusionComfort`, `strokeLegibility`, `depthStops`, `cardboarding`.
-2. Each returns quantities **and** a grade; a caller wanting numbers never reads the grade.
+   `fusionComfort`, **`legibilityOf` / `describeLegibility`**, `depthStops`,
+   `cardboarding`. *(Named `strokeLegibility` until 2026-10-15; the moved rule was required
+   to move **unchanged**, so the criterion is renamed to the code and not the reverse.)*
+2. **Graded** functions return quantities **and** a grade; a caller wanting numbers never
+   reads the grade. *Rescoped 2026-10-15:* it read "each returns", which design §10.1's own
+   title contradicts — *"objective, no perception involved"* — and `encodableDepths` is
+   `sepFar − sepNear + 1`, arithmetic over the encoder. **Forcing a grade onto an objective
+   count invents the subjective score R22 obligation 4 forbids.**
 3. **`fusionComfort` keys on the budget, not `sepNear`.** Pinned: fires at
    `sepFar:140, sepNear:78` (budget 62), silent at `100/80` (budget 20).
-4. `encodableDepths` reports stage capacity **and** the `linked` dead strips.
+4. `encodableDepths` reports stage capacity. *Amended 2026-10-15:* it also demanded the
+   `linked` dead strips, and the module declined **on a measurement** — the strips fall
+   entirely inside the plate margins, which `plate.ts` already defines as columns nothing
+   may be composed in. Widening a bare `number` into a shape, breaking a seam P4 will
+   consume, to restate a guarantee that already exists, is machinery. **Closed as satisfied-by-`plate.ts`, conditional on a sensor** — but **not the sensor
+   this sentence originally specified, which is false at any odd `sepFar`.** It read
+   *"assert the strip width equals the margin width"*. Measured: `marginsFor` gives
+   `ceil(sepFar/2)` both sides, while the encoder's skip test gives left
+   **`floor(sepFar/2)`**, right `ceil(sepFar/2)`. At the default 110 both are 55 and an
+   equality passes; **at 111 the left strip is 55 against a margin of 56.** An implementer
+   handed the original sentence writes an equality, watches it pass, and ships a sensor
+   that is green only because nobody swept an odd separation.
+
+   **The property the closure actually rests on is containment**, which holds for every
+   `sepFar ≥ 2` by `floor ≤ ceil`: the strips fall *inside* the margins. Assert
+   containment, swept over odd and even `sepFar` including the `sepFar = 2` floor, with
+   both sides derived from shipped code and neither written out; and assert tightness as
+   `ceil − floor ≤ 1` with that expression recorded, so widening the slack is a visible
+   change of claim rather than a passing test. Note also there are **two** strip widths —
+   dead-for-all-depths reaches only `floor(sepNear/2)` — so a sensor written against
+   "capacity 0" compares 46 to 55 and reddens immediately.
 5. Today's legibility rule moves in with **no threshold change**. The wrapper shape of
-   criterion 2 is the permitted change; the numbers are not.
+   criterion 2 is the permitted change; the numbers are not. *Clarified 2026-10-15:* a
+   verdict **string** is not a number, so design §10.3's weakening ("lead with quantities")
+   **does** land here. The branch currently ships advice the 2026-10-12 findings call
+   *worse than silence* — **but not for the reason this sentence gave, and the sentence was
+   wrong in four documents at once.** It read "it tells the author to widen the budget,
+   which does nothing for legibility and makes fusion harder." The shipped string says
+   **"raise `sepNear` to *shrink* the budget"**, which makes fusion *easier*. The advice is
+   bad because it **trades away depth range and buys nothing for legibility** — the
+   threshold is an absolute stroke width — while the string advertises the cost. The fix is
+   therefore **to remove the `sepNear` trade from both the `illegible` and the `tight`
+   branch**, not to invert a direction. An implementer told "stop saying widen" will read
+   the string, see *shrink*, and reasonably conclude the brief is stale.
+   `src/shared/perception.ts`'s `fusionComfort` docblock has since copied the wrong
+   sentence in, roughly 80 lines above code that says the reverse, so **the module
+   contradicts itself in its own comments** and that is part of this task. `site/legibility.test.ts:228-229` **requires** that
+   wrong advice and will redden; **that is the test doing its job** — update it with the
+   reason recorded. `src/shared/perception.test.ts:163-166`'s comment, which says this
+   phase may not change the verdict text, is superseded and must be amended in place.
 6. No perceptual **threshold** inlined outside this file, against a named list fixed
    before dispatch — including `src/node/canvas.generics.test.ts:107`'s `peak * 0.5`,
    whose own comment at `:99` says it matches `INK_FRACTION`. The fix is to import the
@@ -879,8 +974,39 @@ running before P3. The module lands standalone; P4 consumes it.
     `controls.test.ts`, `markup.test.ts`, `present.test.ts`, `scale.test.ts`,
     `diagnostics.test.ts`, `depthmap.test.ts`, `stageguide.test.ts`. The pre-authorised
     removal in §6.4 is here.
+
+    **Ruled 2026-10-15: this is a review criterion, not a predicate**, and a PM was right
+    to say so rather than force one. "A disposition table exists and is right" is a
+    judgement about a document. Its **testable shadow** is the deliberate teardown
+    tripwires: each must go red on teardown and each must be dispositioned by name in the
+    table. The standing "a criterion may ship unmet only with a sensor" is not in tension —
+    this criterion is documentary by nature, not unmet.
+
+    **The file list above is short.** A P3b survey found six more, and two are tripwires
+    planted on purpose: `site/views.test.ts` (recorded in §9 — *"the note **is** the
+    test"*) and `site/keybindings.test.ts`, which was not recorded anywhere. Also
+    **`src/node/canvas.vendored.test.ts`, which reads `site/index.html` and will throw
+    ENOENT on teardown, with a hand-written count beside it that becomes false.** It is
+    named by no phase. **Ruled: it is P3b's**, by the principle that the phase whose change
+    breaks a file owns the repair. P3b may touch that one file in `src/node/` **and no
+    other** — `canvas.generics.test.ts` in the same directory belongs to P1/P7, which has
+    been told so.
+    The disposition table is committed to `docs/`.
 11. **R2/R8 architecture test**: a second `LayoutConfig` plus a visibility set yields a
     reduced editor with no second app and no code outside the layout module.
+
+    **Restated 2026-10-15, because "no code outside the layout module" is a statement about
+    a diff and §7's preamble makes that an escalation before any worker is spawned.** The
+    predicate, accepted from the P3b survey: *a reduced editor is expressible as a
+    `LayoutConfig` plus a visibility set, and **every existing consumer is total over that
+    pair**, asserted on a constructed second instance.* Added by the orchestrator: **the
+    test constructs that second instance inline and adds no module** — which is the
+    checkable residue of "no second app", and keeps the diff clause honest without asking a
+    predicate to describe a diff.
+
+    **The visibility set is a third value**, not a field on `LayoutConfig` and never the
+    specs argument of `unmountedControls`. `CONTROLS` stays complete and visibility sets
+    select from it; a filtered registry would fail criterion 6, which is already met.
 
 **`CONTROLS` is complete; visibility sets select from it.** A filtered registry would fail
 criterion 6.
@@ -935,12 +1061,13 @@ defective and one criterion had vanished entirely.** See error 16 below the tabl
 |---|---|
 | **12** | `Scene`'s own-key guard. **MET and verified — `05aeb26`.** |
 | **13** | `KEYBINDINGS` exists as a registry **and carries its registration test** (§11 table row 5). Both clauses: R-ac rules criterion 3 is one registration test per registry *"plus `KEYBINDINGS` for criterion 13"*, so the test is part of 13 by explicit ruling — **drop it and C-16's `101c342` is unbudgeted by any criterion.** **MET — `5fc8fc8` + `101c342`.** |
-| **14** | `dist.test.ts`'s no-editor-code check **has teeth, shown with the measured paired control**. P3b's. Plan P2.10 flagged it as "a tautology until P3 exists… re-verified as a P3 criterion" and no criterion received it. Live instance: `site/dist.test.ts:1382`'s hand-written `toHaveLength(7)` — three cluster-C modules absent, **none reddens it**, "now true of two modules and heading for ten". |
+| **14** | `dist.test.ts`'s no-editor-code check **has teeth, shown with the measured paired control**. P3b's. Plan P2.10 flagged it as "a tautology until P3 exists… re-verified as a P3 criterion" and no criterion received it. **The criterion stands. Its cited live instance is withdrawn as measurably false — 2026-10-15, orchestrator error 21.** It claimed `toHaveLength(7)` was missing three modules (later relayed as eight) that nothing reddened. Measured: the hand list is **exactly correct today, 7 of 7**; the "eight" are P3a registry modules reachable from **neither** bundle, and planting them **reddens** the suite, because the *presence* half of the control catches a needle that is in no bundle. A survey then planted a real leak and the check **failed by name** — so it already has teeth, and part of this criterion is already discharged. What remains is real but different: **the list is hand-written and will rot** as the shell adds modules, so derive it or cross-check it against a derivation; and the needles must be **extended to the editor shell's own modules and the presence half re-run against the new bundle** once teardown lands. |
 | **15** | **The hash projection coalesces on a microtask: N mutations in one tick ⇒ one write.** P3b's. |
 | **16** | The centre slot admits nothing above the canvas in flow (design §8.3's sub-pixel measurement). P3b's. |
 | **17** | `ease`, `repeat`, `start` and `duration` are declared as parameter descriptors — **and `push`'s non-uniform `easeOut` is expressible.** The second clause is decisive: *a descriptor scheme that cannot express a per-verb default override has not met criterion 17.* Without it the criterion is satisfied by adding four descriptors and going green. **MET, both clauses — `a9cd1c1`.** |
 | **18** | `CONTROLS` is **derived** from the guarded rosters — never enumerated. **Do not conflate with the withdrawn criterion-3 wording.** **MET — `9bf104d`.** |
 | **19** | **R13 and R4 are recorded as *partially* closed by P3.** Status `ruled`, discharged by R-e. This is a **conflict** between plan §3 and design §13/§15, not a gap — **not store-side, not buildable, and not P3b's.** (Criterion **8** *is* the store-side one, and both mention R13 — **PM-SHELL-9's inference as to how the orchestrator confused them, labelled as its inference, not established.**) |
+| **21** | **No module-level mutable scene state survives outside the store**, with a sensor. *(Added 2026-10-15.)* Design §3.4 says "one scene store as the single source of truth" and **criterion 8 cannot falsify it**: a store shipped *beside* the surviving module-level state satisfies criterion 8 literally, and teardown is a separate criterion, so the gap is reachable rather than theoretical. Raised by a P3b survey under plan §3's instruction to diff the design against the criteria. |
 | **20** | `ParamShape` expresses a **number-or-token union**, **and the resolver yields a number input *plus* a token picker for it.** The resolver half is what D-5 exists for; without it a worker reading this table finds no criterion for D-5 at all, and D-6 loses the clause saying what the type change is *for*. **MET, both halves — `a414a63` + `1047aa5`.** |
 
 **The generalisation from three correction passes, and it governs how this table is
@@ -1101,10 +1228,11 @@ Each already cost a correction. Hand this table to every worker.
 | `build:site` catches a Node builtin in shared code | **It does not — it is fail-open.** `import 'node:fs'` in `src/shared/` leaves `build:site` at **exit 0** with "has been externalized for browser compatibility". The build is not a purity sensor; only a guard that reads the source is. `build.rollupOptions.onwarn` flips it to exit 1 with no false positives (`resolve.builtins` does **not** exist in the pinned Vite 5.4.21). **Two corrections to this row as first written:** the configs are at the **repo root** and there are **two** of them, so it is not "a `site/` change"; and the two sensors are **not complementary** — for a dependency reaching `node:fs` one file deep from a shared module outside the bundle graph, `build`, `build:site` *with the option planted*, and the suite were **all measured green.** The Vite option sees only the bundle graph; the purity guard reads only each package's entry module. **Both blind simultaneously, over exactly the P1 files.** |
 | a count from the survey is still the count | Not if your own phase has been committing. A PM relayed "five pre-existing reddened specifiers"; measured, it is **nine of fourteen**, and **the four it missed are its own branch's new modules.** The survey predated them. Ask whether your own commits have moved the number before you relay it. |
 | compressing two true statements is safe | It is the commonest scope error in this build, named by the PM that made it four times in one shift: *"I compress two true statements into one sentence that is wider than either."* Each half is true, the join is the PM's, and nothing downstream can tell which part came from where. |
-| two independent workers agreeing is a measurement | It is not. Two surveys independently reported `src/shared/` as eight source files; it is **seven** — both appear to have counted a file inside the eight and then named it separately. Agreement between two unverified reports is one unverified report. |
+| two independent workers agreeing is a measurement | It is not. Two surveys independently reported `src/shared/` as eight source files, and this row used to say flatly "it is **seven**". **Corrected 2026-10-15: both numbers are right under different predicates** — seven top-level modules, eight non-test source files — so the row demonstrating the trap had fallen into it. **Cite the predicate, never the number.** The original point survives intact: agreement between two unverified reports is one unverified report. |
 | a label in a brief names something findable | **Not if it only ever lived in two contexts.** A census across 418 commits and every ref found exactly one of nine escalation labels. Worse, an unhyphenated family of the same letters-and-digits *does* exist in the tree from a different phase — a mapping assembled from those hits would have been **internally consistent, nine rows deep, and wrong.** When labels die, **renumber from content and never speak of the old labels again**; a plausible wrong mapping is the hardest kind to catch. |
 | `git log -S'X'` searches for X | It searches for X as a **substring**. `-S'E-7'` returns three commits, two of them from `IEEE-754`. Use `--pickaxe-regex` with `\b`. |
 | a tier-0 cross-reference is a stale pointer, so let it wait | **Not in a document whose section numbers are the dispatch interface.** §9's taxonomy says a stale pointer costs a `grep` and nothing silently passes — true of code, false of a plan that PMs are briefed to read *by section number*. Those get fixed on sight. |
+| my control proves the diff works | **It proves the instrument functions, not that it pointed at *your* change.** A worker nearly shipped 14 inadmissible nulls on that distinction, and it retroactively marks three earlier commits' second-half evidence as true-but-vacuous. A control must be able to see the specific change under test, not merely to see *something*. |
 | a sha in the record resolves | Two on record for a met criterion — `f3b9a1c` and `9c2d84e` — **do not exist in this repository.** A sha is checkable in one command and these were not. |
 | the gate's instrument and the branch's instrument are the same kind of thing | **`git log <ref>` takes a ref; `npm test` takes a working directory.** They look interchangeable and are not. The orchestrator ran P3a's gate in a worktree checked out on `main` and got **60/1358** — the baseline, a figure already in the record. **A wrong answer that matches something already written down is the hardest kind to catch.** |
 | "the sweep found three" means there are three | C-18's own warning, and its scope reached no durable document while its results did. The five axes it swept: `as const` tuple rosters (13 present) · inline literal unions in struct fields (3 found) · **discriminated-union tag rosters, the shape `OPERATIONS` has**, of which it measured exactly one rather than leave the axis unnamed · rosters declared in `src/` that P2 consumes · **`.svelte` files — axis *empty*, not skipped.** Without the scope, the next sweep cannot tell what was covered, and empty-vs-skipped is invisible once the list is gone. |
@@ -1128,6 +1256,8 @@ Each already cost a correction. Hand this table to every worker.
 | a cross-phase note will be read when it matters | Make the note **be** the test. P3a deliberately left `site/views.test.ts` depending on `site/index.html`, so P3b's teardown turns it red *by design* with a message naming the teardown. Its author's framing: *"the HTML dependency is not a cost I tolerated — it is the deliverable; §9 says a note is not a sensor, so the note **is** the test."* |
 | a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
+| a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
+| a standing ruling in the handover was ruled | Not necessarily. "`seek` clamps to the last frame" sat in §4 under *do not re-litigate* for a week. It entered in the handover's **own birth commit**, and the P2 record it purported to settle says the opposite — *"Nothing pins `seek`… P3 must decide"*. It was the orchestrator's inference, formatted as an inheritance, and a PM correctly refused to build on it. **A ruling's authority is the measurement or the decision behind it; `git log -S` finds that in one command.** Where a §4 entry cannot be traced to one, it is a proposal. |
 
 ---
 
