@@ -38,7 +38,7 @@ import type { AssertNever, Channel, Layer, Scene } from '../core/index.js'
 import { readStst } from '../shared/containerRead.js'
 import type { StstArchive } from '../shared/containerRead.js'
 import type { StstMember } from '../shared/container.js'
-import { UsageError } from './args.js'
+import { PROJECT_EXT, UsageError } from './args.js'
 import type { CliArgs } from './args.js'
 
 /* ------------------------------------------------------------------ parsing */
@@ -87,17 +87,15 @@ export function parseSceneText(text: string, label: string): unknown {
 
 /* ------------------------------------------------------------- .stst input */
 
-/**
- * The extension that makes a path a project file rather than a scene file.
- *
- * Dispatch is on the **extension**, which is the same rule `outputFormat`
- * already uses on the way out, and deliberately not a sniff of the first two
+/*
+ * Dispatch is on the **extension** — `PROJECT_EXT`, defined in `args.ts`
+ * beside `outputFormat` because that is already the module that maps an
+ * extension to a meaning — and deliberately not a sniff of the first two
  * bytes. A sniffing loader opens a mislabelled file without ever telling the
  * author the name is wrong, and it makes "which reader ran" a function of the
- * content — the same input-dependence `container.ts` refuses when it picks
+ * content: the same input-dependence `container.ts` refuses when it picks
  * `'store'` unconditionally rather than from the bytes.
  */
-export const PROJECT_EXT = '.stst'
 
 /**
  * A `.stst` read whole: the scene plus everything else the archive carried.
