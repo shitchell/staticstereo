@@ -44,14 +44,13 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | fractional-viewport fix | **merged** | 60 files / 1358 |
 | **P3a** shell, additive half | **merged** `7cd5599` | 80 files / 1881 / 0 skipped, typecheck 0 over 451, freshness positive. **Criteria 0, 1, 2, 3, 4, 5, 6, 12, 13, 17, 18, 20 met — twelve, not ten.** +523 tests, zero removals |
 | **P3b** store, shell, teardown | not started | depends on P3a |
-| **P1** `.stst` · **P7** perception | **not started, unblocked** | both depend only on P0 |
+| **P1** `.stst` · **P7** perception | **in progress** | 9 commits on `feat/p1p7-shared`; **88 files / 1972 passed**. No verifier, reviewer or gate runner has run |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
 
 **CI is green on GitHub's runner and reproduces local numbers exactly.** Pages is
 deployed; `/staticstereo/player/` resolves as a *directory* URL, which is what closes R14.
 
-**Requirements closed:** R9, R10 (P0) · R14, R15, R16, R20, R21 (P2) · R17, R18, R19, R22
-remain open with P1/P7 · R2, R3, R4, R6, R7, R8, R13 are P3's.
+**Requirements closed:** R9, R10 (P0) · R14, R15, R16, R20, R21 (P2) · R17, R18 and R22 remain open with P1/P7; **R19 is P5's** per plan §3 · R2, R3, R4, R6, R7, R8, R13 are P3's.
 
 ---
 
@@ -62,7 +61,7 @@ chain of handovers is in `scratchpad/P3-LEDGER.md`, which **is session-scoped an
 survive** — if P3a is still open when you take over, your first act is to have its PM
 restate the ledger's handover block into a report, because you cannot read it.
 
-**P1 and P7 are unblocked and unlaunched.** The cap is two concurrent PMs. Launch them when
+**P1 and P7 are in progress under PM-SHARED-2.** The cap is two concurrent PMs. Launch them when
 P3a closes, or sooner if you can hold three report streams.
 
 ---
