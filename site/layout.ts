@@ -319,10 +319,9 @@ export function mountedPanels<P extends string>(layout: LayoutConfig<P>): readon
  *
  * `readonly P[]` admits a member written twice, and `Exclude` is set-valued,
  * so neither the `Record` annotation nor any `AssertNever` pair in this file
- * can see a duplicate. This is the third place in this phase that hole has had
- * to be closed by hand — `SCENE_KEYS` at `05aeb26`, `LAYER_KEYS` at `22572ea`,
- * and here — and the shape is the same each time: the type is set-valued and
- * the value is a list.
+ * can see a duplicate. The same hole `SCENE_KEYS` had at `05aeb26` and
+ * `LAYER_KEYS` at `22572ea`, closed by hand here for the same reason — and the
+ * shape is the same each time: the type is set-valued and the value is a list.
  *
  * The symptom is specific to a layout and worse than a duplicate key: a panel
  * mounted in two slots is two live instances of one panel, and only one of

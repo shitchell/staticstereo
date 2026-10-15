@@ -135,9 +135,8 @@ describe('OPERATION_SUBJECTS', () => {
   it('names each subject exactly once', () => {
     // `readonly OperationSubject[]` admits a member written twice and
     // `Exclude` is set-valued, so neither the annotation nor the pair can see
-    // a duplicate. Fifth instance of that hole in this phase — `SCENE_KEYS`
-    // at `05aeb26`, `LAYER_KEYS` at `22572ea`, `SLOTS` at `4a75928`,
-    // `PANEL_IDS` at `7dedb7d`, and here.
+    // a duplicate. The same hole `SCENE_KEYS` had at `05aeb26`, `LAYER_KEYS`
+    // at `22572ea`, `SLOTS` at `4a75928` and `PANEL_IDS` at `7dedb7d`.
     const repeated = OPERATION_SUBJECTS.filter((s, i, all) => all.indexOf(s) !== i)
     expect(repeated, 'a subject listed twice is a tier iterated twice').toEqual([])
   })
@@ -409,8 +408,8 @@ describe('the registry stays open for a kind that does not exist yet', () => {
   it('refuses to compose two tables that claim the same id', () => {
     // A record cannot report a collision: the second write overwrites the
     // first and the registry is quietly one operation short with nothing left
-    // to inspect. `controlspec.ts` records the same defect, closed five times
-    // in this phase.
+    // to inspect. `controlspec.ts` records the same defect, closed by hand in
+    // every roster this phase has registered.
     //
     // A throw and not a returned list, which is the opposite of
     // `unregisteredPanels`' choice and for the stated reason: a layout can

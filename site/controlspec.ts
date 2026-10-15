@@ -731,11 +731,11 @@ function presetControl(kind: string, d: ParamDescriptor): ControlInfo {
  * Every control these rosters describe, in model order.
  *
  * **An array and not a `Record`, and the difference is a defect this phase has
- * now had to close five times.** A `Record` cannot report a collision: two
- * sources deriving the same id do not produce a duplicate, the second
- * overwrites the first, and the registry is quietly one control short with
- * nothing left to inspect. {@link CONTROLS} is built from this list and
- * {@link duplicateControlIds} compares the two.
+ * had to close by hand in every roster it registered.** A `Record` cannot
+ * report a collision: two sources deriving the same id do not produce a
+ * duplicate, the second overwrites the first, and the registry is quietly one
+ * control short with nothing left to inspect. {@link CONTROLS} is built from
+ * this list and {@link duplicateControlIds} compares the two.
  *
  * Order is the model's own nesting — scene, stereo, each reachable layer
  * variant, each verb — which is the iteration order every consumer inherits,
@@ -862,13 +862,13 @@ export function controlInfo(
 /**
  * The control ids derived more than once, sorted and deduplicated.
  *
- * The fifth instance in this phase of a hole that is the same shape every
- * time — `SCENE_KEYS` at `05aeb26`, `LAYER_KEYS` at `22572ea`, `SLOTS` at
- * `4a75928`, `PANEL_IDS` at `7dedb7d` — and the worst of the five, because
- * here the collapse is *into a `Record`*: there is no duplicate left to find
- * afterwards, only a registry that is short. Two sources reaching the same id
- * is not hypothetical, either: `size` is a key of both `Scene` and the `text`
- * variant, and it is only the owner segment of the id that keeps them apart.
+ * A hole that is the same shape every time — `SCENE_KEYS` at `05aeb26`,
+ * `LAYER_KEYS` at `22572ea`, `SLOTS` at `4a75928`, `PANEL_IDS` at `7dedb7d` —
+ * and the worst of them, because here the collapse is *into a `Record`*:
+ * there is no duplicate left to find afterwards, only a registry that is
+ * short. Two sources reaching the same id is not hypothetical, either: `size`
+ * is a key of both `Scene` and the `text` variant, and it is only the owner
+ * segment of the id that keeps them apart.
  *
  * `ids` defaults to {@link CONTROL_IDS}. See {@link indexControls} for why the
  * registry's readers take their population: a control declared in a roster is

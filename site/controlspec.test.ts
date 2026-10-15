@@ -152,12 +152,12 @@ describe('CONTROLS is derived, never enumerated', () => {
   })
 
   it('names each control exactly once, which a Record cannot say for itself', () => {
-    // The fifth instance of this hole in this phase — `SCENE_KEYS` at
-    // `05aeb26`, `LAYER_KEYS` at `22572ea`, `SLOTS` at `4a75928`, `PANEL_IDS`
-    // at `7dedb7d`, and here. The shape differs in one way that makes it
-    // worse: `CONTROLS` is a `Record`, so two sources deriving the same id do
-    // not produce a duplicate at all — the second **overwrites** the first and
-    // the registry is silently one control short, with no list to inspect.
+    // The same hole `SCENE_KEYS` had at `05aeb26`, `LAYER_KEYS` at `22572ea`,
+    // `SLOTS` at `4a75928` and `PANEL_IDS` at `7dedb7d`. The shape differs in
+    // one way that makes it worse: `CONTROLS` is a `Record`, so two sources
+    // deriving the same id do not produce a duplicate at all — the second
+    // **overwrites** the first and the registry is silently one control short,
+    // with no list to inspect.
     expect(duplicateControlIds(), 'two sources derive the same control id').toEqual([])
     expect(
       Object.keys(CONTROLS).length,

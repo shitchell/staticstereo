@@ -94,10 +94,9 @@ describe('SLOTS', () => {
     // `readonly SlotId[]` admits a member written twice and `Exclude` is
     // set-valued, so neither the annotation nor the `AssertNever` pair can see
     // a duplicate — the same hole `LAYER_KEYS` had until `22572ea` and
-    // `SCENE_KEYS` until `05aeb26`. This is the third instance of that shape in
-    // this phase. Here the symptom is a slot rendered twice, which in a layout
-    // means the same panels mounted twice and the second copy getting the
-    // events.
+    // `SCENE_KEYS` until `05aeb26`. Here the symptom is a slot rendered twice,
+    // which in a layout means the same panels mounted twice and the second
+    // copy getting the events.
     const repeated = SLOTS.filter((s, i, all) => all.indexOf(s) !== i)
     expect(repeated, 'a slot listed twice is a slot rendered twice').toEqual([])
   })
@@ -181,8 +180,8 @@ describe('every lookup refuses the prototype chain', () => {
   // on a plain object literal is the `Object` function, which is not
   // `undefined`, so an unguarded reader hands back a `SlotInfo` whose every
   // field is `undefined` and whose `.description` interpolates into prose. P0b
-  // closed this in five registries; `site/chromedom.ts:189` is still a live
-  // sixth, which is not this task's file to touch.
+  // closed this in five registries; `site/chromedom.ts:189` was a live sixth
+  // until C-2 closed it at `fb974d3`.
   const INHERITED = ['constructor', '__proto__', 'toString', 'valueOf', 'hasOwnProperty']
 
   it('answers undefined for an inherited member, on every table', () => {

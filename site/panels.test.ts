@@ -87,9 +87,9 @@ describe('PANEL_IDS', () => {
   it('names each panel exactly once', () => {
     // `readonly PanelId[]` admits a member written twice and `Exclude` is
     // set-valued, so neither the annotation nor either `AssertNever` pair can
-    // see a duplicate. This is the fourth instance of that hole in this phase —
-    // `SCENE_KEYS` at `05aeb26`, `LAYER_KEYS` at `22572ea`, `SLOTS` at
-    // `4a75928`, and here — and the shape is the same every time: the type is
+    // see a duplicate. The same hole `SCENE_KEYS` had at `05aeb26`,
+    // `LAYER_KEYS` at `22572ea` and `SLOTS` at `4a75928`, closed by hand here
+    // for the same reason — and the shape is the same every time: the type is
     // set-valued and the value is a list.
     //
     // The symptom here is specific and quiet. `PANEL_IDS` is the iteration
