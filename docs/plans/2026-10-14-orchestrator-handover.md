@@ -101,11 +101,42 @@ commit `57f1e15`, the deployment advanced to `ab6ca789`, and **`/staticstereo/` 
 as inference because it has no `pull_request` trigger and it could only prove `ci`; it was
 right to flag it and the inference held.
 
-**Still open:**
-- **Nobody has audited what else branches on `CLAUDECODE`** or otherwise behaves
-  differently inside the agent harness. The suite is green on CI now, so nothing else is
-  manifesting — but the same class of divergence is exactly what hid for nine hours, and
-  **no tier of this system can see it by running the suite.**
+**AUDITED, 2026-10-15 — null result, and the null is load-bearing because it carries a
+control.** Seven full-gate arms (ambient · no-`CLAUDE*` · `env -i` minimal · CI-like · under
+a pty · `NODE_ENV=production` · no-system-fonts), comparing exit codes, counts **and
+per-file identities**, plus sha256 of all 78 build artifacts across three environments.
+**Six arms identical to ambient in every respect; artifacts byte-identical.** All of
+`node_modules` grepped for agent-harness sniffs: exactly four hits, of which only
+`svelte-check`'s is behavioural and the rest select ANSI escapes.
+
+**The control that makes the null admissible:** the historical defect was *reinstated* in
+`site/fitregistration.test.ts` and measured — green under ambient, **red under `env -i`**,
+with the 5 tests reported as *skipped* rather than failed because the throw is in
+`beforeAll`. The nine hours, reproduced on demand and caught by the method. Reverted,
+tree verified clean.
+
+**Carried findings, none of which can produce a wrong answer:**
+- **`npm run typecheck` is itself still ambient-switched** — machine format for every agent,
+  human-verbose for CI. Nothing parses it, so it is cosmetic; but it means **every agent on
+  this project reads a different typecheck log than the runner emits**, which is the
+  perception gap that let the nine hours run.
+- **`site/typecheck-gate.test.ts` inherits the full environment unpinned** — and was measured
+  robust under **all four** formats svelte-check can choose, since it asserts on exit status
+  and a filename substring. Robust, not lucky. No RED is available for it, so invariant 1
+  forbids changing it.
+- **`UPDATE_PRESET_GOLDEN` is the only read in the repo that can turn red into green** — it
+  rewrites the fixture the test then compares against. Project-prefixed and nobody sets it,
+  so the risk is theoretical, but it is self-sealing by construction.
+- **A deliberate host dependence exists and is documented**: `DISABLE_SYSTEM_FONTS_LOAD=1`
+  reddens 4 tests in 2 files, one of which is a *positive control* whose comment says it
+  exists so the file cannot "pass while blind". `sans-serif` still resolves from the
+  vendored face, so production text is safe; only `serif`/`monospace` throw.
+
+**Not swept, stated so the census reports its own blind spots:** non-Linux hosts, other Node
+versions, a clean `npm ci` per arm, `npx` offline, individual test *names* (per-file counts
+only), and `node_modules` exhaustively. And **`HOME` was not scrubbed** in the minimal arm,
+so anything reading `~/.config`, `~/.cache` or fontconfig user dirs was never isolated — a
+hermetic `HOME` is the obvious next experiment and was not run.
 
 R14 is unaffected as a *requirement* — `/staticstereo/player/` resolved as a directory URL
 when it was last deployed — but **it is not currently witnessed in production** and must be
