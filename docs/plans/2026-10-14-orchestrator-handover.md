@@ -47,8 +47,41 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P1** `.stst` · **P7** perception | **in progress, PM-SHARED-3 live** | 14 commits on `feat/p1p7-shared`, **3 behind `main` (docs only)**; **92 files / 2037 passed**, four exit codes 0 — *as reported by the outgoing PM and not re-verified by anyone*. Every function P7 criterion 1 names exists. **No verifier, reviewer or gate runner has ever run** — §6 needs all of them, and that is the bulk of the remaining work |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
 
-**CI is green on GitHub's runner and reproduces local numbers exactly.** Pages is
-deployed; `/staticstereo/player/` resolves as a *directory* URL, which is what closes R14.
+**CI IS RED AND HAS BEEN SINCE `7cd5599`, THE P3a MERGE — nine hours and eight commits.**
+*(Discovered 2026-10-15 only because the owner asked about the deploy pipeline. Orchestrator
+error 24.)* This paragraph previously read "CI is green on GitHub's runner and reproduces
+local numbers exactly", which was true when written and never re-checked after P3a.
+
+Both the `ci` and `pages` workflows fail at the **same `npm test` step**, so `pages` is not
+a separate problem — **the site has not deployed since `7cd5599`**, and `/staticstereo/`
+serves the pre-P3a build. The last green run was `71c3c44e`.
+
+Four P3a registration harnesses fail, all identically:
+`site/fitregistration.test.ts:303` (×3) and `site/bindingregistration.test.ts:692`, each
+with **"could not read the checker's COMPLETED line"**. The harnesses copy the project to a
+temp workspace, plant a dummy registry entry, run `svelte-check`, and parse its output; on
+CI that output arrives in **human** format with no `COMPLETED` line.
+
+**The criterion is working and the parser is not.** The planted `tile` mode makes the
+compiler name `FIT_MODES` *and* `planFit`'s `AssertNever`; the planted `cycle-view` makes it
+name both `keybindings.ts` guards. That is exactly what the registration tests exist to
+prove. Any fix that weakens the criterion is the wrong fix.
+
+Eliminated cheaply, do not re-measure: **not a version skew** (`svelte-check` is 4.7.6 in
+both a passing worktree and a fresh `npm ci`, and `package-lock.json` pins it), and **not
+the `CI` env var** (machine format either way, non-TTY). Leading hypothesis, unconfirmed:
+the temp workspace has no `node_modules`, so `svelte-check` resolves to a different binary
+there — warm npx cache locally, cold on the runner. Competing: contention or a timeout, CI
+taking **10m45s** against a 43s local suite on a 2-core runner, in a repo that already
+records four concurrent `svelte-check` harnesses timing out a merged-phase test.
+
+A worker is on it in `…/staticstereo-p2` on `fix/ci-svelte-check-harness`, under
+instruction to reproduce locally first and to verify **on CI**, since a green local run is
+the instrument that missed this for nine hours.
+
+R14 is unaffected as a *requirement* — `/staticstereo/player/` resolved as a directory URL
+when it was last deployed — but **it is not currently witnessed in production** and must be
+re-confirmed once `pages` is green again.
 
 **Requirements closed:** R9, R10 (P0) · R14, R15, R16, R20, R21 (P2) · R17, R18 and R22 remain open with P1/P7; **R19 is P5's** per plan §3 · R2, R3, R4, R6, R7, R8, R13 are P3's.
 
@@ -174,6 +207,7 @@ orchestrator.
 | 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
 | 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
 | 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
+| 24 | **Merged P3a on a green *local* gate and never looked at CI**, then pushed eight docs commits onto a red `main` over nine hours without once checking. §6's own practice says "spot-check before merging… plus an independent gate run", and I read "independent" as *a second run by me* rather than *a different machine*. The owner found it, not the orchestrator — the same way §1.2a's missing tier-0 ledger was found | the owner asked what was wrong with the deploy pipeline |
 | 20 | **Applied four ruling edits with string replacements carrying no assertion; two silently no-opped — then asserted all four were landed in a commit message.** §1.2o committed by the tier that wrote it: an edit instrument used without a control, and the false claim put into the durable record | the PM read the file rather than the commit |
 | 19 | Ran P3a's verification gate **against the wrong worktree** and got the baseline back — `git log <branch>` names a ref, `npm test` runs whatever is checked out. It returned 60/1358, a *plausible* number already in the record | caught on re-reading my own output before reporting it |
 | 18 | Relayed a citation defect as `file:line → newline`, collapsing the **location of the citation** with the **target it points at** — the worker nearly declined both items as fabrications, since nothing cites the location and a 226-line file cannot contain the cited range. Also relayed "four-word orphan" for a one-word one | the repair worker swept every citation into its own edited files |
@@ -258,6 +292,13 @@ binding on tier 0 as on tier 1.
 - **Spot-check before merging and before standing a PM down.** `git log` against claimed
   shas, plus an independent gate run. Every merge so far reproduced exactly; the value is
   that it would not have, silently, if something were wrong.
+- **A local gate is not the gate. Check CI after every merge to `main`, before doing
+  anything else.** `gh run list --limit 3` is one command. Error 24: P3a merged on a green
+  local run and left `main` red for nine hours and eight commits, with the deploy stopped
+  the whole time. **"Independent gate run" means a different machine, not a second run by
+  me** — a local re-run shares every environmental assumption with the run it is checking,
+  which is the definition of an instrument that cannot see. This repo's whole history of
+  machine-dependent defects says the runner is the instrument that matters.
 - **Primary sources beat relayed ones.** The agent mesh is broken — workers cannot reach
   their PMs — so worker reports route to the orchestrator directly. That accident has been
   load-bearing: most significant findings arrived as primary evidence rather than PM
