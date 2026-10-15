@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { writeScene } from './sceneWrite.js'
 import { STST_ENTRY_ORDER, STST_MIMETYPE, writeStst, type StstMember } from './container.js'
+import { writeZip } from './zip.js'
 import type { Scene } from '../core/types.js'
 
 /**
@@ -187,6 +188,55 @@ interface Manifest {
   readonly entries: readonly { readonly name: string; readonly role: string }[]
 }
 
+/* ----------------------------------------------- the compression-method field
+ *
+ * Deliberately a second, test-local reader rather than `zipRead.ts` or
+ * `container.ts`'s own entry list. The claim is about what is *in the file*,
+ * and a claim discharged by re-reading the literal that wrote the file is the
+ * derivation running twice (§9). `zip.test.ts` makes the same argument for its
+ * own parser and this is the same shape of thing, scoped to one field.
+ *
+ * The format records the method **twice** — once in each entry's local header
+ * and once in its central-directory record — and a reader may consult either,
+ * so both are collected and compared. An archive whose two halves disagreed
+ * would extract differently depending on which the tool trusted.
+ */
+const METHOD_STORE = 0
+const METHOD_DEFLATE = 8
+
+function methodsOf(archive: Uint8Array): { local: number[]; central: number[]; names: string[] } {
+  const v = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
+  const utf8 = new TextDecoder('utf-8', { fatal: true })
+
+  // Scanned for, not computed from the end: the EOCD is variable-length in
+  // the format, and locating it at a fixed offset would be an assumption
+  // about our own writer rather than a reading of the file.
+  let eocd = -1
+  for (let i = archive.length - 22; i >= 0; i--) {
+    if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break }
+  }
+  expect(eocd, 'end-of-central-directory signature').toBeGreaterThanOrEqual(0)
+
+  const count = v.getUint16(eocd + 10, true)
+  let at = v.getUint32(eocd + 16, true)
+  const local: number[] = []
+  const central: number[] = []
+  const names: string[] = []
+  for (let i = 0; i < count; i++) {
+    expect(v.getUint32(at, true), `central record ${i}`).toBe(0x02014b50)
+    const nameLen = v.getUint16(at + 28, true)
+    central.push(v.getUint16(at + 10, true))
+    names.push(utf8.decode(archive.subarray(at + 46, at + 46 + nameLen)))
+
+    const localAt = v.getUint32(at + 42, true)
+    expect(v.getUint32(localAt, true), `local header ${i}`).toBe(0x04034b50)
+    local.push(v.getUint16(localAt + 8, true))
+
+    at += 46 + nameLen + v.getUint16(at + 30, true) + v.getUint16(at + 32, true)
+  }
+  return { local, central, names }
+}
+
 // ---------------------------------------------------------------------------
 
 describe('writeStst', () => {
@@ -251,6 +301,39 @@ describe('writeStst', () => {
     expect(sha(await writeStst(other, straight()))).not.toBe(sha(first))
   })
 
+  it('stores every entry, so byte-identity does not rest on a deflater default', async () => {
+    const archive = await writeStst(hostileScene(), straight())
+    const { local, central, names } = methodsOf(archive)
+
+    // Criterion 7, rewritten 2026-10-15 on measurement.
+    // `CompressionStream('deflate-raw')` was measured byte-identical between
+    // Node 22.14.0 and Chromium 151 across nine fixtures — and **Firefox 153
+    // emits +59% and WebKit 26 emits 10.7x**, diverging at byte 0 or 1. All
+    // four round-trip; none of them is wrong. The Streams spec fixes no level,
+    // no strategy, no `memLevel` and no `windowBits`, so the Node/Chromium
+    // agreement is two implementations happening to wrap zlib at its default
+    // and nothing holds them there. Storing every entry makes "the CLI and the
+    // site emit identical bytes" true by construction in every engine instead.
+    expect(names).toEqual(EXPECTED_NAMES)
+    expect(local).toEqual(new Array(EXPECTED_NAMES.length).fill(METHOD_STORE))
+    // The format writes the method twice and a reader may consult either; a
+    // writer that let the two drift produces an archive that extracts
+    // differently depending on which half the tool trusts.
+    expect(central).toEqual(local)
+
+    // The control (§6.5a). "Every method field read 0" is a null measurement,
+    // and a null cannot be told from a parser that returns 0 whatever it is
+    // pointed at. The same function over an archive built one layer down with
+    // an explicitly deflated entry must report 8 — and must report it in both
+    // halves, or the local-versus-central comparison above is vacuous too.
+    const deflated = await writeZip([
+      { name: 'mimetype', data: te.encode(STST_MIMETYPE), method: 'store' },
+      { name: 'scene.json', data: te.encode(writeScene(hostileScene())), method: 'deflate' },
+    ])
+    expect(methodsOf(deflated).local).toEqual([METHOD_STORE, METHOD_DEFLATE])
+    expect(methodsOf(deflated).central).toEqual([METHOD_STORE, METHOD_DEFLATE])
+  })
+
   it('passes /usr/bin/unzip -t', async () => {
     expect(unzip(['-t', onDisk(await writeStst(hostileScene(), straight()))]).status).toBe(0)
   })
@@ -308,12 +391,27 @@ describe('writeStst', () => {
       patched++
       i += nameBytes.length - 1
     }
-    // Two: the local header and the central record. **Not three** — the
-    // manifest names this member too, but the manifest is deflated, so its
-    // copy is not findable as plain bytes. That is worth stating rather than
-    // leaving as a number: if this ever reads 3, the manifest has started
-    // being stored, and the archive grew a plaintext copy of every name.
-    expect(patched).toBe(2)
+    // **Three**, and the third one is the news. The local header, the central
+    // record, and `manifest.json`'s own copy of the name.
+    //
+    // This read 2 until 2026-10-15, with a comment saying so and saying why:
+    // "the manifest is deflated, so its copy is not findable as plain bytes…
+    // if this ever reads 3, the manifest has started being stored, and the
+    // archive grew a plaintext copy of every name." It then read 3, for
+    // exactly that reason — criterion 7's all-store ruling. The number is
+    // updated rather than the assertion relaxed, because the prediction was
+    // the point: this is a sensor that fired, named its own cause in advance,
+    // and was right.
+    //
+    // The consequence it warned about is real and is now a property of the
+    // format: every member name appears in a `.stst` as plain bytes three
+    // times over. That is not a secret anyone was keeping — the central
+    // directory has always held the names uncompressed, so `strings` on a
+    // `.stst` listed them before this change too — but the manifest also
+    // carries each member's *role*, which was previously only readable by
+    // inflating. Nothing in the threat model cares; it is recorded so that a
+    // reader meeting "3" does not have to re-derive why.
+    expect(patched).toBe(3)
     expect(unzip(['-p', onDisk(mutant), stored]).status).not.toBe(0)
   })
 

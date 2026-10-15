@@ -26,7 +26,10 @@
  * 2. **Order.** Entries are emitted in the order the caller's array gives
  *    them, and nothing here sorts. See `writeZip`.
  * 3. **Compression level.** Not settable, and therefore asserted instead —
- *    see `deflateRaw`.
+ *    see `deflateRaw`. **Not how criterion 7 is met, as of 2026-10-15:** the
+ *    level is the same across engines only by coincidence, so `container.ts`
+ *    stores every entry and never reaches the deflate branch at all. This
+ *    writer still has one, and this is still the only thing anchoring it.
  *
  * ## Deliberately not implemented
  *
@@ -167,9 +170,17 @@ export function crc32(bytes: Uint8Array): number {
  * produces is zlib's default, 6: measured byte-for-byte against
  * `zlib.deflateRawSync(x, {level: 6})` on a fixture where levels 1, 6 and 9
  * each differ, and pinned by `zip.test.ts` so that the day a runtime changes
- * its default is the day something goes red. That is the same day P1
- * criterion 7's cross-runtime byte-identity stops holding, which is why the
- * assertion belongs in the suite rather than in a comment.
+ * its default is the day something goes red.
+ *
+ * **That pin used to be a proxy for P1 criterion 7 and no longer is.** Until
+ * 2026-10-15 the `.stst` container deflated its members, so cross-engine
+ * byte-identity rested on this level being the same everywhere — and it is
+ * not: Firefox 153 emits +59% and WebKit 26 10.7x against Node and Chromium,
+ * which agree only because both wrap zlib at the default. `container.ts` now
+ * stores every entry, so the container's guarantee holds by construction and
+ * owes nothing to this function. The pin stays because `writeZip` is a
+ * general writer whose `'deflate'` branch is still public surface and still
+ * unconfigurable; `zip.test.ts` carries the full reasoning.
  *
  * `'store'` is not a `CompressionFormat` — it throws `TypeError` — so the
  * stored path in `writeZip` is a plain copy and never comes through here.

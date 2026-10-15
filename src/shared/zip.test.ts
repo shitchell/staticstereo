@@ -390,12 +390,33 @@ describe('writeZip', () => {
 
     // `CompressionStream` takes no options — its `length` is 1 and a second
     // argument is silently ignored in both Node and Chromium — so the level
-    // cannot be configured, only observed. This assertion is the observation,
-    // and it is a genuine sensor: the day a runtime changes its default it
-    // goes red, which is also the day P1 criterion 7's cross-runtime
-    // byte-identity quietly stops holding. (The phase criterion's wording,
-    // "fixed compression level", names an action no API supports; the pin is
-    // the test.)
+    // cannot be configured, only observed. This assertion is the observation.
+    //
+    // **Its original rationale expired on 2026-10-15 and is replaced here
+    // rather than deleted.** It read: "the day a runtime changes its default
+    // it goes red, which is also the day P1 criterion 7's cross-runtime
+    // byte-identity quietly stops holding" — i.e. this test was a *proxy* for
+    // criterion 7. It is not one any more. The container is written with
+    // `method: 'store'` (`container.ts`), so criterion 7 no longer rests on
+    // any deflater agreeing with any other, and a test still claiming to guard
+    // it would be pinning something nothing downstream depends on. That is the
+    // worse failure: not a test that goes red wrongly, but one whose green
+    // means something other than what it says.
+    //
+    // **What it is for now**, which is narrower and still real: `writeZip` is
+    // a general zip writer whose `'deflate'` branch has one remaining
+    // in-repo caller — `containerRead.test.ts`'s hand-built negative fixtures
+    // — and is part of this module's public surface. The branch's output is
+    // not configurable, so the only way to know what it emits is to measure
+    // it. This is that measurement, and it fails closed: a runtime that
+    // changed its default would make `writeZip` emit different bytes for the
+    // same input, which is a thing a caller is entitled to be told about even
+    // though no container property depends on it today. The level is also the
+    // one fact a future reader would otherwise have to re-derive before
+    // reversing the store ruling.
+    //
+    // (The phase criterion's wording, "fixed compression level", names an
+    // action no API supports; the pin is the test.)
     expect(new Uint8Array(payload)).toEqual(new Uint8Array(deflateRawSync(SOUP, { level: 6 })))
 
     // The control: without these, the assertion above would also pass at
