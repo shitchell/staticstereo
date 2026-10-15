@@ -31,10 +31,13 @@ import type { Scene } from '../core/types.js'
  *
  * ## What this module is not
  *
- * The reader. Opening a `.stst` is `zipRead.ts` plus whatever consumes the
- * manifest; nothing here parses. `STST_ENTRY_ORDER` and `MANIFEST_VERSION`
- * are exported so that the reader reads the layout from the writer rather
- * than from a second copy of it.
+ * The reader. Opening a `.stst` is `containerRead.ts`, over `zipRead.ts`,
+ * which is the same split `zip.ts`/`zipRead.ts` already uses; nothing here
+ * parses. The layout vocabulary below is exported rather than private so that
+ * the reader reads the layout *from the writer* rather than from a second copy
+ * of it — a second copy is the coordination problem this module exists to
+ * remove, and it would be worse between a writer and a reader than between two
+ * callers, because the two would disagree about files already on disk.
  */
 
 /* ------------------------------------------------------------- the vocabulary */
@@ -52,13 +55,19 @@ export const STST_MIMETYPE = 'application/x-stst'
  * The manifest's format number, and the only forward-compatibility affordance
  * the container has.
  *
- * Nothing reads it today — the reader half is a separate task — and that is
- * worth stating plainly rather than implying a consumer that does not exist.
  * It is here because the alternative is not "add it later": a reader meeting
  * an archive laid out differently has to discover that *before* it has
  * mis-parsed `entries`, and absence can only ever be read as 1 by a reader
  * that was written knowing 1 existed. One number now buys that; nothing buys
  * it afterwards.
+ *
+ * `readStst` is the consumer, and it refuses any other value before it looks
+ * at `entries` — that ordering is the whole reason the field exists, so it is
+ * asserted in `containerRead.test.ts` against a manifest whose `entries` are
+ * deliberately nonsense. A single integer, not major/minor: there is no
+ * change to this layout that a reader written against version 1 could survive
+ * by ignoring, so a "compatible" half of a version number would be a promise
+ * nothing here can keep.
  */
 export const MANIFEST_VERSION = 1
 
@@ -88,6 +97,23 @@ export const MANIFEST_VERSION = 1
  */
 export const STST_ENTRY_ORDER = ['mimetype', 'scene.json', 'manifest.json'] as const
 
+/** The roles of the three fixed entries; see {@link STST_ENTRY_ROLES}. */
+type FixedRole = 'mimetype' | 'scene' | 'manifest'
+
+/**
+ * The manifest role of each of {@link STST_ENTRY_ORDER}, positionally.
+ *
+ * Written as a mapped type over that tuple rather than as a second `as const`
+ * list, so the two cannot drift in length: adding a fourth fixed entry without
+ * giving it a role is a compile error here rather than an `undefined` role
+ * written into a manifest. The reader needs both halves — a name list alone
+ * cannot tell it that `scene.json` is the scene — and taking them from here is
+ * what keeps the writer and the reader on one vocabulary instead of two.
+ */
+type RolesFor<T extends readonly unknown[]> = { readonly [K in keyof T]: FixedRole }
+export const STST_ENTRY_ROLES: RolesFor<typeof STST_ENTRY_ORDER> =
+  ['mimetype', 'scene', 'manifest'] as const
+
 /**
  * The member roles, **in the order their members are written**, each with the
  * directory it is placed in.
@@ -104,7 +130,7 @@ export const STST_ENTRY_ORDER = ['mimetype', 'scene.json', 'manifest.json'] as c
  * that wants to display the project needs them and may never need the
  * originals at all.
  */
-const MEMBER_ROLES = ['mask', 'source'] as const
+export const MEMBER_ROLES = ['mask', 'source'] as const
 
 /** What a caller may put in a `.stst` beside the scene. */
 export type MemberRole = typeof MEMBER_ROLES[number]
@@ -121,14 +147,20 @@ export type MemberRole = typeof MEMBER_ROLES[number]
  * Info-ZIP creates intermediate directories on extraction, `writeZip` emits no
  * directory records by design, and a directory entry would be a fourth thing
  * whose order and presence had to be pinned.
+ *
+ * Exported because the reader strips these prefixes back off. It does **not**
+ * use them to decide a member's role — that comes from the manifest, or the
+ * manifest would be decorative — it uses them to check that the manifest and
+ * the placement agree, which is a relation only a module holding both can
+ * state.
  */
-const ROLE_DIR: Record<MemberRole, string> = {
+export const ROLE_DIR: Record<MemberRole, string> = {
   mask: 'masks/',
   source: 'sources/',
 }
 
 /** The role names the manifest uses, which is the member roles plus the fixed three. */
-type ManifestRole = MemberRole | 'mimetype' | 'scene' | 'manifest'
+export type ManifestRole = MemberRole | FixedRole
 
 export interface StstMember {
   /**
@@ -232,6 +264,7 @@ export async function writeStst(
   }
 
   const [MIMETYPE, SCENE, MANIFEST] = STST_ENTRY_ORDER
+  const [MIMETYPE_ROLE, SCENE_ROLE, MANIFEST_ROLE] = STST_ENTRY_ROLES
 
   /**
    * The manifest enumerates **every** entry including itself, which is what
@@ -245,9 +278,9 @@ export async function writeStst(
   const manifest = {
     stst: MANIFEST_VERSION,
     entries: [
-      { name: MIMETYPE, role: 'mimetype' },
-      { name: SCENE, role: 'scene' },
-      { name: MANIFEST, role: 'manifest' },
+      { name: MIMETYPE, role: MIMETYPE_ROLE },
+      { name: SCENE, role: SCENE_ROLE },
+      { name: MANIFEST, role: MANIFEST_ROLE },
       ...placed.map(p => ({ name: p.name, role: p.role })),
     ],
   }
