@@ -94,11 +94,14 @@ sat inside the `child.on('close')` callback, so it escaped as an uncaught except
 promise never settled, and `beforeAll` ran out 300s and 600s timeouts reporting a verdict
 it already had at 8 seconds.
 
-**Still open from it, and the reason this is not fully closed:**
-- **`pages` is verified only by inference.** It has no `pull_request` trigger, so the
-  worker could prove `ci` and not `pages`. Same `npm test` step, same steps otherwise —
-  confirm on the merge commit and re-witness `/staticstereo/player/` as a directory URL
-  before R14 is called witnessed again.
+**`pages` now measured, not inferred.** Both `ci` and `pages` are green on the merge
+commit `57f1e15`, the deployment advanced to `ab6ca789`, and **`/staticstereo/` and
+`/staticstereo/player/` both return 200** — so R14 is re-witnessed in production as a
+*directory* URL rather than by an assertion about build output. The worker flagged `pages`
+as inference because it has no `pull_request` trigger and it could only prove `ci`; it was
+right to flag it and the inference held.
+
+**Still open:**
 - **Nobody has audited what else branches on `CLAUDECODE`** or otherwise behaves
   differently inside the agent harness. The suite is green on CI now, so nothing else is
   manifesting — but the same class of divergence is exactly what hid for nine hours, and
