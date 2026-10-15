@@ -109,13 +109,19 @@ cancel-in-progress: false}`, the setting GitHub recommends for Pages, so the sec
 queued rather than clashed. Five of the six most recent `pages` runs succeeded; the failure
 sits on a docs-only commit.
 
-**Unresolved, and deliberately so.** A re-run of a failed run is a weaker probe than a fresh
-run — `actions/deploy-pages` has known attempt-scoping behaviour — and a fresh run had not
-been tried at the time of writing. **The next commit to `main` is the probe.** If `pages`
-goes green on it, this was isolated to that run and needs nothing; if it fails too, the
-workflow has a real defect and it must be fixed **before** any phase merges, because a
-persistently red `pages` means the next real deploy cannot be told from noise. Do not
-conclude either way from the five greens alone.
+**RESOLVED — the probe came back green.** The next commit, `6a72c3f`, ran `pages` and `ci`
+to **success** and its deployment reports `state=success`. So the `5dca775` failure was
+**isolated to that run** — a transient in GitHub's artifact API, not a workflow defect — and
+nothing needs fixing. **The workflow is sound; do not change it on the strength of that one
+red.**
+
+The method is the part worth keeping. A re-run of a failed run is a *weaker* probe than a
+fresh run, because `actions/deploy-pages` has known attempt-scoping behaviour, so the
+reproduction on re-run was not the evidence it appeared to be. The disjunction was written
+down **before** the probe — green ⇒ isolated, red ⇒ a real defect blocking every merge —
+rather than after, specifically so the five surrounding greens and a visibly correct site
+could not be read backwards into the comfortable conclusion. That is the exact reasoning
+error that left `main` red for nine hours.
 
 **`pages` green on the merge commit, measured not inferred.** Both `ci` and `pages` are green on the merge
 commit `57f1e15`, the deployment advanced to `ab6ca789`, and **`/staticstereo/` and
