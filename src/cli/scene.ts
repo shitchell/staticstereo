@@ -35,6 +35,9 @@ import {
   STEREO_KEYS,
 } from '../core/index.js'
 import type { AssertNever, Channel, Layer, Scene } from '../core/index.js'
+import { readStst } from '../shared/containerRead.js'
+import type { StstArchive } from '../shared/containerRead.js'
+import type { StstMember } from '../shared/container.js'
 import { UsageError } from './args.js'
 import type { CliArgs } from './args.js'
 
@@ -82,11 +85,119 @@ export function parseSceneText(text: string, label: string): unknown {
   return value
 }
 
+/* ------------------------------------------------------------- .stst input */
+
+/**
+ * The extension that makes a path a project file rather than a scene file.
+ *
+ * Dispatch is on the **extension**, which is the same rule `outputFormat`
+ * already uses on the way out, and deliberately not a sniff of the first two
+ * bytes. A sniffing loader opens a mislabelled file without ever telling the
+ * author the name is wrong, and it makes "which reader ran" a function of the
+ * content — the same input-dependence `container.ts` refuses when it picks
+ * `'store'` unconditionally rather than from the bytes.
+ */
+export const PROJECT_EXT = '.stst'
+
+/**
+ * A `.stst` read whole: the scene plus everything else the archive carried.
+ *
+ * Shaped so the members can go straight back into `writeStst`, which is what
+ * makes `--save-project` over a `.stst` input lossless. See
+ * {@link loadProject}.
+ */
+export interface LoadedProject {
+  readonly scene: Scene
+  /**
+   * Masks then sources, in the archive's own order. **Empty for a `.yaml` or
+   * `.json` scene** — a scene file carries no members, which is a different
+   * statement from "the members were not read" and is why this is `[]` rather
+   * than optional.
+   */
+  readonly members: readonly StstMember[]
+}
+
+/**
+ * Read a scene source: a `.yaml`/`.json` scene file, or a `.stst` project.
+ *
+ * ## Why there are two entry points and not one
+ *
+ * `loadScene` returns a `Scene`, and a `.stst` holds masks and sources as
+ * well. Reading a project through a `Scene`-shaped door therefore discards
+ * everything but `scene.json`, and `zipRead.ts`'s own rationale (plan §1.2k)
+ * is written against exactly that hazard: *a `.stst` is the user's project, so
+ * a silently mis-read one destroys work that exists nowhere else.*
+ *
+ * **The decision, recorded rather than implied by silence.** The render path
+ * can legitimately ignore members *today* — nothing in `src/core` consumes a
+ * baked mask out of a container, and `renderFrame` takes a `Scene` — so
+ * `loadScene` dropping them costs a renderer nothing. That alone would have
+ * justified a one-line extension branch. It is **not** what makes the loss
+ * safe, because the read is only half of criterion 6: the same phase adds
+ * `--save-project`, and
+ *
+ * ```
+ * stst render project.stst -o out.gif --save-project project.stst
+ * ```
+ *
+ * would then read a project, drop its masks and sources, and write the
+ * remainder back over the original. That is the destroy-the-only-copy failure,
+ * reached without anybody doing anything unusual.
+ *
+ * So the loss is **removed rather than announced**. `loadProject` is what the
+ * CLI calls, it hands back the whole archive, and `index.ts` carries
+ * `members` into `writeStst`, which makes the round-trip lossless *by
+ * construction*. A warning on the read would have been the other option and is
+ * weaker twice over: it fires on every render of a project with an imported
+ * image, where nothing is wrong, and §9's standing row says a recorded note is
+ * not a sensor — a warning is a note with a timestamp.
+ *
+ * `loadScene` stays, with its original signature, for the callers that really
+ * do only want a scene (`examples.test.ts`, `metamorphic.real.test.ts`).
+ */
+export async function loadProject(path: string): Promise<LoadedProject> {
+  const bytes = await readSource(path)
+  const label = basename(path)
+
+  if (!label.toLowerCase().endsWith(PROJECT_EXT)) {
+    return { scene: validateScene(parseSceneText(bytes.toString('utf8'), label), label), members: [] }
+  }
+
+  let archive: StstArchive
+  try {
+    archive = await readStst(new Uint8Array(bytes))
+  } catch (err) {
+    // Prefixed with the file name for the reason every other message in this
+    // file is: the reader is handed one archive and says ".stst manifest.json
+    // …", and the user may have passed three paths.
+    throw new Error(`${label}: ${(err as Error).message}`, { cause: err })
+  }
+
+  // Re-validated here, and `containerRead.ts`'s docblock is what asks for it:
+  // its own check is "shape and key rosters, not values — a `depth` of
+  // `"banana"` passes here and is caught by whichever validator the caller
+  // feeds the scene to next." This is that validator. Skipping it would let a
+  // project file reach the rasteriser as a `TypeError` four frames down, which
+  // is the failure the top of this file exists to prevent for `.yaml`.
+  return { scene: validateScene(archive.scene, label), members: archive.members }
+}
+
 /** Read, parse, and validate a scene file. */
 export async function loadScene(path: string): Promise<Scene> {
-  let text: string
+  return (await loadProject(path)).scene
+}
+
+/**
+ * Read the bytes, turning Node's error codes into sentences.
+ *
+ * Bytes rather than a string because a `.stst` is a zip: decoding it as UTF-8
+ * first would corrupt it, and lossily, so the container reader would be handed
+ * replacement characters and report a malformed archive instead of a
+ * misnamed one.
+ */
+async function readSource(path: string): Promise<Buffer> {
   try {
-    text = await readFile(path, 'utf8')
+    return await readFile(path)
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code
     if (code === 'ENOENT') throw new Error(`scene file not found: "${path}"`)
@@ -94,8 +205,6 @@ export async function loadScene(path: string): Promise<Scene> {
     throw new Error(`could not read scene file "${path}": ${(err as Error).message}`,
       { cause: err })
   }
-  const label = basename(path)
-  return validateScene(parseSceneText(text, label), label)
 }
 
 /* --------------------------------------------------------------- validation */

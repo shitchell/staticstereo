@@ -8,6 +8,9 @@ import { run } from './index.js'
 import { DEFAULT_STEREO, dominantPeriod, marginsFor, PRESETS } from '../core/index.js'
 import type { Margins } from '../core/index.js'
 import { decodeGif } from '../shared/gif.js'
+import { writeStst } from '../shared/container.js'
+import type { StstMember } from '../shared/container.js'
+import { parseSceneText, validateScene } from './scene.js'
 
 /**
  * ffmpeg is an external binary and GitHub's runners no longer ship it.
@@ -545,5 +548,72 @@ describe('stst error reporting', () => {
     expect(r.code).toBe(2)
     expect(r.err).toMatch(/\.webm/)
     expect(r.err).toMatch(/\.gif/)
+  })
+})
+
+/* -------------------------------------------------------------------- .stst */
+
+/**
+ * P1 criterion 6 end to end: `stst` reads and writes `.stst`, **and adds no
+ * member to `COMMANDS`** — `render`, `still` and `preview` are the whole verb
+ * list, so the read is an input the existing commands accept and the write is
+ * a side-output flag like `--depth-map`.
+ *
+ * The read half does not assert "exited 0". It renders the *same* slab scene
+ * out of a container and measures the GIF's repeat periods, because the thing
+ * that could go wrong is a scene that survives the archive with its `stereo`
+ * block or its layers quietly reduced, and that renders fine and encodes the
+ * wrong depth.
+ */
+describe('stst over a .stst project file', () => {
+  const PROJECT_SCENE = validateScene(parseSceneText(SLAB_SCENE, 'slab.yaml'), 'slab.yaml')
+
+  async function project(members: StstMember[] = []): Promise<{ dir: string; path: string }> {
+    const d = await dir()
+    const path = join(d, 'project.stst')
+    await writeFile(path, await writeStst(PROJECT_SCENE, members))
+    return { dir: d, path }
+  }
+
+  it('renders a .stst, encoding the same depth the .yaml does', async () => {
+    const { dir: d, path } = await project()
+    const out = join(d, 'out.gif')
+    const r = await cli(['render', path, '-o', out])
+    expect(r.err).toBe('')
+    expect(r.code).toBe(0)
+
+    const gif = decodeGif(await readFile(out), 'out.gif')
+    expect(gif.width).toBe(PLATE_W * NOISE)
+    expect(gif.frames).toHaveLength(12)
+    const row = rgbaRow(gif.frames[0]!.rgba, gif.width, Math.floor((H * NOISE) / 2))
+    expect(periodIn(row, SLAB, NOISE).period).toBe(SEP.sepNear * NOISE)
+    expect(periodIn(row, BG, NOISE).period).toBe(SEP.sepFar * NOISE)
+  })
+
+  it('takes a .stst on still and preview too, since the input is not a command', async () => {
+    const { dir: d, path } = await project()
+    expect((await cli(['still', path, '-o', join(d, 'one.png')])).code).toBe(0)
+    expect((await cli(['preview', path, '-o', join(d, 'p.gif')])).code).toBe(0)
+  })
+
+  it('reports a damaged project as a usage-level error naming the file, not a stack', async () => {
+    const d = await dir()
+    const path = join(d, 'truncated.stst')
+    const bytes = await writeStst(PROJECT_SCENE, [])
+    await writeFile(path, bytes.slice(0, bytes.length - 40))
+    const r = await cli(['render', path, '-o', join(d, 'out.gif')])
+    expect(r.code).toBe(1)
+    expect(r.err).toMatch(/truncated\.stst/)
+    // The container reader is what spoke, not the YAML parser. Without this
+    // line the test passes on the *old* loader too — a truncated zip handed to
+    // `parseSceneText` also exits 1 with the file name in it — so the
+    // assertion that distinguishes the two is the one worth having.
+    expect(r.err).not.toMatch(/valid YAML or JSON/)
+    expect(r.err).toMatch(/zip/)
+    // Same bar as `stst error reporting`'s `expectClean`, restated rather than
+    // shared: hoisting that helper out of its describe would edit a block this
+    // task was not asked to touch (invariant 8).
+    expect(r.err).not.toMatch(/\n\s+at /)
+    expect(r.err).not.toMatch(/Cannot read propert|undefined is not|TypeError/)
   })
 })

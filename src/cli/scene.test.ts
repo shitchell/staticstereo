@@ -9,11 +9,14 @@ import {
   TEXT_FONT_FAMILY,
   TEXT_FONT_WEIGHT,
   applyOverrides,
+  loadProject,
   loadScene,
   parseSceneText,
   textScene,
   validateScene,
 } from './scene.js'
+import { writeStst } from '../shared/container.js'
+import type { StstMember } from '../shared/container.js'
 import { PRESETS } from '../core/anim/presets.js'
 import { CHANNELS } from '../core/index.js'
 import type { Scene } from '../core/index.js'
@@ -416,6 +419,136 @@ describe('loadScene', () => {
     const msg = await loadScene(path).then(() => '', (err: Error) => err.message)
     expect(msg).toMatch(/broken\.yaml/)
     expect(msg).toMatch(/size/)
+  })
+})
+
+/* ------------------------------------------------------------------- .stst */
+
+/**
+ * P1 criterion 6's read half: `stst render project.stst` has to work, which
+ * means the loader dispatches on the extension.
+ *
+ * These build their fixtures with the real {@link writeStst} rather than with
+ * a checked-in archive. A golden `.stst` would pin the container's bytes in a
+ * second place — `src/shared/container.test.ts` already owns that — and would
+ * go stale against the writer silently, which is the one failure the format's
+ * own determinism argument is written against.
+ */
+describe('loadScene and loadProject over a .stst', () => {
+  const SCENE: Scene = {
+    size: [40, 20],
+    layers: [{ type: 'text', text: 'HI', depth: 0.5 }],
+  }
+
+  async function writeArchive(
+    name: string,
+    scene: Scene = SCENE,
+    members: StstMember[] = [],
+  ): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'stst-project-'))
+    const path = join(dir, name)
+    await writeFile(path, await writeStst(scene, members))
+    return path
+  }
+
+  it('reads the scene out of a .stst written by writeStst', async () => {
+    const path = await writeArchive('project.stst')
+    const scene = await loadScene(path)
+    expect(scene.size).toEqual([40, 20])
+    expect(scene.layers).toHaveLength(1)
+  })
+
+  /**
+   * The loss `loadScene` takes is **recoverable**, which is the whole reason
+   * the two entry points exist — see the decision recorded in `scene.ts`.
+   */
+  it('loadProject hands back the members loadScene drops', async () => {
+    const members: StstMember[] = [
+      { name: 'logo.png', role: 'mask', data: new Uint8Array([1, 2, 3]) },
+      { name: 'logo.png', role: 'source', data: new Uint8Array([4, 5]) },
+    ]
+    const path = await writeArchive('project.stst', SCENE, members)
+
+    const project = await loadProject(path)
+    expect(project.scene.size).toEqual([40, 20])
+    expect(project.members.map(m => `${m.role}:${m.name}`))
+      .toEqual(['mask:logo.png', 'source:logo.png'])
+    expect([...project.members[0]!.data]).toEqual([1, 2, 3])
+
+    // And the same file through `loadScene` keeps nothing — stated as an
+    // assertion rather than left to the signature, because it is the
+    // difference the two functions exist to make.
+    expect(Object.keys(await loadScene(path))).not.toContain('members')
+  })
+
+  /** A scene file is never a project, so its members are empty, not absent. */
+  it('loadProject reads a plain .yaml too, with no members', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'stst-project-'))
+    const path = join(dir, 'scene.yaml')
+    await writeFile(path, MINIMAL)
+    const project = await loadProject(path)
+    expect(project.scene.size).toEqual([40, 20])
+    expect(project.members).toEqual([])
+  })
+
+  /**
+   * `containerRead.ts`'s own docblock says its check is "shape and key
+   * rosters, not values — a `depth` of `"banana"` passes here and is caught by
+   * whichever validator the caller feeds the scene to next." This is that
+   * next validator, and this test is the sensor that it is actually run: a
+   * `.stst` reaching the rasteriser unvalidated is how a project file turns
+   * into a `TypeError` four frames down.
+   */
+  it('puts a .stst scene through the CLI validator, not only the container reader', async () => {
+    const path = await writeArchive(
+      'bad.stst',
+      { size: [40, 20], layers: [{ type: 'text', text: 'HI', depth: 'banana' as unknown as number }] },
+    )
+    const msg = await loadScene(path).then(() => '', (err: Error) => err.message)
+    expect(msg).toMatch(/bad\.stst/)
+    expect(msg).toMatch(/layers\[0\]\.depth/)
+    expect(msg).not.toMatch(/undefined is not|Cannot read propert/)
+  })
+
+  /**
+   * Dispatch is on the **extension**, matching `outputFormat`, and the pair
+   * below is what pins that rather than a sniff of the first bytes. A sniffing
+   * loader would quietly open a mislabelled file and give the author no reason
+   * to fix the name; it would also make "which reader ran" depend on content,
+   * which is the input-dependence `container.ts` refuses for the same reason.
+   */
+  it('dispatches on the extension and not on the bytes, in both directions', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'stst-project-'))
+
+    const zipNamedYaml = join(dir, 'actually-a-zip.yaml')
+    await writeFile(zipNamedYaml, await writeStst(SCENE, []))
+    const asYaml = await loadScene(zipNamedYaml).then(() => '', (err: Error) => err.message)
+    expect(asYaml).toMatch(/actually-a-zip\.yaml/)
+    expect(asYaml).toMatch(/valid YAML or JSON/)
+
+    const yamlNamedStst = join(dir, 'actually-yaml.stst')
+    await writeFile(yamlNamedStst, MINIMAL)
+    const asStst = await loadScene(yamlNamedStst).then(() => '', (err: Error) => err.message)
+    expect(asStst).toMatch(/actually-yaml\.stst/)
+    // The container reader's message, not the YAML parser's. Asserted by the
+    // *absence* of the YAML wording rather than the presence of "zip": the
+    // file name itself ends in `.stst`, so any match on the word would be
+    // satisfied by the label this loader prepends and would measure nothing.
+    expect(asStst).not.toMatch(/valid YAML or JSON/)
+    expect(asStst).toMatch(/not a zip archive/)
+  })
+
+  it('matches the extension case-insensitively, as outputFormat does', async () => {
+    const path = await writeArchive('PROJECT.STST')
+    expect((await loadScene(path)).size).toEqual([40, 20])
+  })
+
+  it('says a missing .stst is missing, in the same words as a missing scene', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'stst-project-'))
+    const msg = await loadScene(join(dir, 'nope.stst')).then(() => '', (err: Error) => err.message)
+    expect(msg).toMatch(/not found/)
+    expect(msg).toMatch(/nope\.stst/)
+    expect(msg).not.toMatch(/ENOENT/)
   })
 })
 
