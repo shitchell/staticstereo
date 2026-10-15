@@ -124,9 +124,16 @@ tree verified clean.
   robust under **all four** formats svelte-check can choose, since it asserts on exit status
   and a filename substring. Robust, not lucky. No RED is available for it, so invariant 1
   forbids changing it.
-- **`UPDATE_PRESET_GOLDEN` is the only read in the repo that can turn red into green** — it
-  rewrites the fixture the test then compares against. Project-prefixed and nobody sets it,
-  so the risk is theoretical, but it is self-sealing by construction.
+- **`UPDATE_PRESET_GOLDEN` was the only read in the repo that could turn red into green —
+  FIXED, `9312529`.** And it was **not theoretical**, as this bullet originally called it: a
+  worker corrupted one recorded value in the committed fixture and measured the flagged run
+  going **green, exit 0, five passed**, on a known-bad fixture. It is now a *write* mode
+  rather than a *pass* mode — the run rewrites the fixture **and fails**, saying so. The
+  worker went one step past the shape asked for, and the step matters: the fixture is
+  snapshotted **before** the write and every comparison reads the prior copy, so the
+  regenerating run diffs against what it is replacing. Otherwise the four comparison tests
+  sit vacuously green inside the red run and a reader scanning "4 passed, 1 failed" takes
+  them for evidence.
 - **A deliberate host dependence exists and is documented**: `DISABLE_SYSTEM_FONTS_LOAD=1`
   reddens 4 tests in 2 files, one of which is a *positive control* whose comment says it
   exists so the file cannot "pass while blind". `sans-serif` still resolves from the
@@ -352,6 +359,25 @@ binding on tier 0 as on tier 1.
   freshly-built tree as stale and **withdrew 20 Pages-critical assertions**; three further
   attempts could not reproduce it. Not dismissed — if a gate ever reports a count low by
   roughly twenty, suspect this before suspecting the branch.
+- **Fleet load produces false reds, and the amplifier is not what it looks like — FIXED,
+  `9312529`.** Six `sweep()`-driven tests in `src/node/metamorphic.real.test.ts` ran on
+  vitest's 5s default; under two live PMs a plain full run went red on two of them (5226 ms,
+  5191 ms) and the *immediately following identical run* was green. Solo the same tests are
+  338–932 ms. Raised to 20s, with the precedent test in `src/node/encode.test.ts` raised
+  20s → 60s after it was measured timing out at 20064 ms and finishing in 11562 ms minutes
+  later on the same box.
+
+  **The counter-intuitive measurement, and it validates the gate-serialisation ruling:**
+  a deliberate 14-process CPU burst pushed the heaviest test only to 4079 ms and never broke
+  5s. **Load average is not the amplifier — vitest's own worker fan-out inside a full run
+  is.** A single file run alone on a loaded box is far safer than the same file inside
+  `npm test`. So workers running single files are fine; it is concurrent *full suites* that
+  must not overlap.
+
+  **The raise costs real regression sensitivity and both comments say so:** a 5× encoder
+  slowdown would no longer redden these six, and nothing else in the suite watches their
+  runtime. Getting that back needs a separate perf assertion — a timeout cannot be both a
+  deadline and a performance guard on a shared box.
 - **Operational:** the suite is ~43s and three harnesses spawning `svelte-check` are >60%
   of it. A fourth must be re-measured before it lands — four concurrent processes have
   already timed out a merged-phase test.
