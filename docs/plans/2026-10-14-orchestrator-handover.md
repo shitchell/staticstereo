@@ -202,8 +202,17 @@ re-confirmed once `pages` is green again.
   out of `src/shared/`, `src/node/canvas.generics.test.ts`, `src/cli/` and
   `site/legibility.test.ts`. **Critical path: P4, P5 and P6 all wait on it**, and its
   cluster F is the first thing that renders.
-  Scope is now **ten**, after criterion 21 (store as single source of truth) and criterion
-  22 (every control *writable*, not merely reachable — ESC-7). Unblocked and ready: B-1,
+  **Shift 2 (PM-SHELL-P3b-2) also stood down cleanly**, at `760f353` — **criterion 9 DONE**,
+  82 files / 1948 passed / 0 skipped, four exit codes 0, **local only; CI has never seen this
+  branch.** Verification is owed on **A-4, C-1 and C-2** (V-A covered only A-1/A-2/A-3) and
+  must not drop. **Seven proposed tasks — `D-0, T-1, H-1, H-2, F-0a, F-0b, G-5` — exist in
+  no document**; the PM has been asked to write them into its ledger *and a commit message*
+  rather than have the orchestrator reconstruct them, which is how error 16 deleted a
+  criterion. Two stale facts for any inherited brief: `controls.ts` no longer aliases
+  `snap = snapTime`, and the survey's `transport.ts` line count (274) is wrong — it is 318.
+  Scope is now **eleven**, after criterion 21 (store as single source of truth), criterion
+  22 (every control *writable*, not merely reachable — ESC-7) and criterion 23 (no playhead
+  drift on resume). Unblocked and ready: B-1,
   B-2, C-1, C-2, D-1, E-1, E-2. All seven of its open escalations are **ruled** in plan §7's
   "P3b rulings" block.
 - **PM-SHARED-3** — branch `feat/p1p7-shared`, worktree `…/staticstereo-p1p7`. Third PM on
