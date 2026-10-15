@@ -85,9 +85,10 @@ document.
 > number nobody established. Five implementers in a row refuted something in their brief
 > and were right every time.
 >
-> **Current state and what to do first** are in §2 and §3 of the handover. Both PM slots
-> are free. P3b is the critical path — P4, P5 and P6 all wait on it, and it is the first
-> phase that renders anything a human can look at.
+> **Current state and what to do first** are in §2 and §3 of the handover — including
+> which PM slots are occupied, which is state and therefore lives there and **not here**.
+> The one durable fact: **P3b is the critical path.** P4, P5 and P6 all wait on it, and it
+> is the first phase that renders anything a human can look at.
 
 ---
 

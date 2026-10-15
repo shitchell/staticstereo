@@ -43,8 +43,8 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
 | **P3a** shell, additive half | **merged** `7cd5599` | 80 files / 1881 / 0 skipped, typecheck 0 over 451, freshness positive. **Criteria 0, 1, 2, 3, 4, 5, 6, 12, 13, 17, 18, 20 met — twelve, not ten.** +523 tests, zero removals |
-| **P3b** store, shell, teardown | not started | depends on P3a |
-| **P1** `.stst` · **P7** perception | **in progress, no PM live** | 14 commits on `feat/p1p7-shared`, 0 behind; **92 files / 2037 passed**, four exit codes 0. Every function P7 criterion 1 names exists. **No verifier, reviewer or gate runner has run** — §6 needs all of them |
+| **P3b** store, undo, scene time, teardown | **in progress, PM-SHELL-P3b live** | branch `feat/p3b-store` cut from `main` at `c4f4b7f`; baseline re-measured 80/1881/0 skipped, four exit codes 0 |
+| **P1** `.stst` · **P7** perception | **in progress, PM-SHARED-3 live** | 14 commits on `feat/p1p7-shared`, **3 behind `main` (docs only)**; **92 files / 2037 passed**, four exit codes 0 — *as reported by the outgoing PM and not re-verified by anyone*. Every function P7 criterion 1 names exists. **No verifier, reviewer or gate runner has ever run** — §6 needs all of them, and that is the bulk of the remaining work |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
 
 **CI is green on GitHub's runner and reproduces local numbers exactly.** Pages is
@@ -56,22 +56,41 @@ deployed; `/staticstereo/player/` resolves as a *directory* URL, which is what c
 
 ## 3. Live agents
 
-**None. Both slots are free.** P3a merged after **eleven** PM shifts, each a clean
-boundary; P1/P7's second PM stood down with its handover written into its report rather
-than into the scratchpad, because the scratchpad does not survive and a successor cannot
-read it. Every ledger those phases produced is **already gone or will be** — everything
-load-bearing from them is in `docs/` or in a commit message.
+**Both slots are full, launched 2026-10-15 from `c4f4b7f`.** The cap is two.
 
-**Two phases are ready to launch and the cap is two.**
+- **PM-SHELL-P3b** — branch `feat/p3b-store`, cut from `main` at `c4f4b7f`, in the
+  **primary** worktree `/home/guy/code/git/github.com/shitchell/staticstereo`. Scope is
+  **eight criteria**: 7 (mark-based undo), 8 (store, hash as projection), 9 (scene time
+  over P2's transport), 10 (teardown with a per-file disposition table), 11 (the R2/R8
+  architecture test), 14 (`dist.test.ts` has teeth, with the paired control), 15 (the hash
+  projection coalesces on a microtask), 16 (nothing above the canvas in flow). Criteria
+  0–6, 12, 13, 17, 18 and 20 were closed by P3a; **19 is ruled discharged.** Told to stay
+  out of `src/shared/`, `src/node/canvas.generics.test.ts`, `src/cli/` and
+  `site/legibility.test.ts`. **Critical path: P4, P5 and P6 all wait on it**, and its
+  cluster F is the first thing that renders.
+- **PM-SHARED-3** — branch `feat/p1p7-shared`, worktree `…/staticstereo-p1p7`. Third PM on
+  the phase. Six implementation tasks in the order the outgoing PM recommended:
+  ZIP64/data-descriptor **refusal** assertions · criterion 4's strip-width sensor ·
+  criteria 7 and 8 sensors · criterion 6's one edit at
+  `src/node/canvas.generics.test.ts:106` (**not `:107`, which the criterion says**) · CLI
+  wiring, **the phase's only `src/cli/` touch and its only collision surface** · criterion
+  7 cross-runtime · the `illegible` reword. Then **four verifier clusters, a reviewer and a
+  gate runner — none of which has ever run on this phase.** Briefed explicitly that its
+  branch is three `docs/` commits behind `main` and that it must read the planning
+  documents from `main`, not from its checkout.
 
-- **P3b** — store, shell, layout, and the teardown of `site/main.ts`. **Critical path:
-  P4, P5 and P6 all wait on it**, and it is the first phase that renders anything.
-- **P1/P7 continuation** — six tasks remain, then four verifier clusters, a reviewer and
-  a gate runner. The order the outgoing PM recommended: ZIP64/data-descriptor **refusal**
-  assertions · criterion 4's strip-width sensor · criteria 7 and 8 sensors · criterion 6's
-  one edit at `src/node/canvas.generics.test.ts:106` (**not `:107`, which the criterion
-  says**) · CLI wiring, **the phase's only `src/cli/` touch and its only collision
-  surface** · criterion 7 cross-runtime · the `illegible` reword.
+**Baseline measured by the orchestrator on `c4f4b7f`, in the primary worktree, builds
+before tests:** typecheck 0 over 451 files · build 0 · build:site 0 · test 0 ·
+**80 files / 1881 passed / 0 skipped**, reproducing P3a's merge numbers exactly. The first
+attempt returned 127/0/1/1 from the `-main` worktree and was an **instrument failure, not a
+regression** — that worktree's `node_modules` predated P3a's Svelte install. It has since
+been reinstalled so tier-0 gate runs work there.
+
+P3a merged after **eleven** PM shifts, each a clean boundary; P1/P7's second PM stood down
+with its handover written into its report rather than into the scratchpad, because the
+scratchpad does not survive and a successor cannot read it. Every ledger those phases
+produced is **already gone or will be** — everything load-bearing from them is in `docs/`
+or in a commit message.
 
 ---
 
