@@ -101,11 +101,42 @@ commit `57f1e15`, the deployment advanced to `ab6ca789`, and **`/staticstereo/` 
 as inference because it has no `pull_request` trigger and it could only prove `ci`; it was
 right to flag it and the inference held.
 
-**Still open:**
-- **Nobody has audited what else branches on `CLAUDECODE`** or otherwise behaves
-  differently inside the agent harness. The suite is green on CI now, so nothing else is
-  manifesting — but the same class of divergence is exactly what hid for nine hours, and
-  **no tier of this system can see it by running the suite.**
+**AUDITED, 2026-10-15 — null result, and the null is load-bearing because it carries a
+control.** Seven full-gate arms (ambient · no-`CLAUDE*` · `env -i` minimal · CI-like · under
+a pty · `NODE_ENV=production` · no-system-fonts), comparing exit codes, counts **and
+per-file identities**, plus sha256 of all 78 build artifacts across three environments.
+**Six arms identical to ambient in every respect; artifacts byte-identical.** All of
+`node_modules` grepped for agent-harness sniffs: exactly four hits, of which only
+`svelte-check`'s is behavioural and the rest select ANSI escapes.
+
+**The control that makes the null admissible:** the historical defect was *reinstated* in
+`site/fitregistration.test.ts` and measured — green under ambient, **red under `env -i`**,
+with the 5 tests reported as *skipped* rather than failed because the throw is in
+`beforeAll`. The nine hours, reproduced on demand and caught by the method. Reverted,
+tree verified clean.
+
+**Carried findings, none of which can produce a wrong answer:**
+- **`npm run typecheck` is itself still ambient-switched** — machine format for every agent,
+  human-verbose for CI. Nothing parses it, so it is cosmetic; but it means **every agent on
+  this project reads a different typecheck log than the runner emits**, which is the
+  perception gap that let the nine hours run.
+- **`site/typecheck-gate.test.ts` inherits the full environment unpinned** — and was measured
+  robust under **all four** formats svelte-check can choose, since it asserts on exit status
+  and a filename substring. Robust, not lucky. No RED is available for it, so invariant 1
+  forbids changing it.
+- **`UPDATE_PRESET_GOLDEN` is the only read in the repo that can turn red into green** — it
+  rewrites the fixture the test then compares against. Project-prefixed and nobody sets it,
+  so the risk is theoretical, but it is self-sealing by construction.
+- **A deliberate host dependence exists and is documented**: `DISABLE_SYSTEM_FONTS_LOAD=1`
+  reddens 4 tests in 2 files, one of which is a *positive control* whose comment says it
+  exists so the file cannot "pass while blind". `sans-serif` still resolves from the
+  vendored face, so production text is safe; only `serif`/`monospace` throw.
+
+**Not swept, stated so the census reports its own blind spots:** non-Linux hosts, other Node
+versions, a clean `npm ci` per arm, `npx` offline, individual test *names* (per-file counts
+only), and `node_modules` exhaustively. And **`HOME` was not scrubbed** in the minimal arm,
+so anything reading `~/.config`, `~/.cache` or fontconfig user dirs was never isolated — a
+hermetic `HOME` is the obvious next experiment and was not run.
 
 R14 is unaffected as a *requirement* — `/staticstereo/player/` resolved as a directory URL
 when it was last deployed — but **it is not currently witnessed in production** and must be
@@ -119,9 +150,15 @@ re-confirmed once `pages` is green again.
 
 **Both slots are full, launched 2026-10-15 from `c4f4b7f`.** The cap is two.
 
-- **PM-SHELL-P3b** — branch `feat/p3b-store`, cut from `main` at `c4f4b7f`, in the
-  **primary** worktree `/home/guy/code/git/github.com/shitchell/staticstereo`. Scope is
-  **eight criteria**: 7 (mark-based undo), 8 (store, hash as projection), 9 (scene time
+- **PM-SHELL-P3b — STOOD DOWN 2026-10-15 at a clean boundary, cluster A complete.**
+  `feat/p3b-store` at `ceaa3b0`. **Criteria 8 and 15 are DONE** (store `cf4b119`, hash
+  projection `7cb2704`, microtask coalescing `ceaa3b0`); gate 82 files / 1929 passed / 0
+  skipped, four exit codes 0 — **local only, never run on CI.** **Zero verifiers, zero
+  reviewers, zero gate runs** on this phase: four implementer reports and a survey, all
+  internally rigorous, with no independent re-establishment of RED. Its own summary of
+  itself: *worker pushback fifteen for fifteen, and every single thing it got wrong was
+  caught below it.* A successor's first dispatch is **V-A**, which has never run. Its scope
+  was **eight criteria**: 7 (mark-based undo), 8 (store, hash as projection), 9 (scene time
   over P2's transport), 10 (teardown with a per-file disposition table), 11 (the R2/R8
   architecture test), 14 (`dist.test.ts` has teeth, with the paired control), 15 (the hash
   projection coalesces on a microtask), 16 (nothing above the canvas in flow). Criteria
@@ -129,6 +166,10 @@ re-confirmed once `pages` is green again.
   out of `src/shared/`, `src/node/canvas.generics.test.ts`, `src/cli/` and
   `site/legibility.test.ts`. **Critical path: P4, P5 and P6 all wait on it**, and its
   cluster F is the first thing that renders.
+  Scope is now **ten**, after criterion 21 (store as single source of truth) and criterion
+  22 (every control *writable*, not merely reachable — ESC-7). Unblocked and ready: B-1,
+  B-2, C-1, C-2, D-1, E-1, E-2. All seven of its open escalations are **ruled** in plan §7's
+  "P3b rulings" block.
 - **PM-SHARED-3** — branch `feat/p1p7-shared`, worktree `…/staticstereo-p1p7`. Third PM on
   the phase. Six implementation tasks in the order the outgoing PM recommended:
   ZIP64/data-descriptor **refusal** assertions · criterion 4's strip-width sensor ·
