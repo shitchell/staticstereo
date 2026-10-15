@@ -384,6 +384,36 @@ document is unchecked."*
 This is §1.2j's cousin. A provenance error says *whose* a true thing is; a quote drift
 says a thing is *verbatim* when it is not.
 
+### 1.2n A brief points at a document the reader may not have
+
+The plan is required reading for workers **from their own working tree**, and tier 0
+amends it mid-phase. Those two facts are incompatible: a worker on a branch cut before an
+amendment reads a stale rule and does not know it. This has now bitten twice in
+consecutive shifts — both times the amended sections were the ones the brief specifically
+told the agent to read, and one of them was a rule it was required to apply.
+
+The receiving agent's `git log --oneline -1 main` has caught it **six times out of six**
+and is cheap, so it stays. But the real fix is upstream of that:
+
+- **A brief carries the content of anything added mid-phase, inline**, not a section
+  number. A pointer is only safe for text that predates the branch.
+- **Tier 0 batches amendments** and prefers phase boundaries. Eleven separate doc commits
+  during one phase is recorded as orchestrator error 11 for a different reason and is the
+  same root cause.
+
+### 1.2o Verify the instrument, including your own
+
+A PM diagnosed two of its own errors as one: *"I checked the output and not the
+instrument."* It printed a verification command whose `sed` range swallowed part of what
+it was meant to count, returning 38 rows against 33; and it wrote "two for two says you
+should expect to find something" — a prediction from n=2, in the imperative voice the rest
+of its brief reserved for measurements.
+
+§6.5a already says a null measurement needs a paired control. This is the same obligation
+turned inward: **the command you hand someone is itself an instrument, and a wrong one
+reports confidently.** Run your own check against a case you know the answer to before
+you ship it in a brief.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -782,8 +812,22 @@ running before P3. The module lands standalone; P4 consumes it.
 2. Registries: `LayoutConfig`, `PANELS`, `CONTROLS`, `OPERATIONS`, `SHADINGS`, `VIEWS`,
    `FIT_MODES`. *(Seven. `VIEWS` was missing from revision 1; `FIT_MODES` is a retrofit
    around what P2 already shipped.)* **This is seven tasks.**
-3. One registration test per registry — a dummy entry appears without touching another
-   file. **Seven more tasks.** This is what makes R7 falsifiable.
+3. One registration test per registry. **Seven more tasks.** This is what makes R7
+   falsifiable.
+
+   **Amended mid-phase, because the original wording was measured false.** It read "a
+   dummy entry appears without touching another file", and a real registration on three
+   registries demonstrably *does* touch another file. The PM declined to reinterpret it in
+   a ledger, correctly — that is tier-0 work — so: **"without touching another file" was
+   always the wrong property.** §11's goal is that adding a thing costs *a bounded,
+   declared edit*, not zero edits. The property to assert is:
+
+   > adding an entry costs one declaration, and **everything else that must change is named
+   > by the compiler** rather than discovered at runtime or missed.
+
+   `FIT_MODES` already satisfies that in its stronger form (§7's E2 ruling), and a
+   registration test that passes on *appears* rather than on *a consumer can now use it*
+   satisfies neither.
 4. Per-layer-variant `AssertNever` guards (design §9.1). **Do not attempt one guard over
    `Scene`**; §9.1 says why.
 5. Each `PresetFn` declares its own parameter descriptors.
@@ -929,6 +973,9 @@ Each already cost a correction. Hand this table to every worker.
 | a stale comment is a stale comment | Two kinds, and the cheaper one is not worth a third edit. A **pointer** (a path, a file name) goes stale when the target moves: the comment is wrong, a `grep` finds the truth, and nothing silently passes. An **assertion** (a test title, a measured value, a claimed mechanism) goes stale when the subject changes: the comment is now **false**, and a reader who trusts it is misled. Fix false assertions; let stale pointers wait for the file to reopen. |
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
 | headless reproduces what headful does | Not in the sub-pixel regime. Headless Chromium and Firefox have **zero-width scrollbars**, and `scrollWidth` / max-`scrollLeft` are integer-snapped — structurally blind to exactly this bug class. The reproduction needed a real page, a real fractional layout viewport, and **headful under Xvfb**, reading the gutter as `offsetHeight - clientHeight`. |
+| `git diff -U0` shows what the task changed | Not for a file the task **created** — an untracked file has no diff, so the check silently measures nothing. Grep the file, not the diff. |
+| a clean diff means the document matches | Only for whatever you diffed. One PM diffed a table's **row keys**, reported clean, and said it had not checked bodies; the next diffed bodies and found **four rows grown a sentence the source never contained, one row missing, and two sentences deleted from a "verbatim" block**. A partial check that reports clean is worse than none, because the next reader believes it. |
+| a conclusion recorded in four documents is settled | Four documents carried "C-13 and C-14 have prose upstreams with no executable equivalent". The premise was true and **the conclusion had been spent two clusters earlier** — the acceptance had already been taken, in the very files their successors were sent to extend. A conclusion propagates; the thing that spent it does not. |
 | "registered" means the entry appears | Not necessarily. Two consecutive registration tests passed on **appears** rather than on **register**: a dummy reached a function's return value and was invisible to every reader, and another reached an info lookup while being invisible to the only question the consumer asks. A registration test must assert that the thing a *consumer* does is now possible — not that the entry can be found. |
 | a cross-phase note will be read when it matters | Make the note **be** the test. P3a deliberately left `site/views.test.ts` depending on `site/index.html`, so P3b's teardown turns it red *by design* with a message naming the teardown. Its author's framing: *"the HTML dependency is not a cost I tolerated — it is the deliverable; §9 says a note is not a sensor, so the note **is** the test."* |
 | a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |

@@ -40,7 +40,7 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P2** player | **merged** | 60 files / 1333; zero files under `src/` |
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
-| **P3a** shell, additive half | **in progress** | cluster C **12/16**; **74 files / 1726**, twelve tasks with no numeric floor |
+| **P3a** shell, additive half | **in progress** | cluster C **15/16**; **75 files / 1765**, fifteen tasks with no numeric floor |
 | **P3b** store, shell, teardown | not started | depends on P3a |
 | **P1** `.stst` · **P7** perception | **not started, unblocked** | both depend only on P0 |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
@@ -126,7 +126,8 @@ orchestrator.
 | 9 | Hypothesised the fractional-viewport bug was in the fit arithmetic; it was in the measurement, one layer up | the fix worker refuted both my hypothesis and the bug report |
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
-| 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not | the PM ran `git log --oneline -1 main`, "five for five" |
+| 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 13 | Wrote criterion 3 as "a dummy appears **without touching another file**" — measured false for a real registration on three registries. A PM correctly refused to reinterpret it in a ledger | C-13, C-14, C-15 measured it; the PM escalated rather than deciding |
 
 **The pattern is uniform and matches what every PM reported about itself: each was a claim
 a single command would have settled, skipped because it felt too small.** §1.2e is as
