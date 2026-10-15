@@ -1093,6 +1093,114 @@ throwing** — zero runtime change. Paired with a sweep of other registries shar
 shape. Landed at `2a44191`; the sweep found **three more** (`DepthView`, `Legibility`,
 `FitLimit`, the last in live non-orphaned code) and those are open.
 
+### P3b rulings, 2026-10-15 — seven escalations from SPIKE-1 and cluster A
+
+**SPIKE-1 was a throwaway spike that paid for itself many times over.** It mounted one real
+panel against the real store, committed nothing, and found five things wrong with the
+obvious way to build cluster F — **four of them invisible to every instrument this repo
+owns.** Dispatching F without these rulings would have shipped green and wrong.
+
+**ESC-7 — R6 is not reachable through the current `Action` union. New criterion 22.**
+**17 of 63 controls have a keyed `Action`; 46 do not** — every `layer.*.at`/`.depth`/`.name`,
+all `layer.shape.*`, all `image/gif.src|mode|mask`, and **all 11 `preset.*`**. Their only
+write path is rebuilding the whole scene, which the store must not own. **Criterion 6 is MET
+and structurally cannot see this**: it proves a spec is *reachable*, not that a value is
+*writable*, and R6 says *"ensure the strong editor exposes every control."*
+
+> **Criterion 22: every `CONTROLS` entry is *writable*, not merely reachable — and a
+> wrong-typed write fails to compile.**
+
+The second clause is not decoration. SPIKE-1 measured that **a computed `string` key erases
+the field type**: `{type:'stereo', patch:{[key]: Number(raw)}}` compiles clean where the
+literal form errors, so a generic renderer can write a number into a boolean or an enum with
+nothing to stop it — SPIKE-1's own code had the bug and compiled. A path-addressed action
+that reintroduces that hole satisfies the first clause and fails the criterion.
+
+**This is P3b's and it is a prerequisite for cluster F**, because the `Action` union is the
+store's API and P4, P5 and P6 all build on it; settling it later means rework across three
+phases.
+
+**ESC-8 — the test tier cannot see cluster F's real failure modes. Ruled: thin components
+plus a minimal DOM tier, and close the warnings hole.** SPIKE-1 measured: no DOM tier exists
+(`jsdom` and `happy-dom` absent, `mount()` unrunnable by any test); **`$effect` is stripped
+from SSR output**; `render()` is **lazy**, so a side-effect assertion after it measures
+nothing and reports green; and `$state(store.state())` **forks state in the browser**,
+breaking the store's identity guarantee, **while SSR reports the same answer for the correct
+and the incorrect spelling.** That last one is the worst kind: the tier does not merely miss
+the bug, it actively cannot distinguish the two.
+
+Three-part ruling:
+1. **Standing architecture rule: a Svelte component is a thin binding and holds no logic
+   that could fail a test.** Everything testable lives in a plain module. This is what the
+   store, `hashprojection.ts` and `transport.ts` already do, and it serves R7 directly.
+2. **Fund a minimal DOM tier** (`jsdom`) for the residue rule 1 cannot cover — principally
+   the store-identity guarantee, which lives in the binding itself and so cannot be moved
+   out of it. **If `mount()` cannot be made to run, that is an escalation, not a workaround.**
+   **Design §12 is amended by this**, having previously excluded Svelte component DOM
+   wholesale.
+3. **`npm run typecheck` is fail-open on Svelte warnings** — 8 × `state_referenced_locally`,
+   Svelte saying *the panel will never re-render*, and the gate exits **0**. Close it. Measure
+   the repo-wide warning count first, because this may redden existing code, and **do not
+   touch `--output`** while editing that script (see §9's row on the duplicated flag).
+   **Playwright is deliberately not funded here.** This host has chromium and Xvfb, but CI
+   does not have them demonstrated and a 94s suite is not worth risking yet. Revisit for P4,
+   where pixels are the subject.
+
+**ESC-9 — narrow `dist.test.ts`'s `@napi-rs` grep. Granted, P3b owns the file.** It is a raw
+`text.includes` over built files, so it reddens on a **doc string** in `controlspec.ts` — not
+a purity defect, and **F-2 cannot be green until it is narrowed.** Its parse-failure and its
+real-regression modes are also *the same assertion*, which is the harness defect again: fix
+both halves.
+
+**ESC-10 — chrome: ruled (a), `applyChrome` from an effect.** Option (c), hand-written markup
+beside a separate `ChromeNode` tree, is **excluded**: a parallel description makes criterion
+16 a check that cannot see, and SPIKE-1's warning stands — *"if F-2 is specified as 'write
+the shell in Svelte markup', it has chosen (c) without anyone deciding to."* Option (b), a
+recursive Svelte renderer over `ChromeNode`, works and was built with a paired control, but
+it is **a second renderer of the tree** — the thing `chromedom.ts`'s header names as not to
+build — and **it already diverged twice in a spike**. (a) keeps one renderer and one
+description, and the ESC-8 DOM tier is what makes an effect testable.
+
+**ESC-11 — F-2 ↔ criterion 10 entry ordering. Ruled: decouple, do not sequence.**
+`vite.site.config.ts` has `root:'site'` and no explicit input, so **`site/index.html` is the
+only path into the bundle — and it is the file teardown deletes.** Rather than ordering two
+clusters around an implicit dependency, **give the config an explicit input, and that edit
+belongs to F, not G.** G may not delete `index.html` until it has landed. An ordering
+constraint that exists in no document is how a phase discovers it the hard way.
+
+**ESC-12 — an unrenderable scene reaches the URL. Ruled: the projection does not filter.**
+`reduce` accepts combinations that do not render, so a share link can carry a scene the
+canvas refuses to draw. **A filter in `hashprojection.ts` would be the wrong cure**: the hash
+is a *projection of the store* (criterion 8), and a projection that silently drops states
+stops round-tripping — reload would hand you a different scene than you had, with nothing
+said. The honest shape is the one the owner already specified for perceptual limits:
+
+> *"write such diagnostic functions at the model layer, only ever use diagnostics around
+> perceptibility / interprability for the purposes of warning at the View layer"*
+
+So: **the projection round-trips faithfully, and an unrenderable scene is surfaced by a
+model-layer diagnostic warning at the view layer.** The diagnostic is **P4's**, with the
+rest of them. Recorded here because it is user-visible and was raised, not decided, by A-2.
+
+**Criterion 15 is sharpened, not widened — A-3's distinction, adopted.** N mutations in one
+tick produce **at most** one write: a tick whose mutations cancel leaves the projection
+unmoved, and writing anyway would reinstate the per-tick `replaceState` cost that
+`main.ts:683-684` exists to avoid. The rule is **a write happens exactly when the projection
+moved across the tick**, both arms tested.
+
+**And criterion 15 gains a second clause, because the module half is not the user-visible
+half.** *The editor's URL actually coalesces* is unwitnessed until the composition root
+exists, **and the choice of queue is cluster F/G's to get wrong** — today there is neither a
+criterion nor a sensor on that side, which the standing "a gap ships only with a sensor" rule
+forbids. F/G owns it.
+
+**Carried from A-2, for criterion 14's owner:** `hashprojection.ts` is in neither bundle
+today, so `EDITOR_ONLY_MODULES` correctly omits it — **and the day cluster G wires the
+browser adapter it becomes editor-only, and the list lives in three places, one unguarded.**
+That is the second confirmed instance of the rot D-1 exists to fix; SPIKE-1 observed a third,
+where six modules became editor-only under a real consumer and `toHaveLength(7)` **stayed
+green and silent.**
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
