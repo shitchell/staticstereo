@@ -44,7 +44,7 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | fractional-viewport fix | **merged** | 60 files / 1358 |
 | **P3a** shell, additive half | **merged** `7cd5599` | 80 files / 1881 / 0 skipped, typecheck 0 over 451, freshness positive. **Criteria 0, 1, 2, 3, 4, 5, 6, 12, 13, 17, 18, 20 met — twelve, not ten.** +523 tests, zero removals |
 | **P3b** store, shell, teardown | not started | depends on P3a |
-| **P1** `.stst` · **P7** perception | **in progress** | 9 commits on `feat/p1p7-shared`; **88 files / 1972 passed**. No verifier, reviewer or gate runner has run |
+| **P1** `.stst` · **P7** perception | **in progress, no PM live** | 14 commits on `feat/p1p7-shared`, 0 behind; **92 files / 2037 passed**, four exit codes 0. Every function P7 criterion 1 names exists. **No verifier, reviewer or gate runner has run** — §6 needs all of them |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
 
 **CI is green on GitHub's runner and reproduces local numbers exactly.** Pages is
@@ -56,13 +56,22 @@ deployed; `/staticstereo/player/` resolves as a *directory* URL, which is what c
 
 ## 3. Live agents
 
-**PM-SHELL-4** owns P3a. Three predecessors stood down cleanly at cluster boundaries; the
-chain of handovers is in `scratchpad/P3-LEDGER.md`, which **is session-scoped and will not
-survive** — if P3a is still open when you take over, your first act is to have its PM
-restate the ledger's handover block into a report, because you cannot read it.
+**None. Both slots are free.** P3a merged after **eleven** PM shifts, each a clean
+boundary; P1/P7's second PM stood down with its handover written into its report rather
+than into the scratchpad, because the scratchpad does not survive and a successor cannot
+read it. Every ledger those phases produced is **already gone or will be** — everything
+load-bearing from them is in `docs/` or in a commit message.
 
-**P1 and P7 are in progress under PM-SHARED-2.** The cap is two concurrent PMs. Launch them when
-P3a closes, or sooner if you can hold three report streams.
+**Two phases are ready to launch and the cap is two.**
+
+- **P3b** — store, shell, layout, and the teardown of `site/main.ts`. **Critical path:
+  P4, P5 and P6 all wait on it**, and it is the first phase that renders anything.
+- **P1/P7 continuation** — six tasks remain, then four verifier clusters, a reviewer and
+  a gate runner. The order the outgoing PM recommended: ZIP64/data-descriptor **refusal**
+  assertions · criterion 4's strip-width sensor · criteria 7 and 8 sensors · criterion 6's
+  one edit at `src/node/canvas.generics.test.ts:106` (**not `:107`, which the criterion
+  says**) · CLI wiring, **the phase's only `src/cli/` touch and its only collision
+  surface** · criterion 7 cross-runtime · the `illegible` reword.
 
 ---
 
@@ -128,6 +137,7 @@ orchestrator.
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 | 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 20 | **Applied four ruling edits with string replacements carrying no assertion; two silently no-opped — then asserted all four were landed in a commit message.** §1.2o committed by the tier that wrote it: an edit instrument used without a control, and the false claim put into the durable record | the PM read the file rather than the commit |
 | 19 | Ran P3a's verification gate **against the wrong worktree** and got the baseline back — `git log <branch>` names a ref, `npm test` runs whatever is checked out. It returned 60/1358, a *plausible* number already in the record | caught on re-reading my own output before reporting it |
 | 18 | Relayed a citation defect as `file:line → newline`, collapsing the **location of the citation** with the **target it points at** — the worker nearly declined both items as fabrications, since nothing cites the location and a 226-line file cannot contain the cited range. Also relayed "four-word orphan" for a one-word one | the repair worker swept every citation into its own edited files |
 | 17 | **On the third pass at the same table, dropped a clause from criterion 13** — its registration test, which R-ac makes part of it by explicit ruling, leaving a landed commit unbudgeted by any criterion. Also promoted a PM's labelled *inference* to established fact, inside the document that carries the rule against doing so | the PM re-audited all nine rows again |
@@ -167,6 +177,25 @@ binding on tier 0 as on tier 1.
   hand-written copies left the **entire suite and the entire type gate green**, and
   `ControlRosters` is loosely typed on purpose, so a worker correctly declined to
   manufacture one.
+- **P3a-merged files, not P1/P7's to touch:** `18` is inlined in shipped prose at
+  `site/controlspec.ts:522,539` and `site/index.html:223,224,299` — the **only perceptual
+  threshold that reached production**, and the only one that will rot.
+- **Unmeasured, and the design may be overstating it:** `depthBlur ≥ 1` is the smallest
+  radius anyone tried, not a measured boundary — (0, 1) is unmeasured and currently
+  reported as cardboarded. And **whether a blurred edge cures cardboarding at all is the
+  design's claim, not a measurement**: a Gaussian leaves a slab's interior exactly flat
+  and slopes only a ~3·radius band at the silhouette. Design §10.5's cure paragraph needs
+  a calibration round before that boolean is surfaced anywhere louder than a diagnostics
+  line.
+- **`rotateX`/`rotateY` have no sensor and none could be built.** `types.ts:212` records
+  that they do not read as depth *yet* and names the rasteriser change that would make
+  them a third relief mechanism; when it lands, nothing in `cardboarding` reddens by
+  itself. The implementer tried, failed, and said so — the standing "a criterion may ship
+  unmet only with a sensor" meeting a case where no sensor exists.
+- **Toolchain, owned by neither phase:** `build.rollupOptions.onwarn` would flip
+  `build:site`'s builtin fail-open to exit 1, verified at the pinned Vite 5.4.21. Two
+  configs, both at the repo root. **It does not complement the purity guard** — both were
+  measured blind simultaneously over exactly the P1 files.
 - **Open from E14's sweep:** three more P2 rosters share the `SMOOTH_MODES` defect —
   `DepthView`, `Legibility`, `FitLimit`, the last in live non-orphaned code.
 - **P3b — criterion 14 / `EDITOR_ONLY_MODULES`**: three cluster-C modules are absent from
