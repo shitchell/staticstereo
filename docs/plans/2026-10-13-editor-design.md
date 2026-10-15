@@ -667,8 +667,8 @@ said dragging should trigger "D4's expansion"; D4 is withdrawn and that instruct
 void. Expanding `emerge` to absolute keys would reintroduce a documented bug.)
 
 Also on the strip: **two scales at once** — depth 0..1 and the separation it maps to, in
-**scene px, explicitly labelled** (see §10.5 on units); and the **depth stops** as detents
-(§10.3).
+**scene px, explicitly labelled** (see §10.6 on units); and the **depth stops** as detents
+(§10.4).
 
 **The fusion-comfort band is not drawn here.** Revision 1 put it on this axis, which is a
 category error: the findings' sweep varied the *global* `sepNear` with text at one depth,
@@ -1064,8 +1064,12 @@ bodies in one file, and the CLI's preview report and the editor's panels both fo
 `encodableDepths(stereo)` → `sepFar − sepNear + 1`; **19 at the default 110/92**, derived
 from `sepAt`'s rounding. Invariant under `noiseScale`, which is applied after the encoder.
 
-`quantisationStep(stereo)`, and `collidingPairs(scene)` — layer pairs closer than one
-step, which encode identically.
+`quantisationStep(stereo)`, and **`collidingPairs(scene, stereo)`** — layer pairs closer
+than one step, which encode identically. *Signature deviation, recorded here per §6.6:*
+the design said `(scene)`, but a `Scene` carries only `Partial<StereoOpts>` and the sole
+completer, `resolveStereo`, **throws** on `sepNear >= sepFar` — precisely the inverted
+case this function must answer, and which R22 obligation 2 forbids the model from
+refusing. The caller supplies the resolved options.
 
 **One caveat revision 1 missed:** under `linked`, columns within `sep/2` of each plate edge
 carry no depth at all. Capacity is 19 in the stage, 0 in those strips, and the function
