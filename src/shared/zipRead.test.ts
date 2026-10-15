@@ -5,6 +5,7 @@ import { dirname, join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { writeZip, type ZipEntry } from './zip.js'
 import { readZip } from './zipRead.js'
+import { CHILD_ENV } from './testing/spawnEnv.js'
 
 /**
  * The zip reader `.stst` is opened with (design §6.2, plan P1 criterion 2).
@@ -206,7 +207,12 @@ function zipTree(flags: readonly string[]): Uint8Array {
   // *throws* on non-zero, so an `expect(status).toBe(0)` over it is never
   // reached and can never itself go red. A missing binary gives `null`, which
   // this comparison rejects — that is the no-guard decision failing closed.
-  const res = spawnSync('/usr/bin/zip', [...flags, '-q', out, 'mimetype', 'ref'], { cwd: root })
+  // `env: CHILD_ENV` at every spawn in this file, never inherited — see
+  // `testing/spawnEnv.ts` for the measurement and for why an inherited
+  // environment is an unenumerated input no test can state.
+  const res = spawnSync('/usr/bin/zip', [...flags, '-q', out, 'mimetype', 'ref'], {
+    cwd: root, env: CHILD_ENV,
+  })
   expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
 
   const bytes = new Uint8Array(readFileSync(out))
@@ -249,7 +255,9 @@ function zipStdinArchive(flags: readonly string[]): Uint8Array {
   if (hit !== undefined) return hit
 
   const out = join(KEEP, `stdin-${streamed.size}.zip`)
-  const res = spawnSync('/usr/bin/zip', [...flags, '-q', out, '-'], { input: SOUP })
+  const res = spawnSync('/usr/bin/zip', [...flags, '-q', out, '-'], {
+    input: SOUP, env: CHILD_ENV,
+  })
   expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
 
   const bytes = new Uint8Array(readFileSync(out))
@@ -282,6 +290,7 @@ function zipStdoutArchive(seekable: boolean): Uint8Array {
       const res = spawnSync('/usr/bin/zip', ['-q', '-X', '-', 'soup.txt'], {
         cwd: root,
         stdio: ['ignore', fd, 'pipe'],
+        env: CHILD_ENV,
       })
       expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
     } finally {
@@ -289,7 +298,9 @@ function zipStdoutArchive(seekable: boolean): Uint8Array {
     }
     bytes = new Uint8Array(readFileSync(out))
   } else {
-    const res = spawnSync('/usr/bin/zip', ['-q', '-X', '-', 'soup.txt'], { cwd: root })
+    const res = spawnSync('/usr/bin/zip', ['-q', '-X', '-', 'soup.txt'], {
+      cwd: root, env: CHILD_ENV,
+    })
     expect(res.status, `/usr/bin/zip ${key}: ${res.stderr?.toString() ?? ''}`).toBe(0)
     bytes = new Uint8Array(res.stdout)
   }

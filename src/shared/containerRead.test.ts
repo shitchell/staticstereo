@@ -9,6 +9,7 @@ import { writeScene } from './sceneWrite.js'
 import { writeZip, type ZipEntry } from './zip.js'
 import { writeStst, type StstMember } from './container.js'
 import { readStst } from './containerRead.js'
+import { CHILD_ENV } from './testing/spawnEnv.js'
 import type { Scene } from '../core/types.js'
 
 /**
@@ -409,16 +410,21 @@ describe('readStst', () => {
     // `-X` drops the extra fields `zip` would otherwise attach, which is the
     // variant `zipRead.ts` documents; the methods are left to `zip`, so it
     // stores what deflate would not shrink and both branches get exercised.
+    // `env: CHILD_ENV`, never inherited — see `testing/spawnEnv.ts`. The
+    // non-ASCII member name makes this the spawn where an inherited locale
+    // would be most likely to matter; measured, it does not — `zip` sets the
+    // UTF-8 name flag from the bytes, identically under six environments
+    // including `env -i`. Pinned anyway so it cannot start to.
     const zipped = spawnSync('/usr/bin/zip', [
       '-X', '-q', path,
       'mimetype', 'scene.json', 'manifest.json', `masks/${UNICODE_MASK}`, 'sources/a-source.gif',
-    ], { cwd: dir })
+    ], { cwd: dir, env: CHILD_ENV })
     expect(zipped.status, `/usr/bin/zip: ${String(zipped.stderr)}`).toBe(0)
 
     // `unzip -t` verifies every member's CRC and extracts nothing, so this
     // says the fixture is a sound archive — it says nothing about layout, and
     // is not asked to.
-    expect(spawnSync('/usr/bin/unzip', ['-t', path]).status, 'unzip -t').toBe(0)
+    expect(spawnSync('/usr/bin/unzip', ['-t', path], { env: CHILD_ENV }).status, 'unzip -t').toBe(0)
 
     const back = await readStst(new Uint8Array(readFileSync(path)))
     expect(back.scene).toEqual(scene())

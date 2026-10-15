@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { deflateRawSync } from 'node:zlib'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { writeZip, type ZipEntry } from './zip.js'
+import { CHILD_ENV } from './testing/spawnEnv.js'
 
 /**
  * The zip writer `.stst` is made of (design §6.2, plan P1 criteria 1/3/5).
@@ -68,7 +69,12 @@ const sha = (bytes: Uint8Array): string =>
  * for `null`.
  */
 function unzip(args: readonly string[]): { status: number | null; stdout: Uint8Array } {
-  const res = spawnSync('/usr/bin/unzip', [...args], { maxBuffer: 64 * 1024 * 1024 })
+  // `env: CHILD_ENV`, never inherited — see `testing/spawnEnv.ts`. Measured:
+  // `unzip` produces identical output under `env -i` and under this harness,
+  // so this is defence against an unaudited surface rather than a fix.
+  const res = spawnSync('/usr/bin/unzip', [...args], {
+    maxBuffer: 64 * 1024 * 1024, env: CHILD_ENV,
+  })
   return { status: res.status, stdout: new Uint8Array(res.stdout ?? Buffer.alloc(0)) }
 }
 

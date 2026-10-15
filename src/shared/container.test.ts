@@ -7,6 +7,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest'
 import { writeScene } from './sceneWrite.js'
 import { STST_ENTRY_ORDER, STST_MIMETYPE, writeStst, type StstMember } from './container.js'
 import { writeZip } from './zip.js'
+import { CHILD_ENV } from './testing/spawnEnv.js'
 import type { Scene } from '../core/types.js'
 
 /**
@@ -59,7 +60,10 @@ const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).di
  * rejects, so the no-guard decision above fails closed.
  */
 function unzip(args: readonly string[]): { status: number | null; stdout: Uint8Array } {
-  const res = spawnSync('/usr/bin/unzip', [...args], { maxBuffer: 64 * 1024 * 1024 })
+  // `env: CHILD_ENV`, never inherited — see `testing/spawnEnv.ts`.
+  const res = spawnSync('/usr/bin/unzip', [...args], {
+    maxBuffer: 64 * 1024 * 1024, env: CHILD_ENV,
+  })
   return { status: res.status, stdout: new Uint8Array(res.stdout ?? Buffer.alloc(0)) }
 }
 
