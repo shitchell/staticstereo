@@ -349,6 +349,41 @@ So guard *everything* at compile time, and reserve runtime throwing for the regi
 where a wrong answer destroys output. A registry whose worst case is cosmetic should fail
 loudly to the compiler and quietly to the user.
 
+### 1.2l The source prohibition is the most-violated rule here, and the violations that *work* are the dangerous ones
+
+**Three of five P3 shifts have crossed it.** One recorded a single `grep` as a
+fabrication-class error and noted it was not even faster. One crossed it and **did not
+record it**. One ran `git grep` over `site/` and reported it precisely because **it
+returned a useful result** — which is the dangerous case, since a shortcut that works is
+the one that gets taken again.
+
+That rate means the pressure is structural, not a run of careless agents. The cause is
+specific: **a PM between tasks has no live worker to ask** (§1.2g), so the choice looks
+like "one `grep`" against "spawn an entire worker for one fact". The second feels absurd
+and is correct.
+
+So, stated plainly: **dispatching a worker to answer one question is a normal, cheap,
+expected act.** It is not overhead and it is not an admission of failure. A one-question
+survey worker costs less than a PM whose context now holds source it cannot unsee, and
+far less than the fabrications that follow from a half-answer. If a PM finds itself
+reaching for `grep`, that is the signal to dispatch.
+
+### 1.2m Anything claiming to quote a document gets diffed against the document
+
+Three defects in one shift, all in briefs and none in the code: a number that two required
+documents disagreed on for an entire cluster (one had been corrected, nobody propagated it
+back); a copied table that was **five rows short and carried one row the source has never
+contained**; and a trap row that was wrong twice, the first correction costing a worker
+four probe rounds.
+
+A brief that says "verbatim" or "from §9" is making a checkable claim, and the check is
+one diff. Run it on everything that claims to quote, not on the one you suspect — the PM
+that found these ran it on `§9` alone and said so: *"everything else claiming to quote a
+document is unchecked."*
+
+This is §1.2j's cousin. A provenance error says *whose* a true thing is; a quote drift
+says a thing is *verbatim* when it is not.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -894,6 +929,7 @@ Each already cost a correction. Hand this table to every worker.
 | a stale comment is a stale comment | Two kinds, and the cheaper one is not worth a third edit. A **pointer** (a path, a file name) goes stale when the target moves: the comment is wrong, a `grep` finds the truth, and nothing silently passes. An **assertion** (a test title, a measured value, a claimed mechanism) goes stale when the subject changes: the comment is now **false**, and a reader who trusts it is misled. Fix false assertions; let stale pointers wait for the file to reopen. |
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
 | headless reproduces what headful does | Not in the sub-pixel regime. Headless Chromium and Firefox have **zero-width scrollbars**, and `scrollWidth` / max-`scrollLeft` are integer-snapped — structurally blind to exactly this bug class. The reproduction needed a real page, a real fractional layout viewport, and **headful under Xvfb**, reading the gutter as `offsetHeight - clientHeight`. |
+| "registered" means the entry appears | Not necessarily. Two consecutive registration tests passed on **appears** rather than on **register**: a dummy reached a function's return value and was invisible to every reader, and another reached an info lookup while being invisible to the only question the consumer asks. A registration test must assert that the thing a *consumer* does is now possible — not that the entry can be found. |
 | a cross-phase note will be read when it matters | Make the note **be** the test. P3a deliberately left `site/views.test.ts` depending on `site/index.html`, so P3b's teardown turns it red *by design* with a message naming the teardown. Its author's framing: *"the HTML dependency is not a cost I tolerated — it is the deliverable; §9 says a note is not a sensor, so the note **is** the test."* |
 | a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
