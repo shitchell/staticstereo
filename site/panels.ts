@@ -114,10 +114,19 @@ type _NoPanelExtra = AssertNever<Exclude<typeof PANEL_IDS[number], PanelId>>
  */
 type _EveryMountedPanelRegistered = AssertNever<Exclude<DefaultPanelId, PanelId>>
 
-/** What {@link PANELS} records about one panel. */
-export interface PanelInfo {
+/**
+ * What {@link PANELS} records about one panel.
+ *
+ * Parameterised on the id's type, defaulting to {@link PanelId} so that every
+ * existing reference means exactly what it meant before. The parameter exists
+ * for {@link PanelTable}: the shipped registry's entries carry a `PanelId` and
+ * must keep doing so — a typo'd `panel` field is a compile error and that is
+ * worth more than anything below — while a second table, which by construction
+ * holds an id this module has not declared, has no `PanelId` to carry.
+ */
+export interface PanelInfo<P extends string = PanelId> {
   /** The panel's own id, so an entry carries its key when passed around alone. */
-  readonly panel: PanelId
+  readonly panel: P
   /** Human-facing name — a panel header, or a row in whatever offers the choice. */
   readonly label: string
   /**
@@ -200,6 +209,27 @@ export const PANELS = {
 } as const satisfies Record<PanelId, PanelInfo>
 
 /**
+ * A table of panels, keyed by id.
+ *
+ * Keyed by `string` and not by {@link PanelId}, which is what every reader
+ * below takes, and the reason is the one `keybindings.ts`' `KeyBindingTable`
+ * records for the same shape: *"a registration test must be able to register
+ * an entry without editing this file."* Design §11 row 2 budgets a panel at
+ * **one registration**, and that budget is a claim about readers being total
+ * over whatever is registered — a reader that can only ever read {@link PANELS}
+ * can be shown to agree with today's five panels and nothing more.
+ *
+ * `OperationTable`, `ShadingTable` and `ViewTable` are the same door in the
+ * same cluster. **There is no second table in production and this type is not
+ * an invitation to write one**: §11's completeness rule — *"the registry stays
+ * complete … and per-mode visibility sets select from it"* — says a reduced
+ * editor is a different `LayoutConfig` plus a visibility set, never a second
+ * `PANELS`. The *shipped* registry is still total over {@link PanelId} by the
+ * `satisfies` above, which is the half that keeps that true.
+ */
+export type PanelTable<P extends string = string> = Readonly<Record<P, PanelInfo<P>>>
+
+/**
  * What this panel is, or `undefined` if it is not a panel.
  *
  * `panel` is a `string` and not a {@link PanelId} on purpose: the typed door is
@@ -213,10 +243,14 @@ export const PANELS = {
  * then reads `.label` off it, gets `undefined`, and interpolates the word into
  * a panel header. Same idiom and same fix as `fit.ts`'s `parseFit`,
  * `layout.ts`'s `slotInfo` and the five registries P0b closed (E8 / R-l).
+ *
+ * `table` defaults to {@link PANELS} and no caller in production passes one;
+ * see {@link PanelTable} for why it is there. `Object.hasOwn` is read over the
+ * *argument*, so a supplied table gets the same guarantee the shipped one does.
  */
-export function panelInfo(panel: string): PanelInfo | undefined {
-  if (!Object.hasOwn(PANELS, panel)) return undefined
-  return PANELS[panel as PanelId]
+export function panelInfo(panel: string, table: PanelTable = PANELS): PanelInfo<string> | undefined {
+  if (!Object.hasOwn(table, panel)) return undefined
+  return table[panel]
 }
 
 /**
@@ -232,9 +266,18 @@ export function panelInfo(panel: string): PanelInfo | undefined {
  * `KEYBINDINGS` registry) imports a reader rather than a snapshot; a constant
  * computed at module load is the same list, taken once, and this registry is
  * the kind of thing a later phase will want to filter.
+ *
+ * **The roster is the table's own keys and not {@link PANEL_IDS}**, which is
+ * the one behavioural change the `table` parameter forces. For the default
+ * argument the two are the same list in the same order — `PANELS` is an object
+ * literal, so `Object.keys` is declaration order — and this module's test pins
+ * that against `PANEL_IDS` **in order** rather than only as a set, because the
+ * substitution is what rests on it. `Object.keys` is own-keys-only, so the
+ * prototype chain is excluded here by construction rather than by a guard
+ * somebody could drop.
  */
-export function chromePanels(): readonly PanelId[] {
-  return PANEL_IDS.filter(panel => PANELS[panel].chrome)
+export function chromePanels(table: PanelTable = PANELS): readonly string[] {
+  return Object.keys(table).filter(panel => table[panel]!.chrome)
 }
 
 /**
@@ -278,11 +321,19 @@ export type PanelLayout<P extends PanelId = PanelId> = LayoutConfig<P>
  * Returns ids rather than throwing, because the caller that has a layout from
  * an untrusted source is the one that needs to decide — drop the slot, warn, or
  * refuse to load — and a throw takes that choice away.
+ *
+ * `table` defaults to {@link PANELS}; see {@link PanelTable}. It is the reader
+ * where the parameter earns the most, because it is the one that spans two
+ * modules: it is how a registration here can be shown to change what a layout
+ * from `layout.ts` reports, with `layout.ts` unedited.
  */
-export function unregisteredPanels<P extends string>(layout: LayoutConfig<P>): readonly string[] {
+export function unregisteredPanels<P extends string>(
+  layout: LayoutConfig<P>,
+  table: PanelTable = PANELS,
+): readonly string[] {
   const unknown = new Set<string>()
   for (const panel of mountedPanels(layout)) {
-    if (!Object.hasOwn(PANELS, panel)) unknown.add(panel)
+    if (!Object.hasOwn(table, panel)) unknown.add(panel)
   }
   return [...unknown].sort()
 }
