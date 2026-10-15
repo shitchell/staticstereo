@@ -104,6 +104,202 @@ function actionKindsDeclaredIn(source: string): readonly string[] {
   })
 }
 
+/* ---------------------------------------------------- the delegation guard */
+
+/**
+ * What `store.ts` does with its own state, read structurally.
+ *
+ * **The behavioural sweep above cannot see an *agreeing* duplicate, and that
+ * is measured rather than feared.** Planting a second implementation of one
+ * arm in `dispatch` that returns the same answer `reduce` does —
+ *
+ * ```ts
+ * const next = action.type === 'depthView'
+ *   ? { ...self.state, depthView: action.value }
+ *   : reduce(self.state, action)
+ * ```
+ *
+ * — leaves `npm test` at **82 files / 1929 passed, 0 skipped, exit 0**, and
+ * `typecheck`, `build` and `build:site` all at 0, with the plant grep-confirmed
+ * present in the file and the build run first. The sweep compares `dispatch`'s
+ * output against `reduce`'s, so a duplicate that *agrees* is invisible to it by
+ * construction; only a divergent one reddens, and that one already does. Two
+ * independent measurements of this, a verifier's and this file's.
+ *
+ * **Why duplication and not disagreement is the thing worth guarding.** The
+ * module header's own cautionary case is exactly this shape: the
+ * animatable-channel list is guarded in `track.ts` and duplicated unguarded in
+ * two validators, and that duplicate **agreed on the day it was written** and
+ * drifted later. A guard that waits for the drift fires after the defect has
+ * shipped. §9: *"a recorded note is a sensor — it is not. Where a gap is
+ * accepted, convert the note into a test that goes red the day someone crosses
+ * it."*
+ *
+ * **Parsed and not grepped.** `browserGlobalsIn` records the general reason one
+ * section down; here it is sharper still, because `store.ts`'s header discusses
+ * `depthView` in prose over eight lines, so a text search for the tag is red on
+ * the module exactly as it stands. §9: *"a grep census is a census."*
+ *
+ * **Two halves, because they fail on different things.** {@link
+ * Delegation.undelegated} catches a state *computed* anywhere in the module and
+ * is indifferent to how the arm was selected, so extracting the duplicate into a
+ * helper does not evade it — `self.state = someHelper(…)` is as undelegated as
+ * an inline object literal. {@link Delegation.tagsNamed} catches an arm named
+ * without ever reaching a write, which is the *suppression* case: an early
+ * `if (action.type === 'scene') return` writes nothing and would pass the first
+ * half while silently dropping a transition.
+ *
+ * **What is deliberately not constrained.** Construction. The guard is over
+ * writes to the storage *after* it exists, never over building the initial
+ * value, so a later constructor that takes a `Scene` and resets a raster cache
+ * alongside it — flagged as wanted, `main.ts`'s `setScene` does exactly that —
+ * is untouched by this. What a reducer-arm duplicate does and an initialiser
+ * does not is derive the *next* state from the current one.
+ */
+interface Delegation {
+  /** The expression the public `state()` accessor hands back — the storage. */
+  readonly storage: string
+  /** Writes to {@link storage}, `path:line`. The vacuity floor for the next. */
+  readonly writes: readonly string[]
+  /** Writes whose value did not come straight from `reduce`, `path:line …`. */
+  readonly undelegated: readonly string[]
+  /** `Action` tags named as value-position string literals, `path:line tag`. */
+  readonly tagsNamed: readonly string[]
+}
+
+/**
+ * Read {@link Delegation} off `text`.
+ *
+ * `tags` is passed in rather than read here so that the roster stays
+ * {@link actionKindsDeclaredIn}'s — §9: *"derive it from the thing that makes a
+ * site one of them, never from an enumeration someone typed."*
+ *
+ * **Throws rather than returning an empty record** for every shape it does not
+ * recognise, which is plan §1.2k applied to an instrument: an empty `storage`
+ * would match no write, report no undelegated write, and pass having swept
+ * nothing. Each throw names what moved, so restructuring the module produces an
+ * instruction and not a mystery.
+ */
+function delegationIn(path: string, text: string, tags: readonly string[]): Delegation {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true)
+  const at = (node: ts.Node): string =>
+    `${path}:${file.getLineAndCharacterOfPosition(node.getStart()).line + 1}`
+
+  const isReduceCall = (node: ts.Node): boolean =>
+    ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'reduce'
+
+  // A locally declared `reduce` would make every match below name the wrong
+  // function, and silently — the identifier text is identical. Refused rather
+  // than resolved, because resolving it is a type-checker's job. An *imported*
+  // `reduce` is an `ImportSpecifier` and not a declaration, so the real
+  // module's import does not trip this.
+  const declared = new Set<string>()
+  const names = (node: ts.Node): void => {
+    if (
+      (ts.isVariableDeclaration(node) || ts.isFunctionDeclaration(node)) &&
+      node.name && ts.isIdentifier(node.name)
+    ) {
+      declared.add(node.name.text)
+    }
+    ts.forEachChild(node, names)
+  }
+  names(file)
+  if (declared.has('reduce')) {
+    throw new Error(`${path} declares its own \`reduce\`; this guard would be checking the wrong one`)
+  }
+
+  // The storage location, taken from the module's own public accessor rather
+  // than spelled `self.state` here. A roster written out in the test is the
+  // defect this whole file argues against, and deriving it means a rename of
+  // the field or of the `self` object moves the guard with it instead of
+  // quietly emptying it.
+  const storage = ((): string => {
+    const factory = file.statements.find(
+      (node): node is ts.FunctionDeclaration =>
+        ts.isFunctionDeclaration(node) && node.name?.text === 'createSceneStore',
+    )
+    if (!factory) {
+      throw new Error(`${path} no longer declares \`createSceneStore\`; this guard is blind`)
+    }
+    let returned: ts.Expression | undefined
+    const find = (node: ts.Node): void => {
+      if (ts.isObjectLiteralExpression(node)) {
+        for (const member of node.properties) {
+          if (!member.name || !ts.isIdentifier(member.name) || member.name.text !== 'state') continue
+          const body = ts.isMethodDeclaration(member)
+            ? member.body
+            : ts.isPropertyAssignment(member) && ts.isArrowFunction(member.initializer)
+              ? member.initializer.body
+              : undefined
+          if (body === undefined) continue
+          returned ??= ts.isBlock(body)
+            ? body.statements.find(ts.isReturnStatement)?.expression
+            : body
+        }
+      }
+      ts.forEachChild(node, find)
+    }
+    find(factory)
+    if (!returned || !ts.isPropertyAccessExpression(returned)) {
+      throw new Error(
+        `${path}'s \`state()\` no longer returns a plain property access, so this guard cannot ` +
+        'tell which location holds the state',
+      )
+    }
+    return returned.getText()
+  })()
+
+  // Names whose *every* declaration in the file initialises from `reduce`, so
+  // that the one-hop `const next = reduce(…); self.state = next` the module
+  // actually uses is recognised. File-wide rather than scope-aware, and the
+  // looseness fails closed: a name declared twice, once from `reduce` and once
+  // from anything else, is not treated as delegated by either site.
+  const fromReduce = new Map<string, boolean>()
+  const bind = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
+      const straight = node.initializer !== undefined && isReduceCall(node.initializer)
+      fromReduce.set(node.name.text, (fromReduce.get(node.name.text) ?? true) && straight)
+    }
+    ts.forEachChild(node, bind)
+  }
+  bind(file)
+
+  const writes: string[] = []
+  const undelegated: string[] = []
+  const tagsNamed: string[] = []
+
+  const walk = (node: ts.Node): void => {
+    if (
+      ts.isBinaryExpression(node) &&
+      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+      node.left.getText() === storage
+    ) {
+      writes.push(at(node))
+      // A compound assignment (`+=`) is never delegation whatever is on the
+      // right, so the operator is part of the test and not just the shape.
+      const straight =
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        (isReduceCall(node.right) ||
+          (ts.isIdentifier(node.right) && fromReduce.get(node.right.text) === true))
+      if (!straight) {
+        undelegated.push(`${at(node)} ${node.getText().replace(/\s+/g, ' ')}`)
+      }
+    }
+    // Value position only: a string-literal *type* (`type: 'depthView'` in a
+    // declaration) names a variant without deciding anything about it, and an
+    // identifier node is never the inside of a comment — which is the whole
+    // reason this is a parse.
+    if (ts.isStringLiteral(node) && !ts.isLiteralTypeNode(node.parent) && tags.includes(node.text)) {
+      tagsNamed.push(`${at(node)} ${node.text}`)
+    }
+    ts.forEachChild(node, walk)
+  }
+  walk(file)
+
+  return { storage, writes, undelegated, tagsNamed }
+}
+
 /* ------------------------------------------------------ the import closure */
 
 /**
@@ -311,6 +507,101 @@ describe('createSceneStore', () => {
       'the sample table and `Action` have drifted: a variant was added or renamed in ' +
       'controls.ts and the sweep above is no longer total over it',
     ).toEqual(declared)
+  })
+
+  it('writes its state only from reduce and names no Action variant, read off its own source', () => {
+    // The sweep above compares answers, so it senses *divergence*. This senses
+    // *duplication*, which is the case that ships green — see {@link Delegation}
+    // for the measurement, and the control below for the proof it can fail.
+    const found = delegationIn(STORE, SOURCE, actionKindsDeclaredIn(readFileSync(CONTROLS, 'utf8')))
+
+    // Vacuity floor, and it is the load-bearing half exactly as it is in the
+    // variant sweep: a `storage` that matched no write would report nothing
+    // undelegated and pass having examined nothing at all.
+    expect(found.writes.length, `no write to ${found.storage} was found, so this check swept nothing`)
+      .toBeGreaterThan(0)
+
+    expect(
+      found.undelegated,
+      'the store computed a state itself instead of taking `reduce`\'s answer. A second ' +
+      'implementation of a reducer arm is this repo\'s signature defect — see the module header — ' +
+      'and the behavioural sweep above cannot see one while it still agrees.',
+    ).toEqual([])
+
+    expect(
+      found.tagsNamed,
+      'the store named an `Action` variant in its code, so it is deciding something per-arm. ' +
+      'Selecting or suppressing one arm is the same defect as re-implementing it.',
+    ).toEqual([])
+  })
+
+  it('would see an agreeing second implementation of a reducer arm, which is the control', () => {
+    // §6.5a's paired half, and §9's rule that a control must be able to see
+    // *this* change rather than merely something: the first plant below is the
+    // measured-invisible one — byte-identical behaviour, 1929 passed — so a
+    // guard that only reddened on the divergent plant would be the instrument
+    // that already exists.
+    const tags = actionKindsDeclaredIn(readFileSync(CONTROLS, 'utf8'))
+    const module = (dispatchBody: string, extra = ''): string =>
+      `import { reduce } from './controls.js'\n${extra}` +
+      'export function createSceneStore(initial: UiState): SceneStore {\n' +
+      '  const self = { state: initial }\n' +
+      '  return {\n' +
+      '    state(): UiState { return self.state },\n' +
+      `    dispatch(action: Action): void {\n${dispatchBody}\n    },\n` +
+      '  }\n}\n'
+    const of = (source: string): Delegation => delegationIn('/plant/store.ts', source, tags)
+
+    // The negative half: the shape the real module has reports clean, so the
+    // positives below are the plant and not the harness.
+    const honest = of(module('      const next = reduce(self.state, action)\n      self.state = next'))
+    expect(honest.storage).toBe('self.state')
+    expect(honest.writes.length).toBe(1)
+    expect(honest.undelegated).toEqual([])
+    expect(honest.tagsNamed).toEqual([])
+
+    // AGREEING. Returns precisely what `reduce` returns for every input, which
+    // is why nothing else in the repository moves.
+    const agreeing = of(module(
+      "      const next = action.type === 'depthView'\n" +
+      '        ? { ...self.state, depthView: action.value }\n' +
+      '        : reduce(self.state, action)\n' +
+      '      self.state = next'))
+    expect(agreeing.undelegated.length).toBe(1)
+    expect(agreeing.tagsNamed).toEqual(['/plant/store.ts:7 depthView'])
+
+    // The same duplicate moved behind a helper, which is the cheapest way to
+    // satisfy a guard scoped to the literal `dispatch` body. It must not be a
+    // way out, so the check is over the module and keyed on the write.
+    const extracted = of(module(
+      '      self.state = arm(self.state, action)',
+      'function arm(state: UiState, action: Action): UiState {\n' +
+      "  if (action.type === 'depthView') return { ...state, depthView: action.value }\n" +
+      '  return reduce(state, action)\n}\n'))
+    expect(extracted.undelegated.length).toBe(1)
+
+    // SUPPRESSION. An arm dropped before any write happens: the first half is
+    // silent here — no write is undelegated, because the delegated write is
+    // simply never reached — and only the tag half sees it. This is why both
+    // are asserted rather than either alone.
+    const suppressed = of(module(
+      "      if (action.type === 'scene') return\n" +
+      '      self.state = reduce(self.state, action)'))
+    expect(suppressed.undelegated).toEqual([])
+    expect(suppressed.tagsNamed).toEqual(['/plant/store.ts:7 scene'])
+
+    // Prose is not code. The module's real header discusses `depthView` over
+    // eight lines, so a grep for the tag would be red on the shipping module;
+    // this is the assertion that the parse is what makes the guard usable.
+    expect(of(module(
+      '      // depthView is discussed here, and in a string that is data:\n' +
+      '      const label = "depthView"\n' +
+      '      self.state = reduce(self.state, action)',
+    )).tagsNamed.length, 'a comment mentioning a tag must not count').toBe(1)
+
+    // And the instrument refuses rather than reporting clean when the module
+    // moves under it — an empty `storage` would sweep nothing and pass.
+    expect(() => of('export const nothing = 1\n')).toThrow(/no longer declares `createSceneStore`/)
   })
 
   it('does not touch the state it was handed, so a subscriber may hold on to one', () => {

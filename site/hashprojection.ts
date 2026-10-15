@@ -85,7 +85,7 @@ import type { AssertNever } from '../src/core/index.js'
  * two fields left out are not an oversight and not a property of the encoder:
  * `time` is a scrub position snapped onto the frame grid, `depthView` chooses
  * which of two pictures the canvas shows, and a shared link carries the scene.
- * Written down and made total by the `AssertNever` pairs below, a twelfth
+ * Written down and made total by the `AssertNever` pairs below, a fourth
  * field cannot be added to the state without someone saying which side it
  * falls on — which is the thing a comment could not have made happen.
  */
