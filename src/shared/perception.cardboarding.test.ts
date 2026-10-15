@@ -449,4 +449,73 @@ describe('cardboarding', () => {
     // obligation 3, P7 criterion 6).
     expect(r.blurRelief).toBe(DEPTH_BLUR_RELIEF)
   })
+
+  it('is invariant under noiseScale, because the radius is in scene px', () => {
+    // **Design §10.6's rule, and the one function in this module whose scene-px
+    // claim was still only a comment.** Five functions already assert it —
+    // `disparityBudget`, `encodableDepths`, `quantisationStep`, `depthStops`,
+    // `fusionComfort`. `grep -n noiseScale` over this file returned nothing,
+    // while `cardboarding` compares `stereo.depthBlur` (scene px) against
+    // `DEPTH_BLUR_RELIEF` (scene px) and says so in prose only.
+    //
+    // That is the exact shape §10.6 was written about. `legibility.ts` carried
+    // the same claim as a comment, the comment said the budget was "silently
+    // right at the default of 1", and the default was **2** — so the
+    // hypothetical mistake it dismissed would have doubled the budget on every
+    // scene nobody had configured. `perception.ts:229-240` records that
+    // history. A comment is not a sensor (§9); this is.
+    //
+    // `DEFAULT_STEREO.noiseScale` is **read, not written**, for that same
+    // reason: a literal here would reproduce in the guard the defect the guard
+    // exists to catch.
+    //
+    // The radii are chosen so both directions of the mistake move the answer,
+    // which a sweep at `depthBlur: 0` would not — 0 is below the threshold at
+    // every scaling. At radius 1 with `noiseScale` 2, scaling the *threshold*
+    // flips the verdict to flat; at radius 0.5, scaling the *radius* flips it
+    // to not-flat. Both are in the sweep.
+    const flat = sceneOf({ type: 'text', text: 'A' })
+    const relief = sceneOf({ type: 'image', src: 'a.png', mode: 'heightmap' })
+    const scales = [1, DEFAULT_STEREO.noiseScale, DEFAULT_STEREO.noiseScale * 2, 3, 7]
+    let checked = 0
+    for (const scene of [flat, relief]) {
+      for (const depthBlur of [0, 0.5, DEPTH_BLUR_RELIEF, DEPTH_BLUR_RELIEF * 2, 4]) {
+        const base = cardboarding(scene, { ...DEFAULT_STEREO, depthBlur, noiseScale: 1 })
+        for (const noiseScale of scales) {
+          expect(
+            cardboarding(scene, { ...DEFAULT_STEREO, depthBlur, noiseScale }),
+            `depthBlur ${depthBlur} at noiseScale ${noiseScale}`,
+          ).toEqual(base)
+          checked++
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(0)
+
+    // The control §6.5a asks for, and the half a bare invariance claim cannot
+    // supply: the same instrument, driven by the axis that *does* move it,
+    // reports something different. Without this the sweep above is
+    // indistinguishable from a reading that never changes at all.
+    // `perception.capacity.test.ts` and `perception.stops.test.ts` pair their
+    // `noiseScale` sweeps the same way.
+    expect(cardboarding(flat, blurred(0)).cardboarding)
+      .not.toBe(cardboarding(flat, blurred(DEPTH_BLUR_RELIEF)).cardboarding)
+  })
+
+  it('does not scale the threshold it reports, either', () => {
+    // The reading carries `blurRelief` so a view can draw the boundary without
+    // inlining it (R22 obligation 3). A consumer drawing a scene-px axis would
+    // then put the mark in the wrong place if this travelled scaled, and the
+    // assertion above would not see it — `toEqual` compares the whole reading,
+    // but only against another reading from the same function, so a threshold
+    // scaled *consistently* would survive it. Pinned against the module's own
+    // constant instead.
+    for (const noiseScale of [1, DEFAULT_STEREO.noiseScale, 7]) {
+      const r = cardboarding(
+        sceneOf({ type: 'text', text: 'A' }),
+        { ...DEFAULT_STEREO, noiseScale },
+      )
+      expect(r.blurRelief, `noiseScale ${noiseScale}`).toBe(DEPTH_BLUR_RELIEF)
+    }
+  })
 })
