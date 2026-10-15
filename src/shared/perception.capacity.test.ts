@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_STEREO, plateLayoutOf, sepAt } from '../core/index.js'
+import { DEFAULT_STEREO, marginsFor, plateLayoutOf, sepAt, sirdsFromDepth } from '../core/index.js'
 import type { Scene, SirdsAlgorithm, StereoOpts } from '../core/types.js'
 import { disparityBudget, encodableDepths, quantisationStep } from './perception.js'
 
@@ -357,5 +357,253 @@ describe('quantisationStep is the depth resolution the rounding leaves', () => {
     const flat = at(110, 110)
     expect(encodableDepths(flat)).toBe(1)
     expect(quantisationStep(flat)).toBe(Number.POSITIVE_INFINITY)
+  })
+})
+
+/**
+ * P7 criterion 4's sensor: the `linked` dead strips fall **inside** the plate
+ * margins.
+ *
+ * Criterion 4 asked {@link encodableDepths} to report the dead strips alongside
+ * the stage capacity, and `perception.ts`' docblock declines on a measurement —
+ * the strips fall entirely inside the columns `src/core/plate.ts` already
+ * reserves, so the guarantee exists and widening a `number` into a shape to
+ * restate it is machinery. §9 says a recorded note is not a sensor, so the
+ * measurement is run here rather than asserted in prose. The day `marginsFor`
+ * stops covering the strips, or the encoder's skip test moves, this reddens.
+ *
+ * ## Containment, not equality, because equality is false
+ *
+ * The criterion was written as *"assert the strip width equals the margin
+ * width"*. That is **false at every odd `sepFar`** and would have shipped green
+ * only because nothing in this repo sweeps an odd separation. `marginsFor`
+ * gives `ceil(sepFar/2)` on both sides under `linked`; the encoder's skip test
+ * (`sirds.ts`: `left = x - (sep >> 1)`, `right = left + sep`) leaves
+ * `floor(sep/2)` dead on the left and `ceil(sep/2)` on the right. At the
+ * default 110 both are 55 and the two claims coincide; at 111 the left strip is
+ * 55 against a margin of 56. Measured below, end to end, at 3/5/11/47/93/111/141.
+ *
+ * So the property is `strip <= margin` per side — true for every `sepFar >= 2`
+ * by `floor <= ceil` — **plus** a tightness bound, because containment alone is
+ * satisfied by making the margin enormous and would make the wrong fix the
+ * cheap one. The bound is {@link MAX_MARGIN_SLACK}.
+ *
+ * ## What is measured and what is derived, and why it is split that way
+ *
+ * The margin comes from `marginsFor`. The strips come from a **real encoded
+ * frame**, counted — neither side is restated here, which is §9's rule that a
+ * guard derived from the roster it guards proves only that the derivation ran
+ * twice.
+ *
+ * The split of the dead strip into a left half and a right half is observable
+ * **only at a separation the frame has something to contrast against**, and that
+ * is not a limitation of this probe but of the encoder's output. For a field at
+ * one uniform depth the set of linked pairs is `{(a, a+sep)}` for
+ * `0 <= a <= w-1-sep` whichever way the skip test rounds: swapping
+ * `x - (sep >> 1)` for `x - ceil(sep/2)` shifts which `x` are skipped and
+ * relabels which depth-map column produced each pair, but produces the **same
+ * pair set and a bit-identical frame**. The far extreme is exactly that case —
+ * a feature at `sep = sepFar` is by construction indistinguishable from the
+ * background — so the worst-case strip cannot be read off an image at all.
+ *
+ * The sweep therefore does the two halves separately:
+ *
+ * 1. {@link deadStrips} measures the strips at a separation a slab really
+ *    encodes at, over odd and even values including the encoder's floor of 2.
+ *    That is the geometric identity `marginsFor` rests on, exercised against the
+ *    encoder rather than against arithmetic.
+ * 2. `never produces a separation wider than sepFar` establishes, over `sepAt`,
+ *    that `sepFar` is the widest separation any depth reaches — which is what
+ *    makes `marginsFor(sepFar)` the margin for the worst case rather than for
+ *    one case.
+ */
+const STRIP_FIELD_HEIGHT = 24
+
+/**
+ * How much wider than the slab's own separation the background is set.
+ *
+ * Any positive budget works: the point is only that the slab (depth 1,
+ * separation `sep`) and the background (depth 0, separation `sep + GAP`) encode
+ * at *different* offsets, so `linkedColumns` at `sep` sees the slab and nothing
+ * else. 18 is the shipped default budget, picked so the sweep runs in a regime
+ * the project actually ships rather than a degenerate one.
+ */
+const STRIP_FAR_GAP = 18
+
+/**
+ * The most a margin may exceed the strip it covers, per side, in plate columns
+ * (scene px — the encoder runs before `upscale`).
+ *
+ * **The claim is `ceil(sepFar/2) - floor(sepFar/2) <= 1`**, written as a bound
+ * rather than as that expression so the margin is not compared against a second
+ * copy of its own arithmetic. One column of slack exists at odd separations and
+ * nowhere else; widening this number is a visible change of claim rather than a
+ * test that keeps passing.
+ */
+const MAX_MARGIN_SLACK = 1
+
+/**
+ * Columns `x` where `x` and `x + off` are identical in **every** row — the
+ * left members of the pairs the encoder constrained at that offset.
+ *
+ * `sirds.linked.test.ts` carries the same construction and the same reasoning:
+ * over a slab identical in every row, a chance agreement across `h` rows is
+ * `2^-h`, so at 24 rows this is the set the encoder genuinely linked.
+ */
+function linkedLeftMembers(img: Uint8Array, w: number, h: number, off: number): number[] {
+  const out: number[] = []
+  for (let x = 0; x + off < w; x++) {
+    let all = true
+    for (let y = 0; y < h && all; y++) if (img[y * w + x] !== img[y * w + x + off]) all = false
+    if (all) out.push(x)
+  }
+  return out
+}
+
+/** A plate-wide depth map at background, with a near slab spanning `[x0, x1)`. */
+function slabFrame(sep: number, w: number, x0: number, x1: number): Uint8Array {
+  const h = STRIP_FIELD_HEIGHT
+  const depth = new Float32Array(w * h)
+  for (let y = 0; y < h; y++) for (let x = x0; x < x1; x++) depth[y * w + x] = 1
+  return sirdsFromDepth(depth, w, h, {
+    sepFar: sep + STRIP_FAR_GAP, sepNear: sep, cross: false, seed: 7, algorithm: 'linked',
+  })
+}
+
+/**
+ * The left and right dead strips at separation `sep`, measured from encoded
+ * frames and in plate columns.
+ *
+ * Three independent readings, because a probe that can only be checked against
+ * the thing it is measuring is not a measurement:
+ *
+ * - A slab clear of both edges gives `left` directly: its encoded centres run
+ *   `[x0, x1)`, so the smallest left member is `x0 - left`. Nothing about the
+ *   encoder's rounding is assumed — the offset is read off the frame.
+ * - A slab hugging the left edge loses exactly `left` of its columns, so
+ *   `L - count` is a second reading of the same quantity by a different route
+ *   (a count, not a position). The two are asserted equal.
+ * - A slab hugging the right edge gives `right` the same way from the other
+ *   end, using the `left` just measured.
+ *
+ * The windows discard transitive noise: merging two equivalence classes gives
+ * both the colour of whichever had the right-most member, so a slab can make
+ * two far-apart columns equal at an offset neither was linked at. The repo's
+ * own `encodedCentres` filters for the same reason.
+ */
+function deadStrips(sep: number): { left: number; right: number } {
+  const slab = 2 * sep + 20
+  const w = 6 * sep + 120
+  const x0 = Math.floor((w - slab) / 2)
+
+  const centred = linkedLeftMembers(slabFrame(sep, w, x0, x0 + slab), w, STRIP_FIELD_HEIGHT, sep)
+    .filter(x => x >= x0 - sep && x < x0 + slab)
+  expect(centred.length, `sep ${sep}: a centred slab encoded nothing`).toBeGreaterThan(0)
+  const left = x0 - centred[0]!
+
+  const hugLeft = linkedLeftMembers(slabFrame(sep, w, 0, slab), w, STRIP_FIELD_HEIGHT, sep)
+    .filter(x => x >= 0 && x < slab)
+  expect(slab - hugLeft.length, `sep ${sep}: the two readings of the left strip disagree`)
+    .toBe(left)
+
+  const hugRight = linkedLeftMembers(slabFrame(sep, w, w - slab, w), w, STRIP_FIELD_HEIGHT, sep)
+    .filter(x => x >= w - slab - sep && x < w)
+  expect(hugRight.length, `sep ${sep}: a right-hugging slab encoded nothing`).toBeGreaterThan(0)
+  const right = w - 1 - left - hugRight[hugRight.length - 1]!
+
+  return { left, right }
+}
+
+/**
+ * Separations swept, chosen so the odd ones are not incidental.
+ *
+ * Every entry but the first is paired with its neighbour across the parity
+ * boundary, because parity is the whole reason the criterion's original
+ * equality was wrong; 2 is `marginsFor`'s and `sepAt`'s floor; 110 is the
+ * shipped default and 111 the case that refutes the equality.
+ */
+const STRIP_SEPARATIONS: readonly number[] = [
+  2, 3, 4, 5, 10, 11, 46, 47, 92, 93, 110, 111, 140, 141,
+]
+
+describe('the linked dead strips fall inside the plate margins', () => {
+  it('leaves no column of the margin uncovered, and no more than one to spare', () => {
+    // Criterion 4's sensor proper. Both sides come from shipped code: the
+    // margin from `marginsFor`, the strips from frames the encoder actually
+    // emitted. Measured, 24 rows, seed 7:
+    //
+    //   sep    left  right   margin
+    //     2      1      1      1/1
+    //     3      1      2      2/2     <- the criterion's equality is false here
+    //    11      5      6      6/6
+    //    93     46     47     47/47
+    //   110     55     55     55/55    <- and true here, which is why it shipped
+    //   111     55     56     56/56
+    //   141     70     71     71/71
+    for (const sep of STRIP_SEPARATIONS) {
+      const { left, right } = deadStrips(sep)
+      const margin = marginsFor(sep, 'linked')
+
+      expect(left, `sep ${sep}: left strip escapes the margin`).toBeLessThanOrEqual(margin.left)
+      expect(right, `sep ${sep}: right strip escapes the margin`).toBeLessThanOrEqual(margin.right)
+      expect(margin.left - left, `sep ${sep}: left margin is slack`)
+        .toBeLessThanOrEqual(MAX_MARGIN_SLACK)
+      expect(margin.right - right, `sep ${sep}: right margin is slack`)
+        .toBeLessThanOrEqual(MAX_MARGIN_SLACK)
+    }
+  })
+
+  it('is tight on at least one side at every separation, so the bound is not slack twice', () => {
+    // The containment above is satisfied by a margin one column too wide on
+    // both sides, which `MAX_MARGIN_SLACK` permits by itself. What makes the
+    // pair of bounds actually pin the margin is that one side is always
+    // exact — `ceil(sep/2)` is the right strip, so the right margin has zero
+    // slack at every separation, odd or even. Asserted separately from the
+    // containment so that a margin widened by one column is a named failure
+    // rather than a quantity drifting inside a tolerance.
+    for (const sep of STRIP_SEPARATIONS) {
+      const { right } = deadStrips(sep)
+      expect(marginsFor(sep, 'linked').right, `sep ${sep}`).toBe(right)
+    }
+  })
+
+  it('never needs a wider margin than sepFar buys, at any depth a renderable scene has', () => {
+    // The half no image can show, and the half that turns a measurement at one
+    // separation into a guarantee about the plate. `marginsFor` is a function
+    // of `sepFar` alone, so it is the right margin for *every* depth only if
+    // no depth encodes wider than `sepFar` does. Swept over `sepAt` across
+    // `CONFIGS` rather than reasoned from its body.
+    //
+    // Scoped to the configurations `resolveStereo` accepts, and the scope is
+    // the finding rather than a convenience: under an **inverted** pair the
+    // widest separation is at depth 1, not depth 0 — at `92/110` it is 110
+    // against a margin cut for 92 — so an inverted scene's margins do not
+    // cover its own strips. Nothing renders one (`render.ts` refuses
+    // `sepNear >= sepFar`), which is the only reason that is not a defect, and
+    // the inverted arm is asserted below rather than skipped.
+    let renderable = 0
+    for (const s of CONFIGS) {
+      if (!(s.sepNear >= 2 && s.sepNear < s.sepFar)) continue
+      renderable++
+      let widest = Number.NEGATIVE_INFINITY
+      for (const sep of separationsOver(s)) if (sep > widest) widest = sep
+      const needed = marginsFor(widest, 'linked')
+      const bought = marginsFor(s.sepFar, 'linked')
+      expect(needed.left, `sepFar ${s.sepFar} / sepNear ${s.sepNear}`)
+        .toBeLessThanOrEqual(bought.left)
+      expect(needed.right, `sepFar ${s.sepFar} / sepNear ${s.sepNear}`)
+        .toBeLessThanOrEqual(bought.right)
+    }
+    expect(renderable).toBeGreaterThan(0)
+
+    // The inverted arm, pinned so the scope above is a measurement and not an
+    // exclusion: the widest separation really is at the near end there, and it
+    // really does exceed what `sepFar` pays for.
+    const inverted = at(92, 110)
+    let widest = Number.NEGATIVE_INFINITY
+    for (const sep of separationsOver(inverted)) if (sep > widest) widest = sep
+    expect(widest).toBeGreaterThan(inverted.sepFar)
+    expect(marginsFor(widest, 'linked').right)
+      .toBeGreaterThan(marginsFor(inverted.sepFar, 'linked').right)
   })
 })

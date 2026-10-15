@@ -319,11 +319,21 @@ const UNBOUNDED_PLATE = Number.POSITIVE_INFINITY
  *
  * Capacity *in the stage*. Design §10.1 adds that under `linked` the columns
  * within `sep/2` of each plate edge carry no depth, and P7 criterion 4 asks
- * this function to report those strips too. That clause is under orchestrator
- * review and is deliberately not built: the strips were measured to fall
- * entirely inside the plate margins, which `src/core/plate.ts` already defines
- * as columns nothing may be composed in. `src/core/sirds.linked.test.ts`
- * measures the dead zones themselves.
+ * this function to report those strips too. That clause is **closed as
+ * satisfied by `src/core/plate.ts`** (orchestrator, 2026-10-15): the strips
+ * fall entirely inside the plate margins, which `plate.ts` already defines as
+ * columns nothing may be composed in, so widening a bare `number` into a shape
+ * to restate a guarantee that already exists is machinery.
+ *
+ * It is closed **conditional on a sensor**, and §9 says a recorded note is not
+ * one, so the measurement runs rather than sitting here: `the linked dead
+ * strips fall inside the plate margins` in `perception.capacity.test.ts` reads
+ * both sides off shipped code — the margin from `marginsFor`, the strips from
+ * encoded frames — and reddens the day either moves. It asserts
+ * **containment**, not equality: the criterion's original wording ("the strip
+ * width equals the margin width") is false at every odd `sepFar`, where the
+ * left strip is `floor(sepFar/2)` against a margin of `ceil(sepFar/2)`.
+ * `src/core/sirds.linked.test.ts` measures the dead zones themselves.
  */
 export function encodableDepths(stereo: StereoOpts): number {
   const range = disparityBudget(stereo)
