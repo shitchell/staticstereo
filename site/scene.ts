@@ -269,6 +269,14 @@ function validateLayer(v: unknown, path: string): Layer {
     // Design §9.5: this is an open design question, not a missing loader. Say
     // so, so that nobody reports it as a bug or "fixes" it with a dynamic
     // import that cannot work in a static bundle.
+    //
+    // **This block is the explanation, not the refusal.** `LAYER_TYPES` at
+    // :35 refuses `draw` a second time through the `requireOneOf` below, so
+    // deleting this `fail` alone does not admit `draw` — it only swaps this
+    // message for "layers[0].type must be one of text, image, gif, shape".
+    // Several comments elsewhere in the tree credit *this* `fail` with the
+    // refusal; the load-bearing half is the hand-written tuple at :35, and
+    // that is where a change that did admit `draw` would have to be made.
     fail(
       `${path}: layer type "draw" is not supported. It names a module path, and ` +
       `resolving one inside a static bundle is not possible — there is no ` +

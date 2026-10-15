@@ -36,6 +36,89 @@ import { DEFAULT_FIT, FIT_PARAM, parseFit } from './fit.js'
 const SITE = fileURLToPath(new URL('.', import.meta.url))
 
 /**
+ * The paired control's directory. Five files, read as text and never imported,
+ * holding one planted violation among four lawful modules. Argued in
+ * `query-sweep-fixture/README.md`; the short version is that the plant is a
+ * *working* fourth parser, so under `site/` it would be the thing this file
+ * exists to forbid, and a non-test file under `site/` also marks both dist
+ * directories stale and silently skips 24 of `dist.test.ts`'s 32 tests.
+ */
+const FIXTURE = fileURLToPath(new URL('../query-sweep-fixture/', import.meta.url))
+
+/**
+ * How a sweep recognises a module and the modules it imports.
+ *
+ * Both halves are parameters rather than literals for one reason: the control
+ * at the bottom of this file has to run **the same walker** under the
+ * pre-change spellings and the current ones. A second copy of the walker
+ * written to be blind would be a copy of the thing this whole file exists to
+ * forbid, and it would drift away from the real sweep the first time either
+ * changed.
+ */
+interface Spelling {
+  /** For the failure message, so a red control says which sweep was wrong. */
+  readonly what: string
+  readonly isModule: (fileName: string) => boolean
+  readonly importsIn: (source: string) => readonly string[]
+}
+
+/**
+ * The spellings in force.
+ *
+ * **`.svelte` counts as a module.** It did not, and `siteModules` filtered
+ * `.endsWith('.ts')`, so a component could hold a fourth query parser, a
+ * second boolean-spelling table, a fourth `X_PARAM` and a `location.search`
+ * read, and every sweep in this file would report a clean directory. Measured,
+ * not argued: with such a component committed in `site/`, this file passed
+ * 21/21 and the whole suite passed 1363/1363 after a rebuild.
+ *
+ * **An import is recognised whatever quotes it, whatever its casing, and
+ * whether it names a `.js` or a `.svelte` file.** The pattern was
+ * `/from '\.\/([a-z]+)\.js'/`, which cannot see `"./store.js"`,
+ * `'./editorStore.js'` or `'./EditorPanel.svelte'` — all three shapes the
+ * editor shell is made of. That defect runs the *other* way from the one
+ * above: a narrower pattern can only make the cone smaller, so it cannot hide
+ * a violation, it falsely accuses lawful modules of handling a query string
+ * from outside the cone. A guard that cries wolf at correct code is a guard
+ * someone eventually deletes, which is why it is fixed here rather than noted.
+ *
+ * **A specifier containing `/` is still deliberately unresolvable.** The names
+ * {@link siteModules} returns are relative to `site/`, so `./b.js` read inside
+ * `site/sub/a.ts` would resolve to the wrong module; excluding `/` keeps a
+ * subdirectory a decision somebody has to make deliberately, which is the
+ * behaviour {@link siteModules}'s docblock records and not this task's to
+ * revisit.
+ */
+const SWEEP: Spelling = {
+  what: 'every extension, casing and quoting',
+  isModule: name => !name.endsWith('.test.ts') && (name.endsWith('.ts') || name.endsWith('.svelte')),
+  importsIn: source =>
+    [...source.matchAll(/\bfrom\s+['"]\.\/([^'"/]+)['"]/g)].flatMap(match => {
+      const specifier = match[1]!
+      // `.js` because this repo's `moduleResolution` is `node16`, so a
+      // TypeScript module is always imported under its emitted name; a
+      // `.svelte` module is imported under its own.
+      if (specifier.endsWith('.js')) return [`${specifier.slice(0, -'.js'.length)}.ts`]
+      if (specifier.endsWith('.svelte')) return [specifier]
+      return []
+    }),
+}
+
+/**
+ * The spellings as they stood before `SWEEP` replaced them, kept because a
+ * null measurement is evidence only to the extent that something could have
+ * been seen. The control at the bottom runs both over the fixture and pins the
+ * difference, so "the sweep covers `.svelte` now" is a measured delta rather
+ * than an assertion. Deleting this makes that test vacuous rather than red,
+ * which is the failure mode it is here to prevent.
+ */
+const BLIND: Spelling = {
+  what: '.ts only, single-quoted all-lowercase ./name.js imports',
+  isModule: name => name.endsWith('.ts') && !name.endsWith('.test.ts'),
+  importsIn: source => [...source.matchAll(/from '\.\/([a-z]+)\.js'/g)].map(m => `${m[1]!}.ts`),
+}
+
+/**
  * The words a human types for true and false, declared here rather than counted.
  *
  * The table's size used to be floored with `toBeGreaterThan(6)` against eight
@@ -68,21 +151,23 @@ const FALSE_WORDS = ['0', 'false', 'no', 'off']
  * {@link importsOf} then fails to resolve, making the cone test red rather than
  * quietly admitting it. That is the intended direction: a subdirectory is a
  * decision somebody should have to make deliberately.
+ *
+ * **Which extensions count is {@link Spelling}'s to say**, not this function's,
+ * so the control can run this same walk under the pre-change filter.
  */
-function siteModules(dir = SITE, prefix = ''): readonly string[] {
+function siteModules(dir = SITE, prefix = '', spelling: Spelling = SWEEP): readonly string[] {
   const out: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const name = `${prefix}${entry.name}`
-    if (entry.isDirectory()) out.push(...siteModules(join(dir, entry.name), `${name}/`))
-    else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.test.ts')) out.push(name)
+    if (entry.isDirectory()) out.push(...siteModules(join(dir, entry.name), `${name}/`, spelling))
+    else if (spelling.isModule(entry.name)) out.push(name)
   }
   return out.sort()
 }
 
 /** The `site/` modules `name` imports, by its own relative specifiers. */
-function importsOf(name: string): readonly string[] {
-  const source = readFileSync(join(SITE, name), 'utf8')
-  return [...source.matchAll(/from '\.\/([a-z]+)\.js'/g)].map(m => `${m[1]!}.ts`)
+function importsOf(name: string, root = SITE, spelling: Spelling = SWEEP): readonly string[] {
+  return spelling.importsIn(readFileSync(join(root, name), 'utf8'))
 }
 
 /**
@@ -91,19 +176,53 @@ function importsOf(name: string): readonly string[] {
  * A fixed point rather than one pass: the chain is three deep today
  * (`player.ts` → `playerplan.ts` → `fit.ts` → `query.ts`) and nothing caps it.
  */
-function queryCone(): ReadonlySet<string> {
+function queryCone(root = SITE, spelling: Spelling = SWEEP): ReadonlySet<string> {
   const cone = new Set<string>(['query.ts'])
   for (let growing = true; growing; ) {
     growing = false
-    for (const name of siteModules()) {
+    for (const name of siteModules(root, '', spelling)) {
       if (cone.has(name)) continue
-      if (importsOf(name).some(dep => cone.has(dep))) {
+      if (importsOf(name, root, spelling).some(dep => cone.has(dep))) {
         cone.add(name)
         growing = true
       }
     }
   }
   return cone
+}
+
+/**
+ * The two ways a module is detected as handling a query string, extracted so
+ * the control runs the detectors themselves and not a restatement of them.
+ *
+ * Both are about the module's *interface* rather than its body — see the
+ * cone test's docblock, which is where the choice is argued.
+ */
+function queryHandlers(
+  root = SITE,
+  spelling: Spelling = SWEEP,
+): { readonly declared: readonly string[]; readonly readers: readonly string[] } {
+  const declared: string[] = []
+  const readers: string[] = []
+  for (const name of siteModules(root, '', spelling)) {
+    const source = readFileSync(join(root, name), 'utf8')
+    if (/export const [A-Z0-9_]+_PARAM\b/.test(source)) declared.push(name)
+    // Backtick-quoted `location.search` is prose; every module here names it
+    // in a docblock, and only some of them read it.
+    if (/(?<!`)location\.search/.test(source)) readers.push(name)
+  }
+  return { declared, readers }
+}
+
+/** Every module whose source writes one spelling of the parse policy. */
+function policyHolders(
+  pattern: RegExp,
+  root = SITE,
+  spelling: Spelling = SWEEP,
+): readonly string[] {
+  return siteModules(root, '', spelling).filter(name =>
+    pattern.test(readFileSync(join(root, name), 'utf8')),
+  )
 }
 
 describe('searchParams', () => {
@@ -274,6 +393,24 @@ describe('both boolean parsers honour the one table', () => {
   })
 })
 
+/**
+ * **Three patterns and not four.** `startsWith('?')` was the fourth, and it
+ * is gone because the thing it pinned was not a decision: `URLSearchParams`
+ * strips one leading `?` itself, so all three parsers' copies of the strip —
+ * and the copy this module inherited from them — were no-ops. Deleting the
+ * strip left every behaviour test in this file green and reddened only this
+ * sweep, which is the precise signature of a line that exists because a sweep
+ * asserts someone wrote it. Argued at `query.ts`'s `searchParams`.
+ *
+ * At module scope rather than inside the describe below, so the control group
+ * at the bottom sweeps **these** patterns and not a transcription of them.
+ */
+const POLICY: readonly { readonly what: string; readonly pattern: RegExp }[] = [
+  { what: 'constructing the parser', pattern: /new URLSearchParams\(/ },
+  { what: 'last-of-repeated-wins', pattern: /\.getAll\(/ },
+  { what: 'trim-and-lowercase', pattern: /\.trim\(\)\.toLowerCase\(\)/ },
+]
+
 describe('exactly one copy of the parse policy', () => {
   /**
    * Source-text assertions, the house technique for a claim no unit test can
@@ -303,22 +440,9 @@ describe('exactly one copy of the parse policy', () => {
    * the three idioms as written in this repo today* — and the broad one is
    * carried by the next test instead, which is closed over **modules** rather
    * than over spellings. That one is also not complete, in a different and
-   * stated direction.
+   * stated direction. The three patterns themselves are at module scope, so
+   * the control group at the bottom of this file sweeps the same ones.
    */
-  /**
-   * **Three patterns and not four.** `startsWith('?')` was the fourth, and it
-   * is gone because the thing it pinned was not a decision: `URLSearchParams`
-   * strips one leading `?` itself, so all three parsers' copies of the strip —
-   * and the copy this module inherited from them — were no-ops. Deleting the
-   * strip left every behaviour test in this file green and reddened only this
-   * sweep, which is the precise signature of a line that exists because a sweep
-   * asserts someone wrote it. Argued at `query.ts`'s `searchParams`.
-   */
-  const POLICY: readonly { readonly what: string; readonly pattern: RegExp }[] = [
-    { what: 'constructing the parser', pattern: /new URLSearchParams\(/ },
-    { what: 'last-of-repeated-wins', pattern: /\.getAll\(/ },
-    { what: 'trim-and-lowercase', pattern: /\.trim\(\)\.toLowerCase\(\)/ },
-  ]
 
   it('is not vacuous: there are several modules to be wrong in', () => {
     const modules = siteModules()
@@ -331,11 +455,8 @@ describe('exactly one copy of the parse policy', () => {
 
   it('writes each spelling of the policy in query.ts and nowhere else', () => {
     for (const { what, pattern } of POLICY) {
-      const holders = siteModules().filter(name =>
-        pattern.test(readFileSync(join(SITE, name), 'utf8')),
-      )
       // The floor and the claim in one: query.ts has it, and it is alone.
-      expect(holders, what).toEqual(['query.ts'])
+      expect(policyHolders(pattern), what).toEqual(['query.ts'])
     }
   })
 
@@ -375,18 +496,23 @@ describe('exactly one copy of the parse policy', () => {
     expect(cone.size).toBeGreaterThan(5)
     expect(cone.size).toBeLessThan(siteModules().length)
 
-    const declared: string[] = []
-    const readers: string[] = []
-    for (const name of siteModules()) {
-      const source = readFileSync(join(SITE, name), 'utf8')
-      if (/export const [A-Z0-9_]+_PARAM\b/.test(source)) declared.push(name)
-      // Backtick-quoted `location.search` is prose; every module here names it
-      // in a docblock, and only some of them read it.
-      if (/(?<!`)location\.search/.test(source)) readers.push(name)
-    }
+    const { declared, readers } = queryHandlers()
     // Both detectors are live. The declaring modules are pinned by name because
     // they are this page's whole parameter vocabulary; the readers are pinned
     // by a count, because which module holds the DOM is another phase's choice.
+    //
+    // The equality stands as P2 wrote it, and is now sighted: `declared` is
+    // computed over a population that includes `.svelte`, so a component
+    // declaring a fourth parameter reddens it where it used to be unseen.
+    // It was *not* loosened to a superset, and the hand-written list was not
+    // replaced by a derived one. Both were considered and both lose a case this
+    // catches: the derivation available — "the modules that import `query.ts`
+    // directly", which is exactly `fit, present, smooth` today — goes green on a
+    // fourth parameter declared in a module that lawfully imports the
+    // mechanism, and that is the case this list is for. The cost is real and
+    // stays: a legitimate new `X_PARAM` in a later phase reddens a merged
+    // phase's test, and whoever adds one must update this line deliberately.
+    // The ⊆ half of that derivation is additive, so it is asserted below.
     expect(declared).toEqual(['fit.ts', 'present.ts', 'smooth.ts'])
     expect(readers.length, 'modules reading location.search').toBeGreaterThan(0)
 
@@ -395,14 +521,137 @@ describe('exactly one copy of the parse policy', () => {
     }
   })
 
+  /**
+   * **The half of the hand-written list that can be derived, derived.**
+   *
+   * `declared` is pinned above against three names somebody typed, which is
+   * this repo's recorded trap: a list of "the places that do X" goes stale the
+   * day a fourth one appears. One direction of it needs no list at all — a
+   * module that declares a parameter must import `query.ts` **directly**, not
+   * merely reach it through the cone — and that is strictly more than the cone
+   * test asks, because the cone admits a module three hops away.
+   *
+   * Only the ⊆ direction. The ⊇ direction ("every direct importer declares a
+   * parameter") is false of any component that merely *calls* `lastParam`, and
+   * the editor shell will be full of those; asserting it would manufacture the
+   * same false alarm this commit is removing from the cone walk.
+   */
+  it('has every parameter-declaring module importing query.ts directly', () => {
+    const direct = siteModules().filter(name => importsOf(name).includes('query.ts'))
+    // Vacuity floor: the import detector resolved something, and not everything.
+    expect(direct.length, 'direct importers of query.ts').toBeGreaterThan(0)
+    expect(direct.length).toBeLessThan(siteModules().length)
+
+    for (const name of queryHandlers().declared) {
+      expect(direct, `${name} declares a parameter without importing query.ts`).toContain(name)
+    }
+  })
+
   it('has every boolean parser reading the table rather than its own', () => {
     // The table is the half a regex cannot police — the spellings are ordinary
     // words — so it is pinned by import instead: a parser that grew a second
     // copy would have no reason to keep importing the first.
+    //
+    // Policing it by text was measured and rejected rather than assumed
+    // impossible: counting the eight declared words as quoted literals per
+    // module gives `query.ts` 8 and `smooth.ts` 5, so any threshold that
+    // isolates the table sits one word from a false positive — and `smooth.ts`'s
+    // five are its own `SmoothMode` values (`'on' | 'off'`), not a table at all.
+    // A "complete vocabulary" detector has no threshold but would have missed
+    // the actual historical defect, which was two files holding different
+    // *subsets* of the same words.
+    //
+    // Either quote. A module is no less an importer for writing `"`, and this
+    // file's other single-quote-only pattern was the bug it is fixing.
     for (const name of ['present.ts', 'smooth.ts']) {
       const source = readFileSync(join(SITE, name), 'utf8')
-      expect(source, name).toMatch(/from '\.\/query\.js'/)
+      expect(source, name).toMatch(/from ['"]\.\/query\.js['"]/)
       expect(source, name).toMatch(/booleanSpelling/)
     }
+  })
+})
+
+/**
+ * **The paired control: what the sweeps above could not see, and now can.**
+ *
+ * Every test in this group runs the *same* walker, the *same* idiom patterns
+ * and the *same* two detectors over `query-sweep-fixture/`, once under
+ * {@link SWEEP} and once under {@link BLIND} — the spellings in force before
+ * this group was written. The fixture holds one planted violation among four
+ * lawful modules, so each test states a delta rather than a null: "the sweep
+ * covers `.svelte`" is not evidence, "the sweep reports a fourth parser the
+ * old filter called a clean directory" is.
+ *
+ * Reproducing this group is **half** the procedure. The other half is the
+ * measurement it was derived from, which no committed test can hold because it
+ * requires the violation to be live in `site/`: copy
+ * `query-sweep-fixture/StrayPanel.svelte` into `site/`, rebuild, and run the
+ * whole suite. Before this commit that was **62 files / 1363 passed / 0
+ * skipped, exit 0** with a working fourth query parser in the directory, and
+ * `site/query.test.ts` alone was **21/21**. The reddened tests are the visible
+ * half; those two numbers are the moved measurement.
+ */
+describe('the sweeps see a module whatever its extension, casing or quoting', () => {
+  /** The one file in the fixture that every detector should have something to say about. */
+  const PLANT = 'StrayPanel.svelte'
+
+  it('is not vacuous: the fixture has lawful modules as well as the plant', () => {
+    // Floors in both directions. Without the lawful four, "the blind sweep saw
+    // nothing" would be true of an empty directory; without the plant, there is
+    // nothing for the sighted sweep to find.
+    const modules = siteModules(FIXTURE)
+    expect(modules).toEqual([
+      'EditorPanel.svelte',
+      PLANT,
+      'editorShell.ts',
+      'editorStore.ts',
+      'query.ts',
+    ])
+    expect(siteModules(FIXTURE, '', BLIND), BLIND.what).not.toContain(PLANT)
+  })
+
+  it('finds the fourth parser planted in a component, which was a clean bill of health', () => {
+    for (const { what, pattern } of POLICY) {
+      // The blind sweep's answer is the dangerous one: not an error, but
+      // `['query.ts']` — exactly what it reports over a directory with no
+      // fourth parser in it at all.
+      expect(policyHolders(pattern, FIXTURE, BLIND), `${what}, ${BLIND.what}`).toEqual(['query.ts'])
+      expect(policyHolders(pattern, FIXTURE), what).toEqual([PLANT, 'query.ts'])
+    }
+  })
+
+  it('finds the parameter and the location.search read inside that component', () => {
+    // The second boolean-spelling table in the plant is caught through these
+    // two detectors and the idiom sweep, not by anything that reads the table:
+    // see the boolean-parser test above for why a word sweep was rejected.
+    expect(queryHandlers(FIXTURE, BLIND).declared, BLIND.what).toEqual([])
+    expect(queryHandlers(FIXTURE).declared).toEqual(['EditorPanel.svelte', PLANT])
+    expect(queryHandlers(FIXTURE, BLIND).readers, BLIND.what).toEqual(['editorShell.ts'])
+    expect(queryHandlers(FIXTURE).readers).toEqual([PLANT, 'editorShell.ts'])
+  })
+
+  it('puts the plant outside the cone and the lawful modules inside it', () => {
+    const cone = queryCone(FIXTURE)
+    for (const lawful of ['EditorPanel.svelte', 'editorShell.ts', 'editorStore.ts']) {
+      expect(cone.has(lawful), `${lawful} reaches the mechanism`).toBe(true)
+    }
+    expect(cone.has(PLANT), `${PLANT} reaches the mechanism`).toBe(false)
+  })
+
+  it('resolved none of those three import shapes before, and accused a lawful module', () => {
+    // The import defect runs the opposite way from the extension defect: a
+    // narrower pattern can only shrink the cone, so it hides no violation — it
+    // convicts correct code. All three shapes below are the editor shell's
+    // ordinary vocabulary, and the blind walk resolves none of them, leaving a
+    // cone of one and `editorShell.ts` accused of handling a query string from
+    // outside a cone it is two hops inside.
+    const blindCone = queryCone(FIXTURE, BLIND)
+    expect([...blindCone], BLIND.what).toEqual(['query.ts'])
+    expect(queryHandlers(FIXTURE, BLIND).readers.every(name => blindCone.has(name))).toBe(false)
+
+    expect(importsOf('editorStore.ts', FIXTURE, BLIND), 'double-quoted').toEqual([])
+    expect(importsOf('editorStore.ts', FIXTURE)).toEqual(['query.ts'])
+    expect(importsOf('editorShell.ts', FIXTURE, BLIND), 'camelCase and .svelte').toEqual([])
+    expect(importsOf('editorShell.ts', FIXTURE)).toEqual(['editorStore.ts', 'EditorPanel.svelte'])
   })
 })

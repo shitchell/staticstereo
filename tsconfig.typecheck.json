@@ -1,4 +1,11 @@
 {
+  // Consumed by `svelte-check`, not by `tsc` — `npm run typecheck` swapped the
+  // binary because `tsc` has no `.svelte` in its input extension set and never
+  // opens one, so the obvious `declare module '*.svelte'` shim would have made
+  // this gate exit 0 over unchecked components. `svelte-check` honours
+  // everything below (proven one planted violation at a time) except `module`,
+  // for which it substitutes its own ESM kind — see
+  // `site/typecheck-gate.test.ts`, which guards that condition.
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,

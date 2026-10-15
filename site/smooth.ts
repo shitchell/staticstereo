@@ -38,6 +38,14 @@
 
 import { booleanSpelling, lastParam, normaliseParam } from './query.js'
 
+/**
+ * Errors unless its argument is `never` — the repo's exhaustiveness idiom, as
+ * used in `src/core/types.ts` and `src/core/anim/track.ts`. Declared locally
+ * for `site/scale.ts:180`'s recorded reason: it is three words long and sharing
+ * it would couple two modules that have nothing else to say to each other.
+ */
+type AssertNever<T extends never> = T
+
 /** The resampling hints the player understands. See {@link SMOOTH_MODES}. */
 export type SmoothMode = 'auto' | 'on' | 'off'
 
@@ -237,12 +245,87 @@ function isDownscale(devicePerBackingPx: number): boolean {
  * input. A CSS property set to `undefined` is a silent no-op, so a hole here
  * would not throw — it would quietly stop pixelating, which is the kind of bug
  * that is only ever found by eye.
+ *
+ * ## Why the `default:` arm returns instead of throwing
+ *
+ * Total by construction was the whole guard until an extra `SmoothMode` member
+ * was planted and measured: `npm run typecheck` reported **0 errors** and the suite
+ * reddened exactly one test, `SMOOTH_MODES`' membership pin. Nothing noticed
+ * that the new mode had no policy — it silently inherited `auto`'s — and the
+ * test named *"is total: every mode and every scale yields one of the two legal
+ * values"* **passed, and could not have failed**: this function's declared
+ * return type is `'auto' | 'pixelated'` and the chain was total by
+ * fall-through, so the assertion cannot distinguish "has a policy" from "fell
+ * through". The sequence for whoever adds a mode was therefore: one pin goes
+ * red, they update it to go green, and they ship a mode that does nothing, with
+ * a green suite and a test whose name claims totality.
+ *
+ * So the fall-through is now a `default:` arm carrying an {@link AssertNever},
+ * which makes any member added to {@link SmoothMode} a **compile error here**,
+ * naming the exact place the new mode's policy is missing. Not an ordinal:
+ * the count of modes is `Object.keys(SMOOTH_MODES).length` and nothing here
+ * writes it down.
+ *
+ * **It returns `auto`'s policy rather than throwing, and the asymmetry with
+ * `planFit` is the ruling, not a preference.** `site/scale.ts`'s guard throws
+ * because a wrong layout is invisible and ruins the artifact: a `FitPlan` that
+ * read as "no scale" would paint nothing. A wrong resampling hint costs a
+ * slightly soft frame, and throwing here would lose the whole frame over a
+ * hint. Guard everything at compile time; reserve the runtime throw for the
+ * registries where a wrong answer destroys output.
+ *
+ * The runtime behaviour is therefore unchanged in every case, including the one
+ * the `Object.hasOwn` note above describes — a value lying to the compiler
+ * still lands on `auto`'s policy, exactly as it did when this was an `if`
+ * chain.
+ *
+ * ## Where this guard fails, and whether `npm test` can see it
+ *
+ * §F-6 pairs a compile-time `AssertNever` with a runtime witness, because an
+ * `AssertNever` is enforced by `npm run typecheck` alone. **This guard has no
+ * runtime witness and cannot have one**: it is ruled to leave behaviour
+ * identical to its own absence, so there is nothing for a runtime assertion to
+ * distinguish. That is not the hole §F-6 is about, and the reason is measured
+ * rather than argued.
+ *
+ * It fails in `svelte-check` and in nothing else that the scripts run:
+ * `npm run build` is `tsc -p tsconfig.json`, whose `include` is `["src"]`, so
+ * it never opens this file; `npm run build:site` is vite, which transpiles
+ * without checking. Planted and measured: both exit **0** with the error
+ * present.
+ *
+ * `npm test` **does** see it, through three harnesses that spawn the project's
+ * own gate — `site/typecheck-gate.test.ts`, `site/fitregistration.test.ts` and
+ * `site/bindingregistration.test.ts`. Measured with the member planted and this
+ * guard in place: **8 tests red across 4 files**, where without the guard it
+ * was one. They go red because each asserts the type-check surface is clean,
+ * so they name the error rather than this registry — which is coverage, not a
+ * witness, and is why that distinction is written down here.
  */
 export function imageRenderingFor(
   mode: SmoothMode,
   devicePerBackingPx: number,
 ): 'auto' | 'pixelated' {
-  if (mode === 'on') return 'auto'
-  if (mode === 'off') return 'pixelated'
+  switch (mode) {
+    case 'on':
+      return 'auto'
+    case 'off':
+      return 'pixelated'
+    case 'auto':
+      break
+    default: {
+      // `mode` is `never` here, and stops being `never` the moment a member is
+      // added to `SmoothMode` without a case above. Falls out to `auto`'s
+      // policy rather than throwing — see the docblock.
+      //
+      // Nothing reads `unhandled`, and nothing needs to: the annotation is the
+      // assertion. It is not `void`-ed because `noUnusedLocals` is not set in
+      // either tsconfig, and `scale.ts`'s guard — which does read its local,
+      // into a throw this one deliberately does not have — is the precedent
+      // for the shape rather than for the read.
+      const unhandled: AssertNever<typeof mode> = mode
+      break
+    }
+  }
   return isDownscale(devicePerBackingPx) ? 'auto' : 'pixelated'
 }

@@ -17,45 +17,27 @@
  * modes without needing a build.
  */
 import { describe, it, expect } from 'vitest'
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as ts from 'typescript'
+import { importSpecifiers } from './testing/imports.js'
 
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 const DIST = join(ROOT, 'dist')
 const DIST_CORE = join(DIST, 'core')
 
-/**
- * Every module specifier in `text`, from any form that creates a dependency:
- * static import/export-from, bare side-effect import, `import type`, the
- * `import('x').T` type form d.ts files emit, dynamic `import()`, and
- * `require()`.
+/*
+ * `importSpecifiers` was defined here and is now imported from
+ * `./testing/imports.js`. Its two self-tests stay below, because they are
+ * about the parse-not-grep property this file's docblock argues for.
+ *
+ * It moved because a second test file needs it and importing a `.test.ts`
+ * registers that file's `describe`s into the importing suite: measured, every
+ * test in this file ran a second time under `src/svelte-free.test.ts`'s name.
+ * `site/transport.test.ts` records the same hazard from the other side.
  */
-export function importSpecifiers(text: string, kind: ts.ScriptKind): string[] {
-  const sf = ts.createSourceFile('x', text, ts.ScriptTarget.ES2022, true, kind)
-  const out: string[] = []
-  const add = (node: ts.Node | undefined): void => {
-    if (node && ts.isStringLiteralLike(node)) out.push(node.text)
-  }
-  const walk = (node: ts.Node): void => {
-    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
-      add(node.moduleSpecifier)
-    } else if (ts.isImportEqualsDeclaration(node)) {
-      if (ts.isExternalModuleReference(node.moduleReference)) add(node.moduleReference.expression)
-    } else if (ts.isImportTypeNode(node)) {
-      if (ts.isLiteralTypeNode(node.argument)) add(node.argument.literal)
-    } else if (ts.isCallExpression(node)) {
-      const dynamic = node.expression.kind === ts.SyntaxKind.ImportKeyword
-      const required = ts.isIdentifier(node.expression) && node.expression.text === 'require'
-      if (dynamic || required) add(node.arguments[0])
-    }
-    ts.forEachChild(node, walk)
-  }
-  walk(sf)
-  return out
-}
 
 function filesUnder(dir: string): string[] {
   const out: string[] = []
@@ -102,6 +84,125 @@ describe('importSpecifiers', () => {
 })
 
 const built = existsSync(DIST_CORE)
+
+/* ===================================================================== */
+/*  existing output is only evidence if it was built from these sources   */
+/* ===================================================================== */
+
+/**
+ * `built` asks one question — does `dist/core` exist — and nothing here asks
+ * whether it was built from the sources now on disk.
+ *
+ * So this file has been asserting over whatever the last `npm run build` left
+ * behind. Add `import '@napi-rs/canvas'` to a `src/core/` module, run
+ * `npm test` without rebuilding, and "imports nothing non-relative" passes:
+ * it is a true statement about output that predates the import. That is the
+ * same defect `site/dist.test.ts` guards with its mtime gate, in a worse form
+ * — there the gate makes the block *skip* and the skip count moves, here there
+ * is no gate at all and the four assertions below report a pass over stale
+ * bytes. Measured on this branch: `touch site/main.ts` is enough to make
+ * `site/dist.test.ts` skip 22 tests, and this file still reports **6 passed**
+ * against a `dist/` nobody has rebuilt.
+ *
+ * ## Derived from `dist/`, so there is no list to keep up to date
+ *
+ * Every emitted `dist/X.js` names its own input, `src/X.ts`, under
+ * `rootDir: "src"` / `outDir: "dist"`. Pairing that way means nothing here has
+ * to transcribe `tsconfig.json`'s three `exclude` globs (`**​/*.test.ts`,
+ * `src/core/testing/**`, `src/shared/testing/**`) and then silently go wrong
+ * the day a fourth is added — a hand-written list of "the files that get
+ * compiled" is not a check. A file the build excludes emits nothing, so it is
+ * simply never paired.
+ *
+ * ## Per file, not newest-against-newest
+ *
+ * `site/dist.test.ts` compares the newest output against the newest source
+ * because a bundle has no per-file correspondence. A `tsc` build does, and the
+ * finer comparison is also the safer one: an incremental or partial build that
+ * re-emits only what changed still reads as current, where newest-vs-newest
+ * would call the whole tree stale for one untouched file.
+ *
+ * **What it cannot see**, stated because it is the gap and not a detail: a
+ * *new* source file that has never been compiled has no counterpart in `dist/`
+ * to be older than, so it is invisible here. The case this is for is the
+ * common one — an edit to a file that was already built.
+ */
+const SRC = join(ROOT, 'src')
+
+interface Emitted {
+  /** The emitted file, repo-relative, which is what a failure has to name. */
+  readonly out: string
+  readonly sourceMs: number
+  readonly outMs: number
+}
+
+function emittedPairs(): Emitted[] {
+  if (!existsSync(DIST)) return []
+  const pairs: Emitted[] = []
+  for (const file of filesUnder(DIST)) {
+    // `.js` only. A `.d.ts` is emitted from the same source in the same pass,
+    // so pairing it as well would double every entry and say nothing new.
+    if (!file.endsWith('.js')) continue
+    const source = join(SRC, relative(DIST, file).replace(/\.js$/, '.ts'))
+    // No source means the file outlived its input — a different defect, and
+    // not one a freshness check should be the one to report.
+    if (!existsSync(source)) continue
+    pairs.push({
+      out: relative(ROOT, file),
+      sourceMs: statSync(source).mtimeMs,
+      outMs: statSync(file).mtimeMs,
+    })
+  }
+  return pairs
+}
+
+/** Which of those were emitted *before* their source was last edited. */
+function staleEmits(pairs: readonly Emitted[]): string[] {
+  // Strictly greater: `tsc` can emit inside the same millisecond as the edit
+  // that triggered it, so equal timestamps are current rather than suspect.
+  // `site/dist.test.ts`'s `newerThanSources` makes the same call, with `>=`
+  // from the other side.
+  return pairs.filter(p => p.sourceMs > p.outMs).map(p => p.out).sort()
+}
+
+describe('dist/ is either absent or current', () => {
+  it('has no emitted file older than the source it was emitted from', () => {
+    const pairs = emittedPairs()
+    if (!existsSync(DIST)) {
+      // The clean checkout, which must stay green — the policy the skip notice
+      // at the bottom of this file keeps on purpose, and the only state in
+      // which there is nothing on disk to be wrong about.
+      expect(pairs, 'dist/ is absent, so nothing should have been paired').toEqual([])
+      return
+    }
+    expect(
+      pairs.length,
+      'dist/ exists and no emitted .js was matched to a source under src/, so "nothing is ' +
+      'stale" is only true of the empty set — the outDir, the rootDir, or the extension ' +
+      'filter has moved',
+    ).toBeGreaterThan(10)
+    expect(
+      staleEmits(pairs),
+      'these files in dist/ were emitted before the sources they come from were last ' +
+      'edited, so every assertion below is about the previous build rather than this tree. ' +
+      'Run `npm run build`, then `npm test`.',
+    ).toEqual([])
+  })
+
+  it('would say so — the same predicate over pairs made stale on purpose', () => {
+    // The paired control. On any correctly built tree the test above never
+    // reaches its failing branch, so without this nothing would notice the
+    // predicate being gutted to `() => []`. Pure inputs, because what is being
+    // controlled is the comparison and not the stat() calls.
+    const current = { out: 'dist/core/sirds.js', sourceMs: 1_000, outMs: 2_000 }
+    const stale = { out: 'dist/core/blur.js', sourceMs: 2_000, outMs: 1_000 }
+    expect(staleEmits([current])).toEqual([])
+    expect(staleEmits([current, stale])).toEqual(['dist/core/blur.js'])
+    // The same-millisecond case the `>` above is chosen for: a build that
+    // landed in the same tick as its edit is current, not stale.
+    expect(staleEmits([{ out: 'dist/core/x.js', sourceMs: 5, outMs: 5 }])).toEqual([])
+  })
+})
 
 describe.skipIf(!built)('dist/core purity', () => {
   it('imports nothing non-relative', () => {

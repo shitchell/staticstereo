@@ -184,9 +184,29 @@ const CLASS_SAFE = /^[a-z][a-z0-9-]*$/
  *
  * Everything else throws. That asymmetry is the point: a new control is
  * covered by a rule, a new *structural* role is a hole somebody has to fill.
+ *
+ * **`Object.hasOwn`, and not a bare index.** {@link ROLE_RENDERING} is a plain
+ * object literal, so `ROLE_RENDERING['constructor']` is the `Object`
+ * **function**, which is `!== undefined`: the bare index this line used to be
+ * returned it typed as a `RoleRendering`, past both the control-prefix rule
+ * and the throw below. `applyChrome` then reads `.classes` off it, gets
+ * `undefined`, and builds a node with no class at all — unstyled, and
+ * unclickable where `player.css` grants `pointer-events: auto` by class
+ * against a container that is `none`. That is the exact failure
+ * `CONTROL_PREFIX`'s docblock says the prefix rule exists to prevent, arriving
+ * through the one door the prefix rule does not cover, and `primaryClassOf`
+ * compounds it by returning `classes[0]!` — `undefined` typed as a `string`.
+ *
+ * Same idiom and same fix as `fit.ts`'s `parseFit`, `smooth.ts`'s
+ * `parseSmooth`, `layout.ts`'s `slotInfo` and the five registries P0b closed
+ * (E8 / R-l). No role in this repo is built from untrusted input today — every
+ * one comes from a `ROLE_*` constant in `playerchrome.ts`, and `playerplan.ts`
+ * never mentions a role, so the hash cannot reach here — but this function is
+ * exported, takes a `string`, and nothing between the parameter and the lookup
+ * narrows it. Reachability decides how bad it is, not whether to close it.
  */
 export function renderingFor(role: string): RoleRendering {
-  const known = ROLE_RENDERING[role]
+  const known = Object.hasOwn(ROLE_RENDERING, role) ? ROLE_RENDERING[role] : undefined
   if (known !== undefined) return known
   if (!isControlRole(role)) {
     throw new Error(

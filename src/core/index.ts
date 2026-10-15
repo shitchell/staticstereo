@@ -34,7 +34,9 @@ export type { Margins, PlateLayout, Rect } from './plate.js'
 
 /* -------------------------------------------------------------- scene model */
 
-export { DEFAULT_STEREO, IDENTITY, SIRDS_ALGORITHMS, STEREO_KEYS } from './types.js'
+export {
+  DEFAULT_STEREO, IDENTITY, LAYER_KEYS, SCENE_KEYS, SIRDS_ALGORITHMS, STEREO_KEYS,
+} from './types.js'
 export type {
   Anim,
   AssertNever,
@@ -43,6 +45,8 @@ export type {
   Easing,
   Key,
   Layer,
+  LayerKey,
+  LayerOf,
   MaskSource,
   NamedEasing,
   Preset,

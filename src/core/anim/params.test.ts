@@ -90,11 +90,20 @@ describe('recorded parameter units', () => {
     // components are distances and both scale under `fit=render`. The pair
     // shape is the half P2 cannot guess: `move.speed` is also `scenePx` and
     // is a single number.
+    //
+    // `endpoint-pair` rather than `pair`, and the arity is the same two: the
+    // member says additionally that either slot may carry one of the symbolic
+    // off-stage endpoints `endpointPair` resolves, which a consumer
+    // generating a control needs and no unit tag can tell it. **The unit is
+    // asserted beside it on purpose** — whether the value is a *length* is
+    // still the unit's statement and not the shape's, which is what keeps
+    // `move.speed` inside "scale every `scenePx` parameter".
     for (const name of ['from', 'to']) {
       const d = numeric('move', name)
       expect(d.unit, name).toBe('scenePx')
-      expect(d.shape, name).toBe('pair')
+      expect(d.shape, name).toBe('endpoint-pair')
       expect(d.per, name).toBeUndefined()
+      expect(d.tokens, `${name} accepts names and records none`).toBeDefined()
     }
   })
 
@@ -175,7 +184,12 @@ describe('recorded parameter defaults', () => {
           continue
         }
         if (d.default.from !== 'value') continue
-        if (d.shape === 'pair') {
+        // Every non-scalar shape is a pair today, and the condition is
+        // written that way round deliberately: a shape added to `ParamShape`
+        // and not classified here lands in the two-member branch and reds,
+        // where `=== 'pair'` would have sent it quietly to the scalar check
+        // and asked `Number.isFinite` of an array.
+        if (d.shape !== 'scalar') {
           expect(d.default.value, where).toHaveLength(2)
           for (const n of d.default.value as readonly number[]) {
             expect(Number.isFinite(n), where).toBe(true)
