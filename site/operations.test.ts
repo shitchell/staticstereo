@@ -32,6 +32,7 @@
  * zero — survey §I-1's defect, which `controlspec.test.ts` caught inside its
  * own file on first use.
  */
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   ABSENT_OPERATIONS,
@@ -48,9 +49,10 @@ import {
   duplicateOperationIds,
   layerVariants,
   operationInfo,
+  populatedSubjects,
   unrecordedOperations,
 } from './operations.js'
-import type { Operation, OperationTable } from './operations.js'
+import type { AbsentOperation, Operation, OperationTable } from './operations.js'
 import { CONTROL_IDS, browserReachableLayerTypes, refusedLayerVariant } from './controlspec.js'
 
 /**
@@ -478,12 +480,25 @@ describe('every lookup refuses the prototype chain', () => {
     // the index signature's apparent type and shadows it, so `subject:
     // 'layer'` widens to `string` and the literal stops satisfying
     // {@link Operation}. Measured both spellings — `constructor:` and the
-    // computed `['constructor']:` — and both fail; only annotating the value
-    // works. Worth knowing because it is the §F-6 pairing rule arriving from
-    // the other side: vitest ran this file **34/34 green** while
-    // `svelte-check` reported `Type 'string' is not assignable to type
-    // 'OperationSubject'`. The prototype chain reaches the *type* system
-    // here, not only the lookup.
+    // computed `['constructor']:` — and both fail. Worth knowing because it is
+    // the §F-6 pairing rule arriving from the other side: vitest ran this file
+    // **34/34 green** while `svelte-check` reported `Type 'string' is not
+    // assignable to type 'OperationSubject'`. The prototype chain reaches the
+    // *type* system here, not only the lookup.
+    //
+    // **"Only annotating the value works" was too strong, and it is corrected
+    // rather than deleted because the rest of the paragraph is right.**
+    // Re-measured on this module's own types at the same toolchain versions:
+    // `satisfies Operation` and `as const` each clear it too, and `as const`
+    // is not an annotation. The separate `const oddEntry: Operation` below is
+    // therefore one of three cures and is kept because it reads best here, not
+    // because it is the only one. The widening key set and the cure are both
+    // exercised deliberately in *the two prototype-chain hazards are different
+    // hazards over different key sets* at the foot of this file, which also
+    // records the half this paragraph does not reach: the set is **seven**
+    // keys — the `Object` interface's declared members — and `__proto__` is
+    // **not** one of them, so the one spelling E8 / R-l names explicitly is
+    // the one spelling this hazard does not touch.
     const oddEntry: Operation = {
       id: 'constructor',
       subject: 'layer',
@@ -658,6 +673,412 @@ describe('the operations the design has already decided against', () => {
       expect(fields, `${id} declares its own visibility`).not.toContain('visible')
       expect(fields, `${id} declares its own keystroke`).not.toContain('key')
     }
+  })
+})
+
+/**
+ * This module's own source, for the one check a census cannot make of itself.
+ *
+ * C-11's measurement, re-derived here: a label set computed by the same
+ * function on both sides of a registration cannot see a row somebody
+ * **deleted** — it is gone from both sides and the sets still match. The only
+ * thing that catches one is a label set checked against something derived
+ * independently of the census, and the module's own `export function` list is
+ * that something.
+ */
+const SOURCE = readFileSync(new URL('./operations.ts', import.meta.url), 'utf8')
+
+/**
+ * One more layer operation — the **ordinary** case, and deliberately not C-4's.
+ *
+ * Not "a fifth": this registry ships a create per creatable variant plus
+ * `delete` and `duplicate`, so its size is two derived populations and an
+ * ordinal written here would be §9's hand-written list in numeric form. C-8's
+ * practice is the one copied — name the thing, never count it.
+ *
+ * C-4's `KEYFRAME_OPERATIONS` and `ACTION_OPERATIONS` are tables of a *kind*
+ * this registry does not ship, and the describe block at the top of this file
+ * owns the claim that such a kind is expressible, composable and resolvable.
+ * This one is the same kind the registry already carries: subject `layer`,
+ * with a verb {@link LAYER_VERBS} already declares. Design §11 row 4 budgets
+ * *"one registration"* for a structural operation, and a dummy drawn from the
+ * kind already shipped is the only dummy that measures **that** budget rather
+ * than the openness one.
+ *
+ * `target` is present because the id carries three segments, and
+ * {@link Operation.id}'s rule is `subject.verb` or `subject.verb.target`. It
+ * is a fixture, not a proposal — nothing in design §5.6 asks for a linked
+ * duplicate.
+ */
+const LINKED_DUPLICATE: OperationTable = {
+  'layer.duplicate.linked': {
+    id: 'layer.duplicate.linked',
+    subject: 'layer',
+    verb: 'duplicate',
+    target: 'linked',
+    label: 'Duplicate linked',
+    mark: 'Duplicate linked',
+    reason: 'A registration fixture for design §11 row 4, of the kind the registry already ships.',
+  },
+}
+
+/**
+ * Every question this module answers, as sorted `[label, value]` rows.
+ *
+ * **Parameterised on all three of its inputs, not only on the registry.**
+ * C-10's P12: a census parameterised on the registry alone makes its own
+ * result unfalsifiable, because the rows that are supposed to stay still have
+ * nothing that could move them. The registry is the registration seam; the
+ * absence table and the creatable roster are the only other inputs any reader
+ * here reads, and `gives every row a mover` below drives each one.
+ *
+ * **Every label is prefixed with the exported reader that produced it**, which
+ * is what lets `names every reader this module exports` check the label set
+ * against the source rather than against itself.
+ */
+function census(
+  table: OperationTable = OPERATIONS,
+  absences: Record<string, AbsentOperation> = ABSENT_OPERATIONS,
+  roster: readonly string[] = browserReachableLayerTypes(),
+): readonly (readonly [string, string])[] {
+  return [
+    [
+      'operationInfo.answers',
+      Object.keys(table).filter(id => operationInfo(id, table) !== undefined).sort().join(' '),
+    ],
+    ['createOperations.targets', createTargets(table).join(' ')],
+    ['unrecordedOperations.ids', unrecordedOperations(table).join(' ')],
+    // Against *itself*, and that is the only reading of this reader that moves.
+    // `duplicateOperationIds(table)` over one table is empty by construction —
+    // an object cannot hold a key twice — so as a census row it would be the
+    // constant `''` and could never see a registration. Composed with itself,
+    // every id collides, so the row is the registry's own key set read through
+    // the collision check rather than through the reader beside it.
+    ['duplicateOperationIds.ids', duplicateOperationIds(table, table).join(' ')],
+    ['composeOperations.keys', Object.keys(composeOperations(table)).sort().join(' ')],
+    ['populatedSubjects.tiers', populatedSubjects(table).join(' ')],
+    ['deriveLayerOperations.keys', Object.keys(deriveLayerOperations(roster)).sort().join(' ')],
+    [
+      'absentOperation.answers',
+      Object.keys(absences)
+        .filter(name => absentOperation(name, absences) !== undefined)
+        .sort()
+        .join(' '),
+    ],
+    ['layerVariants.declared', [...layerVariants()].sort().join(' ')],
+  ]
+}
+
+/** The labels whose value differs between two censuses, sorted. */
+function moved(
+  before: readonly (readonly [string, string])[],
+  after: readonly (readonly [string, string])[],
+): string[] {
+  const b = new Map(before)
+  return after.filter(([label, value]) => b.get(label) !== value).map(([label]) => label).sort()
+}
+
+/** The labels of a census, sorted — compared before the values, so a vanished row cannot read as unchanged. */
+function labels(rows: readonly (readonly [string, string])[]): string[] {
+  return rows.map(([label]) => label).sort()
+}
+
+/**
+ * The one census row that has no mover a test can apply, and why.
+ *
+ * C-10's P12 says an ownership tag with no mover is an unchecked declaration;
+ * C-11's answer where it could not close one is to label it in the source
+ * rather than leave the gap silent. This is that label.
+ *
+ * `layerVariants()` is the key set of `CREATE_NOTES`, which is annotated
+ * `Record<LayerType, …>`. Its mover is a new member of `Layer['type']` in
+ * `src/core` — a compile error here on the day it lands, and therefore not a
+ * thing any runtime fixture can stage. It is in the census because a reader
+ * this module exports and the census ignores is exactly the row
+ * `names every reader this module exports` exists to catch.
+ */
+const DECLARED_NOT_MEASURED = 'layerVariants.declared'
+
+describe("design §11 row 4 — one registration, and the budget is a count of moved labels", () => {
+  it('registers one more operation of the kind it already ships, and it appears', () => {
+    // Criterion 3's ordinary case. Plan §7 P3.3: *"a dummy entry appears
+    // without touching another file."* Design §11's rationale is the sentence
+    // worth keeping: *"without that, 'moving a panel costs a declaration' is
+    // unverified until the first time it is false."*
+    //
+    // The registration is performed here, in the test file, through the seam
+    // `operations.ts` already exports — so **no file outside this one is
+    // edited**, which is the negative under test. The `git diff --stat` for
+    // this commit is the other half of that evidence and is reported with it.
+    const composed = composeOperations(OPERATIONS, LINKED_DUPLICATE)
+    expect(operationInfo('layer.duplicate.linked', composed)?.label).toBe('Duplicate linked')
+    expect(operationInfo('layer.duplicate.linked'), 'the shipped table grew a fixture')
+      .toBeUndefined()
+  })
+
+  it('moves exactly the rows a same-kind registration should, and no others', () => {
+    // §11 row 4's budget converted from a claim into a count of moved labels.
+    // A *layer*-tier registration is visible to the id reader and to the
+    // composition, and to nothing else: it is not a create, it has a recorded reason, it collides
+    // with nothing, it is not absent, and its tier was already populated.
+    expect(labels(census()), 'a census row vanished, so an unchanged value means nothing')
+      .toEqual(labels(census(composeOperations(OPERATIONS, LINKED_DUPLICATE))))
+    expect(moved(census(), census(composeOperations(OPERATIONS, LINKED_DUPLICATE))))
+      .toEqual([
+        'composeOperations.keys',
+        'duplicateOperationIds.ids',
+        'operationInfo.answers',
+      ])
+  })
+
+  it('moves one more row when the registration is of a tier the registry does not carry', () => {
+    // 🚩 **The row that did not exist, and the reason this task shipped
+    // production code.** `SUBJECT_INFO.populated` is the module's answer to
+    // "which tiers carry operations", and design §5.6 groups the registry by
+    // tier — `SubjectInfo.label` says it is *"a menu section header, or a
+    // grouping in a command palette"*. That answer was a **static boolean**:
+    // true of `OPERATIONS` and of nothing else.
+    //
+    // So a keyframe operation registered through `composeOperations` — the
+    // registry's only extension door, built by C-4 for exactly this — resolved
+    // through `operationInfo` and was **invisible to the only question a
+    // tier-grouped consumer asks**. That is criterion 3 failing on *appears*
+    // rather than on *register*, which is the shape C-11 found one registry
+    // over.
+    //
+    // `populatedSubjects(table)` is that question asked of a table. With it,
+    // the budget for a new tier is one row more than the budget for a new
+    // operation of an existing one, which is the difference §5.6's three tiers
+    // are there to make.
+    const composed = composeOperations(OPERATIONS, KEYFRAME_OPERATIONS)
+    expect(populatedSubjects(composed)).toEqual(['layer', 'keyframe'])
+
+    // **Plant P4 stayed green without this line**, which is why it is here.
+    // The reader's docblock claims §5.6's containment order and not the
+    // table's, so that a menu's sections do not reorder themselves when a tier
+    // is registered — and composing in the shipped tier first makes the two
+    // orders agree, so the claim was an unchecked note (§9) under every
+    // composition the rest of this file performs. Composed the other way
+    // round, a reader returning `[...new Set(...)]` answers
+    // `['keyframe', 'layer']` and is red here.
+    expect(
+      populatedSubjects(composeOperations(KEYFRAME_OPERATIONS, OPERATIONS)),
+      'the tier order follows the table rather than OPERATION_SUBJECTS',
+    ).toEqual(['layer', 'keyframe'])
+    expect(moved(census(), census(composed))).toEqual([
+      'composeOperations.keys',
+      'duplicateOperationIds.ids',
+      'operationInfo.answers',
+      'populatedSubjects.tiers',
+    ])
+  })
+
+  it('agrees with the static claim on the table that claim is about', () => {
+    // The new reader does not get to disagree with `SUBJECT_INFO`. Read in
+    // both directions: a tier flagged `populated` that carries nothing, and a
+    // tier carrying operations that is not flagged, are each red here.
+    expect(populatedSubjects()).toEqual(
+      OPERATION_SUBJECTS.filter(subject => SUBJECT_INFO[subject].populated),
+    )
+  })
+
+  it('names every reader this module exports', () => {
+    // C-11's, re-derived. The census is diffed against itself, so it cannot
+    // see a row deleted from it — the label is gone from both sides. The
+    // module's `export function` list is derived outside the census and is
+    // what catches one.
+    const exported = [...SOURCE.matchAll(/^export function (\w+)/gm)].map(m => m[1]!).sort()
+    expect(exported.length, 'the source parse found no exported readers at all')
+      .toBeGreaterThan(0)
+    expect([...new Set(labels(census()).map(label => label.split('.')[0]!))].sort())
+      .toEqual(exported)
+  })
+
+  it('gives every row a mover, and labels in the source the one that has none', () => {
+    // 🚩 C-10's P12, which it named the most valuable thing in its report: *"'no
+    // row another file owns moved' was **unfalsifiable** — the row it protects
+    // does not move under a registration, which is the entire claim and
+    // therefore exactly the wrong thing to leave unchecked."* Every row the
+    // registration above left still is moved here from the other side, by the
+    // input that owns it.
+    //
+    // Three inputs, and the mover for each is the census parameter it is
+    // passed as. The rows with no mover in this list are named by
+    // {@link DECLARED_NOT_MEASURED} and that is the whole of the gap.
+    const base = census()
+    const roster = [...browserReachableLayerTypes(), 'invented']
+    const absences: Record<string, AbsentOperation> = {
+      'layer.invented': {
+        operation: 'layer.invented',
+        disposition: 'deferred',
+        reason: 'A mover fixture, so "the absences did not move" is a checked claim.',
+      },
+    }
+    const unreasoned = deriveLayerOperations(roster)
+
+    expect(moved(base, census(unreasoned)), 'the roster moves nothing the registry reads')
+      .toEqual([
+        'composeOperations.keys',
+        'createOperations.targets',
+        'duplicateOperationIds.ids',
+        'operationInfo.answers',
+        'unrecordedOperations.ids',
+      ])
+    expect(
+      absentOperation('layer.invented', absences)?.disposition,
+      'the absence reader ignored the table it was handed, so the row below moved to empty',
+    ).toBe('deferred')
+    expect(moved(base, census(OPERATIONS, absences)), 'the absence table has no mover')
+      .toEqual(['absentOperation.answers'])
+    expect(moved(base, census(OPERATIONS, ABSENT_OPERATIONS, roster)), 'the roster has no mover')
+      .toEqual(['deriveLayerOperations.keys'])
+    expect(
+      moved(base, census(composeOperations(OPERATIONS, LINKED_DUPLICATE), absences, roster)),
+      'a registration that moves no row would make every negative above vacuous',
+    ).not.toEqual([])
+
+    const unmoved = labels(base).filter(
+      label =>
+        !moved(base, census(unreasoned)).includes(label) &&
+        !moved(base, census(OPERATIONS, absences)).includes(label) &&
+        !moved(base, census(OPERATIONS, ABSENT_OPERATIONS, roster)).includes(label) &&
+        !moved(base, census(composeOperations(OPERATIONS, KEYFRAME_OPERATIONS))).includes(label),
+    )
+    expect(unmoved, 'a row gained or lost a mover without its source label being updated')
+      .toEqual([DECLARED_NOT_MEASURED])
+  })
+
+  it('reads a registry that populates some tiers and not all of them', () => {
+    // The vacuity floor, derived, and both bounds are populations measured on
+    // this run. **Non-empty** rules out a registry that populates no tier, in
+    // which case "the dummy's tier appeared" is `[] !== []` and proves nothing.
+    // **Strict** rules out one that already populates every tier, in which case
+    // the keyframe registration above could not move `populatedSubjects.tiers`
+    // and the test would pass for the wrong reason. Neither bound is a number:
+    // the day P4 or P6 lands another tier in this module both move with it,
+    // and the day every member of OPERATION_SUBJECTS is populated the strict
+    // bound fails and somebody has to argue, rather than the test quietly
+    // going vacuous.
+    const tiers = populatedSubjects()
+    expect(tiers.length, 'the registry populates no tier, so every row above is vacuous')
+      .toBeGreaterThan(0)
+    expect(tiers.length, 'every tier is populated, so a new tier cannot be observed arriving')
+      .toBeLessThan(OPERATION_SUBJECTS.length)
+    expect(populatedSubjects({}), 'an empty table still reported a populated tier').toEqual([])
+    expect(census().length, 'the census is empty, so every diff above is between two nothings')
+      .toBeGreaterThan(0)
+  })
+})
+
+describe('the two prototype-chain hazards are different hazards over different key sets', () => {
+  /**
+   * The **lookup** key set — E8 / R-l. Every spelling that resolves to a
+   * member of `Object.prototype` at run time, and it **includes `__proto__`**,
+   * which is the spelling R-l names explicitly.
+   */
+  const LOOKUP_KEYS = [
+    'constructor', 'toString', 'toLocaleString', 'valueOf',
+    'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', '__proto__',
+  ]
+
+  /**
+   * The **type-widening** key set — the `Object` *interface*'s declared
+   * members. Seven, and **`__proto__` is not one of them**, because it is not
+   * a declared member of `Object`. Measured on this module's own entry types
+   * at TypeScript 5.9.3 / svelte-check 4.7.6: each of these as a key widens
+   * `Operation.subject` to `string`, both as a bare key and as a computed one;
+   * `__proto__` widens nothing in either spelling; and a key no prototype
+   * declares is clean.
+   */
+  const WIDENING_KEYS = LOOKUP_KEYS.filter(key => key !== '__proto__')
+
+  it('refuses an inherited member on every reader, including the new one', () => {
+    // The lookup half. `populatedSubjects` reads `Object.values`, which is own
+    // and enumerable only — but that is a property of the implementation, and
+    // the spread below is the shell handing the prototype chain back, which is
+    // the live reading `operationInfo`'s docblock records.
+    const spread: OperationTable = { ...OPERATIONS }
+    for (const name of LOOKUP_KEYS) {
+      expect(operationInfo(name, spread), name).toBeUndefined()
+      expect(absentOperation(name), name).toBeUndefined()
+      expect(absentOperation(name, { ...ABSENT_OPERATIONS }), name).toBeUndefined()
+    }
+    expect(populatedSubjects(spread), 'a prototype member reached the tier reader')
+      .toEqual(populatedSubjects(OPERATIONS))
+  })
+
+  it('is a guard, not a reader that answers undefined to everything', () => {
+    // §6.5a's null half for the clause above: the refusals are evidence only
+    // because the same readers, asked for something real, answer. The
+    // measurement half is named where it is discharged, in the plant log.
+    for (const id of OPERATION_IDS) expect(operationInfo(id), id).toBeDefined()
+    for (const name of Object.keys(ABSENT_OPERATIONS)) {
+      expect(absentOperation(name, ABSENT_OPERATIONS), name).toBeDefined()
+    }
+    expect(populatedSubjects(OPERATIONS).length).toBeGreaterThan(0)
+  })
+
+  it('registers an operation named for every widening key, cured by one token', () => {
+    // The **type** half, and it is a different claim over a different set.
+    // Each value below is cured with `satisfies Operation` — one token on the
+    // value, no signature change. Without it `svelte-check` reports `Type
+    // 'string' is not assignable to type 'OperationSubject'` once per key,
+    // while vitest runs this file green: the hazard is silent to `npm test`,
+    // which is why `npm run typecheck` is run before a green suite is
+    // believed.
+    const table: OperationTable = {
+      constructor: {
+        id: 'constructor', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+      } satisfies Operation,
+      toString: {
+        id: 'toString', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+      } satisfies Operation,
+      toLocaleString: {
+        id: 'toLocaleString', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+      } satisfies Operation,
+      valueOf: {
+        id: 'valueOf', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+      } satisfies Operation,
+      hasOwnProperty: {
+        id: 'hasOwnProperty', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+      } satisfies Operation,
+      isPrototypeOf: {
+        id: 'isPrototypeOf', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+      } satisfies Operation,
+      propertyIsEnumerable: {
+        id: 'propertyIsEnumerable', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm',
+        reason: 'r',
+      } satisfies Operation,
+    }
+    for (const key of WIDENING_KEYS) {
+      expect(operationInfo(key, table)?.id, key).toBe(key)
+    }
+    expect(Object.keys(table).sort(), 'a widening key was lost on the way into the literal')
+      .toEqual([...WIDENING_KEYS].sort())
+    expect(populatedSubjects(table), 'the tier reader lost a prototype-named registration')
+      .toEqual(['keyframe'])
+  })
+
+  it('registers one named __proto__, which the widening set does not contain', () => {
+    // The two sets differ by exactly this key, in both directions at once:
+    // `__proto__` is the one spelling the **type** hazard does not touch, and
+    // it is the one the **lookup** hazard is named for. It needs no `satisfies`
+    // and it does need `defineProperty` — written as a literal, `__proto__:`
+    // invokes the setter and creates no property at all, so the naive fixture
+    // is empty and passes for the wrong reason (C-8's measurement).
+    const op: Operation = {
+      id: '__proto__', subject: 'keyframe', verb: 'v', label: 'l', mark: 'm', reason: 'r',
+    }
+    const table = Object.defineProperty({}, '__proto__', {
+      value: op, enumerable: true, writable: true, configurable: true,
+    }) as OperationTable
+    expect(Object.keys(table), 'the fixture never got an own property').toEqual(['__proto__'])
+    expect(operationInfo('__proto__', table)?.id).toBe('__proto__')
+    expect(populatedSubjects(table), 'the tier reader lost the entry to the prototype setter')
+      .toEqual(['keyframe'])
+    expect(overlap(WIDENING_KEYS, ['__proto__']), 'the two key sets have stopped differing')
+      .toEqual([])
+    expect(overlap(LOOKUP_KEYS, ['__proto__'])).toEqual(['__proto__'])
   })
 })
 

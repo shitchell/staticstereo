@@ -139,6 +139,14 @@ export interface SubjectInfo {
    * `operations.test.ts` checks it against the registry's actual contents on
    * every run. Flipping it without adding the operations is red, and adding
    * the operations without flipping it is red.
+   *
+   * **"Today" is load-bearing, and it means {@link OPERATIONS} and nothing
+   * else.** This is a static boolean about the shipped table, so it is silent
+   * about a table {@link composeOperations} built — which is the registry's
+   * only extension door, so it is silent about exactly the case the two
+   * `false`s above are anticipating. A consumer grouping by tier must ask
+   * {@link populatedSubjects} of the table it actually holds; reading this
+   * field instead drops every operation a later tier registered.
    */
   readonly populated: boolean
   /** Why the tier exists, and which phase fills it. */
@@ -681,8 +689,52 @@ export const ABSENT_OPERATIONS: Record<string, AbsentOperation> = {
  * caller shows a refusal whose operation, disposition and reason are all
  * `undefined`. A visibly wrong answer is recoverable; well-formed prose that
  * explains nothing is not.
+ *
+ * `table` is a parameter for {@link operationInfo}'s reason and one more of
+ * its own: a reader that reads module scope cannot be driven by a test that
+ * hands it a table, so *"the absences did not move under a registration"* is
+ * a claim with nothing able to falsify it. The five readers above already take
+ * their table; this one did not, and the inconsistency was the gap rather than
+ * the style.
  */
-export function absentOperation(operation: string): AbsentOperation | undefined {
-  if (!Object.hasOwn(ABSENT_OPERATIONS, operation)) return undefined
-  return ABSENT_OPERATIONS[operation]
+export function absentOperation(
+  operation: string,
+  table: Record<string, AbsentOperation> = ABSENT_OPERATIONS,
+): AbsentOperation | undefined {
+  if (!Object.hasOwn(table, operation)) return undefined
+  return table[operation]
+}
+
+/**
+ * The tiers a table carries operations for, in design §5.6's containment order.
+ *
+ * **The table-aware counterpart to {@link SubjectInfo.populated}, and the
+ * registry had no way to ask this question.** `populated` is a static boolean
+ * about {@link OPERATIONS} and only about it — which is correct for what it
+ * claims, and useless to the one consumer design §5.6 describes.
+ * {@link SubjectInfo.label} says the tier is *"a menu section header, or a
+ * grouping in a command palette"*, so a consumer grouping the registry by tier
+ * is the normal reader here, not an exotic one.
+ *
+ * Without this, a keyframe operation registered through
+ * {@link composeOperations} — the registry's only extension door — resolves
+ * through {@link operationInfo} and is **invisible to the only question that
+ * consumer asks**: `populated` still says the keyframe tier is empty, so a
+ * tier-grouped menu drops a registered operation on the floor. Plan §7 P3.3
+ * wants *"a dummy entry appears"*, and that was failing on **appears**.
+ *
+ * Returned in {@link OPERATION_SUBJECTS} order rather than in the table's,
+ * because that is the iteration order this module says every consumer
+ * inherits, and a menu whose sections reorder themselves when a tier is
+ * registered is the same defect one level up.
+ *
+ * `Object.values` is own-and-enumerable, so no `Object.hasOwn` guard is needed
+ * here — the guard the other readers carry is for a *lookup by caller-supplied
+ * name*, and this reader takes no name. An id of `__proto__` reaches it as an
+ * ordinary own property, which is what `deriveLayerOperations`' and
+ * `composeOperations`' null prototypes are for.
+ */
+export function populatedSubjects(table: OperationTable = OPERATIONS): readonly OperationSubject[] {
+  const present = new Set<string>(Object.values(table).map(op => op.subject))
+  return OPERATION_SUBJECTS.filter(subject => present.has(subject))
 }
