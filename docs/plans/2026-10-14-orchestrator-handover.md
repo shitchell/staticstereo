@@ -75,9 +75,34 @@ there — warm npx cache locally, cold on the runner. Competing: contention or a
 taking **10m45s** against a 43s local suite on a 2-core runner, in a repo that already
 records four concurrent `svelte-check` harnesses timing out a merged-phase test.
 
-A worker is on it in `…/staticstereo-p2` on `fix/ci-svelte-check-harness`, under
-instruction to reproduce locally first and to verify **on CI**, since a green local run is
-the instrument that missed this for nine hours.
+**FIXED and merged — `2524fa4`, PR #1, merge `57f1e15`.** CI run **38803799211** green in
+**94s** against 10m45s red, 80 files / 1881 passed / 0 skipped, local and CI counts
+agreeing exactly.
+
+**The root cause was none of the three hypotheses above, including both of the
+orchestrator's.** `svelte-check` 4.7.6's `getOutputFormat()` takes an explicit `--output`
+first, **then falls back to `machine` if `process.env.CLAUDECODE === '1'` and
+`human-verbose` otherwise.** Both harnesses spawned the checker with `{...process.env}`, so
+**the output format was decided by whether the suite happened to be running inside Claude
+Code.** Every agent on this project got machine format and a `COMPLETED` line; the runner
+got human-verbose and none. The fix pins `--output machine` *and* deletes `CLAUDECODE` from
+the child's environment — the second half is what matters, because with the ambient switch
+gone, removing the flag now reddens the suite **everywhere** rather than only on CI.
+
+It also explains the 10m45s, which had been read as runner slowness: the failing `expect`
+sat inside the `child.on('close')` callback, so it escaped as an uncaught exception, the
+promise never settled, and `beforeAll` ran out 300s and 600s timeouts reporting a verdict
+it already had at 8 seconds.
+
+**Still open from it, and the reason this is not fully closed:**
+- **`pages` is verified only by inference.** It has no `pull_request` trigger, so the
+  worker could prove `ci` and not `pages`. Same `npm test` step, same steps otherwise —
+  confirm on the merge commit and re-witness `/staticstereo/player/` as a directory URL
+  before R14 is called witnessed again.
+- **Nobody has audited what else branches on `CLAUDECODE`** or otherwise behaves
+  differently inside the agent harness. The suite is green on CI now, so nothing else is
+  manifesting — but the same class of divergence is exactly what hid for nine hours, and
+  **no tier of this system can see it by running the suite.**
 
 R14 is unaffected as a *requirement* — `/staticstereo/player/` resolved as a directory URL
 when it was last deployed — but **it is not currently witnessed in production** and must be
