@@ -795,12 +795,37 @@ export const CONTROL_IDS: readonly string[] = CONTROL_SPECS.map(spec => spec.con
  * guard in {@link controlInfo} is still there, because a caller holding this
  * object is not required to use the reader.
  */
-export const CONTROLS: Readonly<Record<string, ControlInfo>> = Object.freeze(
-  CONTROL_SPECS.reduce<Record<string, ControlInfo>>((all, spec) => {
-    all[spec.control] = spec
-    return all
-  }, Object.create(null) as Record<string, ControlInfo>),
-)
+export const CONTROLS: Readonly<Record<string, ControlInfo>> = indexControls(CONTROL_SPECS)
+
+/**
+ * Index a derivation by control id, the way {@link CONTROLS} is indexed.
+ *
+ * **A function and not an inline `reduce`, for the reason {@link deriveControls}
+ * is a function and not a module-scope loop.** Design §11 row 3 budgets a
+ * scalar control at *"one declaration"*, and §11's own sentence is that each
+ * registry gets a test which *"registers a dummy entry and asserts it
+ * appears"*. A declaration reaches this registry through `deriveControls`'
+ * rosters — there is nothing in this module to add an entry to — so without an
+ * indexer a caller holding a grown derivation can reach the control *array*
+ * and can never reach the *registry*. The registration would then be provable
+ * only of the half of this module nobody looks a control up in.
+ *
+ * `Object.create(null)` and not `{}`: on a `{}` accumulator the assignment
+ * `all['__proto__'] = spec` sets the prototype instead of creating a property,
+ * so the entry vanishes with no wrong value to notice — only an absence, for
+ * the one id whose absence is hardest to see. `Object.freeze` because a
+ * registry a consumer can write to is not a registry.
+ */
+export function indexControls(
+  specs: readonly ControlInfo[],
+): Readonly<Record<string, ControlInfo>> {
+  return Object.freeze(
+    specs.reduce<Record<string, ControlInfo>>((all, spec) => {
+      all[spec.control] = spec
+      return all
+    }, Object.create(null) as Record<string, ControlInfo>),
+  )
+}
 
 /**
  * What this control is, or `undefined` if there is no such control.
@@ -815,10 +840,23 @@ export const CONTROLS: Readonly<Record<string, ControlInfo>> = Object.freeze(
  * with an object literal — which is what every other registry in this cluster
  * uses — the guard is what stops `controlInfo('constructor')` handing back the
  * `Object` function typed as a `ControlInfo`. E8 / R-l.
+ *
+ * **`table` defaults to `CONTROLS`, and the day it is passed is the day the
+ * guard above stops being defence in depth.** A caller-supplied table is an
+ * ordinary object with `Object.prototype` behind it, so `Object.hasOwn` is
+ * load-bearing on that path rather than belt-and-braces. C-8 made the general
+ * argument in `keybindings.ts`'s `KeyBindingTable` docblock — *"a registration
+ * test must be able to register an entry without editing this file"* — and it
+ * binds harder here than there: this registry is derived, so the only entry a
+ * test can register is one `deriveControls` produced, and until this parameter
+ * existed no reader could be shown it.
  */
-export function controlInfo(control: string): ControlInfo | undefined {
-  if (!Object.hasOwn(CONTROLS, control)) return undefined
-  return CONTROLS[control]
+export function controlInfo(
+  control: string,
+  table: Readonly<Record<string, ControlInfo>> = CONTROLS,
+): ControlInfo | undefined {
+  if (!Object.hasOwn(table, control)) return undefined
+  return table[control]
 }
 
 /**
@@ -831,11 +869,16 @@ export function controlInfo(control: string): ControlInfo | undefined {
  * afterwards, only a registry that is short. Two sources reaching the same id
  * is not hypothetical, either: `size` is a key of both `Scene` and the `text`
  * variant, and it is only the owner segment of the id that keeps them apart.
+ *
+ * `ids` defaults to {@link CONTROL_IDS}. See {@link indexControls} for why the
+ * registry's readers take their population: a control declared in a roster is
+ * unobservable here otherwise, and "the registry rejects a collision" would be
+ * provable only of the collisions that already shipped.
  */
-export function duplicateControlIds(): readonly string[] {
+export function duplicateControlIds(ids: readonly string[] = CONTROL_IDS): readonly string[] {
   const seen = new Set<string>()
   const twice = new Set<string>()
-  for (const id of CONTROL_IDS) {
+  for (const id of ids) {
     if (seen.has(id)) twice.add(id)
     seen.add(id)
   }
@@ -853,9 +896,16 @@ export function duplicateControlIds(): readonly string[] {
  * `Record` per roster, would make the new key a compile error here and stop
  * the control from appearing at all, which would defeat the derivation to
  * enforce a comment.
+ *
+ * `specs` defaults to {@link CONTROL_SPECS}. The parameter is what lets the
+ * sentence above be *tested* rather than asserted: a key added to a roster is
+ * a control this reader must name, and before the parameter existed the only
+ * roster it could be asked about was the one that shipped.
  */
-export function unrecordedUnits(): readonly string[] {
-  return CONTROL_SPECS.filter(spec => spec.unit === 'unrecorded')
+export function unrecordedUnits(
+  specs: readonly ControlInfo[] = CONTROL_SPECS,
+): readonly string[] {
+  return specs.filter(spec => spec.unit === 'unrecorded')
     .map(spec => spec.control)
     .sort()
 }
@@ -873,11 +923,21 @@ export function unrecordedUnits(): readonly string[] {
  *
  * Returns ids rather than throwing, for `unregisteredPanels`' reason: the
  * caller holding the layout is the one that has to decide what to do about it.
+ *
+ * `specs` defaults to {@link CONTROL_SPECS}, so both of this reader's inputs
+ * are now parameters. That is deliberate and is not symmetry for its own sake:
+ * a reachability answer is a statement about a *pair*, and with only the
+ * layout movable the control half of every such claim was fixed at whatever
+ * shipped. §1.2k applies to the outcome — a control the layout strands is
+ * cosmetic until somebody looks for it, so this reports rather than throws.
  */
-export function unmountedControls<P extends string>(layout: LayoutConfig<P>): readonly string[] {
+export function unmountedControls<P extends string>(
+  layout: LayoutConfig<P>,
+  specs: readonly ControlInfo[] = CONTROL_SPECS,
+): readonly string[] {
   const mounted = new Set<string>(mountedPanels(layout))
   const stranded = new Set<string>()
-  for (const spec of CONTROL_SPECS) {
+  for (const spec of specs) {
     if (!mounted.has(spec.panel)) stranded.add(spec.control)
   }
   return [...stranded].sort()
