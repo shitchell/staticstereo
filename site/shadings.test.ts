@@ -33,8 +33,8 @@
  * them with no production edit at all.
  *
  * **Found is not offered, and that is the whole of what was missing.** Plan
- * §9: *"a registration test must assert that the thing a consumer does is now
- * possible — not that the entry can be found."* What design §5.2's consumer
+ * §9: *"A registration test must assert that the thing a *consumer* does is
+ * now possible — not that the entry can be found."* What design §5.2's consumer
  * does is *offer* the shadings — the depth view "carries a shading", and
  * {@link ShadingInfo.label} exists to be "a menu entry, a radio label, a
  * legend heading". No reader answered that question: its answer was

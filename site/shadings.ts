@@ -392,8 +392,8 @@ export function shadingInfo(shading: string, table: ShadingTable = SHADINGS): Sh
  * {@link ShadingInfo.label} exists to be *"a menu entry, a radio label, a
  * legend heading"*, so what the view needs before any name is the list. A
  * shading registered into a table that nothing enumerates is registered and
- * not offered — plan §9: *"a registration test must assert that the thing a
- * consumer does is now possible, not that the entry can be found."*
+ * not offered — plan §9: *"A registration test must assert that the thing a
+ * consumer does is now possible — not that the entry can be found."*
  *
  * **Defined in terms of {@link shadingInfo} rather than beside it**, so the
  * two cannot disagree. An enumeration written independently would be free to
