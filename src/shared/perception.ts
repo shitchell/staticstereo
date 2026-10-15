@@ -1,3 +1,4 @@
+import { sepAt } from '../core/sirds.js'
 import type { Scene, StereoOpts } from '../core/types.js'
 
 /**
@@ -238,6 +239,151 @@ export function measureInk(
  */
 export function disparityBudget(stereo: StereoOpts): number {
   return stereo.sepFar - stereo.sepNear
+}
+
+/**
+ * What `sepAt`'s upper clamp is given when there is no plate in hand.
+ *
+ * **Not a precondition this function cannot check — a theorem about the
+ * plate.** `sepAt` clamps to `w - 1` for the plate it is encoding, and
+ * {@link encodableDepths} takes a `StereoOpts` and never sees one. Omitting
+ * the clamp would be unsound if a plate could be narrower than `sepFar`, and
+ * none can be: `marginsFor` pads by `ceil(sepFar/2)` per side under `linked`
+ * and by `sepFar + ceil(sepFar/2)` under `shift`, so every plate is at least
+ * `sepFar` columns wider than its stage and `w - 1 >= sepFar` for any stage at
+ * all. That is why the signature stays `(stereo)` as design §10.1 writes it,
+ * rather than growing a width argument no shipped caller could use to change
+ * the answer.
+ *
+ * §9 says a recorded note is not a sensor, so the claim is not left here:
+ * `perception.capacity.test.ts`'s `does not need the plate width` re-runs the
+ * sweep at the **real** plate width from `plateLayoutOf`, across both encoders
+ * and down to a 1px stage, and reddens the day the margin rule stops covering
+ * `sepFar`.
+ *
+ * The *lower* clamp is a different matter and is kept, which is the other half
+ * of deriving from `sepAt` rather than restating it: `sepNear` 1 encodes as 2,
+ * so `110/1` has 109 levels and not the 110 the closed form claims.
+ */
+const UNBOUNDED_PLATE = Number.POSITIVE_INFINITY
+
+/**
+ * How many distinct separations the encoder can actually produce — the depth
+ * resolution of the format, before anyone looks at it.
+ *
+ * **Objective, and deliberately ungraded.** Design §10's preamble says every
+ * function here returns the quantities *and* a grade; design §10.1 titles this
+ * one "Encoding capacity — objective, no perception involved". Those cannot
+ * both hold — a grade is a perceptual judgement and this function is declared
+ * to have none — so this returns a bare number, matching
+ * {@link disparityBudget} above rather than {@link fusionComfort}'s reading.
+ * This file already draws that line: objective quantities are numbers, graded
+ * judgements are readings carrying their own thresholds. The conflict is
+ * referred up rather than settled here, and if the preamble wins the grade is
+ * additive.
+ *
+ * **Derived from `sepAt`, not from `sepFar - sepNear + 1`.** Design §10.1
+ * gives the closed form and it is right at the defaults — 19 at 110/92 — but
+ * it is the unclamped, unrounded half of the mapping and disagrees with the
+ * encoder in 7 of 20 swept configurations: at fractional separations
+ * (`110.5/92` is 20 levels, not 19.5), below the encoder's floor (`110/1` is
+ * 109, not 110, because `sepNear` 1 encodes as 2), and it returns a negative
+ * count when the pair is inverted. Writing the arithmetic again here is the
+ * second-copy failure `src/core/angle.ts` names, which is why `sepAt` was made
+ * visible (orchestrator ruling E-7) rather than copied.
+ *
+ * The count is the band between the two endpoints because the separations
+ * `sepAt` yields over z ∈ [0, 1] are *contiguous*: it is a monotone rounding of
+ * a continuous sweep, so no integer between the endpoints is skipped and none
+ * outside them is reached. The capacity is therefore a depth resolution and
+ * not merely a tally, which is what design §10.7's occupied-levels histogram
+ * needs it to be. `perception.capacity.test.ts` asserts the contiguity rather
+ * than trusting this paragraph.
+ *
+ * **`Math.abs` because a count is never negative.** The shipped pipeline
+ * cannot invert the pair — `resolveStereo` rejects `sepNear >= sepFar` — but
+ * this module is advisory and never throws (R22, design §10's second
+ * obligation), so it is reachable with the separations the wrong way round.
+ * The honest answer there is the size of the set the encoder would produce,
+ * which is what the magnitude is; the closed form's `-17` is not a count of
+ * anything. At a zero budget both endpoints coincide and the answer is 1 — one
+ * separation, every depth encoded identically, which is the flat plane
+ * `resolveStereo` describes in prose when it refuses that configuration.
+ *
+ * **Invariant under `noiseScale`** (design §10.1), because `upscale` is the
+ * last stage and the encoder never sees it — the same reason
+ * {@link disparityBudget} is not scaled by it. In scene px throughout, design
+ * §10.6.
+ *
+ * Capacity *in the stage*. Design §10.1 adds that under `linked` the columns
+ * within `sep/2` of each plate edge carry no depth, and P7 criterion 4 asks
+ * this function to report those strips too. That clause is under orchestrator
+ * review and is deliberately not built: the strips were measured to fall
+ * entirely inside the plate margins, which `src/core/plate.ts` already defines
+ * as columns nothing may be composed in. `src/core/sirds.linked.test.ts`
+ * measures the dead zones themselves.
+ */
+export function encodableDepths(stereo: StereoOpts): number {
+  const range = disparityBudget(stereo)
+  const far = sepAt(0, stereo.sepFar, range, UNBOUNDED_PLATE)
+  const near = sepAt(1, stereo.sepFar, range, UNBOUNDED_PLATE)
+  return Math.abs(far - near) + 1
+}
+
+/**
+ * The smallest difference in layer depth guaranteed to encode differently.
+ *
+ * **The unit is depth, not px, and that is not a lapse from design §10.6.**
+ * Everything else in this module measures a separation, which is in scene px;
+ * this measures a distance along the *normalised* depth axis — the `depth` a
+ * layer carries, 0..1 — because that is the axis the quantity exists on and
+ * the one its consumer compares against. Design §10.1's own use for it is
+ * `collidingPairs`, "layer pairs closer than one step, which encode
+ * identically", and layer depths are what that compares. A step of depth has
+ * no px to be in; the px are on the other side of the mapping, where **one
+ * step buys exactly one scene px of separation** because `sepAt` rounds. That
+ * sentence is the §10.6 statement and `perception.capacity.test.ts` asserts it
+ * directly rather than leaving it as prose.
+ *
+ * **Why `1 / budget`.** `sepAt`'s argument moves at `budget` px of separation
+ * per unit depth, so a depth difference of `1 / budget` moves it by exactly 1,
+ * and a rounding of two values a whole apart cannot collapse them. This is the
+ * one quantity in this module that `sepAt` cannot be *asked* for — it is a
+ * property of the mapping's slope, and there is no call that returns it — so
+ * E-7's other route is taken and the agreement is asserted instead of derived:
+ * the test sweeps `sepAt` at this step across every regime and pins both
+ * halves of the claim.
+ *
+ * **Both halves, because only one of them is obvious.** Sufficiency says no
+ * pair this far apart collides. *Tightness* says nothing smaller will do —
+ * just under one step, depths that encode identically exist. Sufficiency alone
+ * is satisfied by any larger number, including a step twice this size, and a
+ * colliding-pairs check built on an over-wide step would report ties between
+ * layers the encoder resolves perfectly well.
+ *
+ * **Where the guarantee stops, found by the test rather than reasoned to.**
+ * A uniform step describes the mapping only where `sepAt`'s clamps are inert.
+ * Under `sepNear` 2 the clamp pins a whole band of near depths to separation
+ * 2, and inside that band no step resolves anything — one scalar cannot say
+ * "uniform here, infinite there". That regime is unreachable through the
+ * pipeline, because `resolveStereo` rejects `sepNear` below 2, but this module
+ * takes an unvalidated `StereoOpts` and will be handed one by an editor
+ * control mid-edit. {@link encodableDepths} is where the loss shows up — 109
+ * levels at `110/1`, not the 110 this step's arithmetic would imply — and
+ * `perception.capacity.test.ts` pins that case rather than leaving the scope
+ * as a sentence here.
+ *
+ * **`Math.abs` and the degenerate budget**, for {@link encodableDepths}'
+ * reasons: advisory-only means this is reachable with the separations
+ * inverted, where the magnitude is the honest answer, and a budget of zero
+ * gives `Infinity` — no depth difference encodes differently, which is the
+ * same flat plane the capacity reports as a single level there.
+ *
+ * Objective and ungraded, and invariant under `noiseScale`: see
+ * {@link encodableDepths} for both.
+ */
+export function quantisationStep(stereo: StereoOpts): number {
+  return 1 / Math.abs(disparityBudget(stereo))
 }
 
 /**
