@@ -540,6 +540,279 @@ export function collidingPairs(scene: Scene, stereo: StereoOpts): CollidingPair[
 }
 
 /**
+ * Miller's span of absolute judgment for a one-dimensional stimulus, as a
+ * count of categories an observer can name rather than merely discriminate.
+ *
+ * **Where it comes from.** `docs/2026-10-13-editor-ux-research.md` §4: "Miller's
+ * span of absolute judgment for a one-dimensional stimulus is ~2–3 bits, i.e.
+ * **4–8 categories**", citing Miller 1956. Design §10.4 carries it forward as
+ * one of the three figures the case for stops rests on.
+ *
+ * **How weak the evidence is, by this file's standard.** Weaker than
+ * {@link FUSION_PLATEAU_BUDGET}, which at least has one observer and a dated
+ * sweep *on this stimulus*. Nothing here was measured in this project at all:
+ * it is a 1956 result about identifying levels of tones, loudnesses and line
+ * lengths, imported on the argument that a depth axis is one-dimensional too.
+ * Depth in a stereogram is not a stimulus Miller tested, and the trade figure
+ * below is the only thing that corroborates it.
+ */
+const ABSOLUTE_JUDGMENT_CATEGORIES_MIN = 4
+const ABSOLUTE_JUDGMENT_CATEGORIES_MAX = 8
+
+/**
+ * The lenticular trade's recommended number of distinct depth segments.
+ *
+ * **Where it comes from.** The same research document, same section: "The
+ * lenticular-print trade's own manual depth-map tutorial recommends **6–9
+ * distinct depth segments** per image, offers no numeric readout, and the
+ * guidance is literally 'try to imagine the volume of the image'", citing
+ * Triaxes. **Segments there are depth planes, not the intervals between
+ * them** — "6–9 distinct depth segments per image" — which is what makes it
+ * commensurable with Miller's categories rather than off by one; the research
+ * document draws that conclusion itself, calling it "Miller's number,
+ * rediscovered empirically by an industry".
+ *
+ * **How weak the evidence is.** It is trade guidance from a tutorial whose own
+ * verification method is generating a wiggle GIF and looking at it. Its value
+ * is entirely in the corroboration: two unrelated sources, one experimental and
+ * seventy years old, one practical and about this exact medium, overlapping on
+ * 6–8.
+ */
+const LENTICULAR_SEGMENTS_MIN = 6
+const LENTICULAR_SEGMENTS_MAX = 9
+
+/**
+ * The fewest stops {@link depthStops} will offer when the encoder has the
+ * levels to spare — the **intersection** of the two ranges above, not a number
+ * picked inside them.
+ *
+ * Written as the intersection because that is the only thing the evidence
+ * supports: a count under {@link LENTICULAR_SEGMENTS_MIN} is below what the
+ * trade recommends and a count over {@link ABSOLUTE_JUDGMENT_CATEGORIES_MAX} is
+ * past where an observer can name a level, so every count outside [6, 8] is
+ * contradicted by one of the two sources while every count inside it is
+ * endorsed by both. Execution plan §9: "a numeric floor chosen from today's
+ * count is a check — it is the same defect as a hand-written list, in numeric
+ * form". `perception.stops.test.ts`'s `keeps the two cited ranges overlapping
+ * at all` is the tripwire for an edit that moves either range past the other.
+ */
+export const STOP_COUNT_MIN = Math.max(
+  ABSOLUTE_JUDGMENT_CATEGORIES_MIN, LENTICULAR_SEGMENTS_MIN,
+)
+
+/** The most stops {@link depthStops} will offer. See {@link STOP_COUNT_MIN}. */
+export const STOP_COUNT_MAX = Math.min(
+  ABSOLUTE_JUDGMENT_CATEGORIES_MAX, LENTICULAR_SEGMENTS_MAX,
+)
+
+/** One detent on design §5.3's depth strip. */
+export interface DepthStop {
+  /**
+   * Where the stop sits on the normalised depth axis, 0..1 — the same axis
+   * `Layer.depth` is on, which is what a snap writes to. **Not** scene px; see
+   * {@link quantisationStep} for why that axis has no px to be in.
+   */
+  depth: number
+  /**
+   * The separation the encoder produces at {@link DepthStop.depth}, in **scene
+   * px** (design §10.6, unscaled by `noiseScale`). Read back from `sepAt`
+   * rather than from the arithmetic that chose the stop, so this field is the
+   * encoder's answer and not a prediction of it.
+   */
+  separation: number
+  /** @see {@link depthStops} on why the label is the separation. */
+  name: string
+}
+
+/**
+ * How many stops a band of `capacity` encodable separations should carry.
+ *
+ * **The window first, then evenness.** Both cited ranges endorse the whole of
+ * [{@link STOP_COUNT_MIN}, {@link STOP_COUNT_MAX}] and neither prefers a point
+ * inside it, so picking one would be the literal P7 criterion 2 forbids. What
+ * breaks the tie is the only objective property left: how equally the count
+ * divides the band. A band of 18 separations splits into six steps of 3 and
+ * into no other equal division in the window, so 110/92 gets 7 stops; a band of
+ * 20 splits into five steps of 4, so 100/80 gets 6. The count therefore moves
+ * with `sepFar`/`sepNear`, which is design §10.4's "recomputed when
+ * `sepFar`/`sepNear` change" taken at its word.
+ *
+ * Unevenness is measured as the share of steps in the **minority** size, not as
+ * the remainder: at 23 separations over 7 steps, six steps of 4 and one of 3 is
+ * one odd step out of seven, and the remainder `23 % 7 = 2` would call it two.
+ * Both halves of the division are the same spacing seen from opposite ends.
+ *
+ * **Ties go to the larger count**, and that is a tie-break rather than a
+ * finding: nothing measured prefers more detents to fewer inside the window.
+ * The asymmetry that decides it is design §10.4's own — snapping is "the
+ * default gesture with a modifier to suspend", so a detent the author does not
+ * want costs one modifier key, while a detent that does not exist costs them
+ * the position.
+ *
+ * **Below the window there is nothing to choose.** A capacity under
+ * {@link STOP_COUNT_MIN} makes every encodable separation a stop, which is
+ * simultaneously the most detents available and the only exactly even spacing.
+ * At a capacity of 1 the answer is none at all: a stop is a *choice between*
+ * encodable depths, and with a single level one stop would be a detent the
+ * author can never move off while two would be two detents the encoder cannot
+ * tell apart — the lie {@link depthStops}' distinctness exists to prevent.
+ */
+function stopCount(capacity: number): number {
+  // **A non-finite capacity needs no guard, and an explicit one would be dead
+  // code** — the same finding `measureInk` records above, reached the same way.
+  // An earlier version read `!Number.isFinite(capacity) || capacity < 2`;
+  // mutation testing could not distinguish its presence from its absence, and
+  // a sweep of 2,000,625 separation pairs — every extremal double, then two
+  // million random magnitudes across the whole exponent range — found the
+  // capacity is **never ±Infinity**, only finite or NaN. `sepAt` cannot return
+  // an infinity and a finite difference, so the only non-finite case is NaN,
+  // and NaN fails `< 2`, leaves `Math.min` NaN, never enters the loop below and
+  // never satisfies `i < count` in {@link depthStops} — four comparisons, every
+  // one of them false. What must not appear here is any arithmetic that turns
+  // NaN back into a number, so `says nothing at all about a configuration it
+  // cannot read` pins the *guarantee* rather than pinning code written here.
+  if (capacity < 2) return 0
+  const most = Math.min(STOP_COUNT_MAX, capacity)
+  const fewest = Math.min(STOP_COUNT_MIN, most)
+  const width = capacity - 1
+  let chosen = fewest
+  let unevenest = Number.POSITIVE_INFINITY
+  for (let n = fewest; n <= most; n++) {
+    const steps = n - 1
+    const odd = width % steps
+    const unevenness = Math.min(odd, steps - odd) / steps
+    // `<=` rather than `<`, which is where the tie-break toward the larger
+    // count lives: the loop ascends.
+    if (unevenness <= unevenest) {
+      unevenest = unevenness
+      chosen = n
+    }
+  }
+  return chosen
+}
+
+/**
+ * The detents on design §5.3's depth strip — "named stops spaced across the
+ * encodable separations, recomputed when `sepFar`/`sepNear` change" (§10.4).
+ *
+ * **Spaced across the *separations*, not across the depth axis, and the
+ * distinction is load-bearing.** Evenly spaced depths look like the same thing
+ * and are not: `sepAt` is affine in depth only while its floor is inert, so at
+ * `sepFar: 10, sepNear: -1000` the whole encodable band lives in the first 0.8%
+ * of the axis and seven evenly-spaced depths collapse onto two separations —
+ * two real detents and five lies. Choosing the separations first and asking for
+ * the depth that reaches each one is what makes the stops distinct in every
+ * configuration rather than in the shipped one.
+ *
+ * **Every stop lands on an encodable separation, in the strong sense.** The
+ * weak reading is vacuous — every depth in [0, 1] encodes to *something* — so
+ * the guarantee is that each interior stop sits at the **centre** of its
+ * separation's rounding band, a band exactly one {@link quantisationStep} wide,
+ * giving it the widest possible tolerance in both directions. `is centred on
+ * its separation's band` pins it from both sides: a shade under half a step
+ * away in either direction leaves the separation alone, a shade over changes
+ * it, which is true of the centre and of nothing else.
+ *
+ * **The endpoints are pinned to depth 0 and depth 1 instead**, which is a
+ * decision and not a rounding. {@link restingDepth} reads an absent
+ * `layer.depth` as 1, so every freshly-added layer sits at depth 1; with
+ * snapping as §10.4's default gesture, a stop set whose outermost detent fell
+ * short of 1 would move a new layer off its own default on the first nudge and
+ * never let it back. Depth 0 is the background plane and the argument is the
+ * same. At whole separations this costs nothing — the band centre for
+ * `round(sepFar)` *is* depth 0 — and at a fractional `sepFar` or `sepNear` the
+ * extreme separation's centre lies outside [0, 1] altogether, so there is no
+ * competing candidate to lose.
+ *
+ * **Named by the separation, because every other label lies somewhere.**
+ * "far"/"near" invert with the pair, and this function must answer `92/110`
+ * without complaint; an ordinal only restates the index the caller already
+ * holds. The separation is true in every configuration, it is the second scale
+ * design §5.3 puts on the strip, and carrying "px" with it names the pixel
+ * space where the count appears, which is §2 invariant 7.
+ *
+ * **Objective and ungraded.** Design §10's preamble says every function here
+ * returns quantities *and* a grade; the orchestrator ruled on 2026-10-15 that
+ * the criterion reads "**graded** functions return quantities and a grade",
+ * because — relayed through this task's brief rather than read first-hand —
+ * "Forcing a grade onto an objective count invents exactly the subjective score
+ * R22 obligation 4 forbids". A stop is a position: nothing in it is compared
+ * against a perceptual threshold, so there is nothing to grade. This matches
+ * {@link collidingPairs} and {@link encodableDepths}, which referred the same
+ * conflict up before it was settled. (Execution plan P7 criterion 2 still read
+ * "Each returns quantities **and** a grade" in this tree on 2026-10-15; the
+ * orchestrator has been told the text is stale.)
+ *
+ * **Advisory only, never throws** (R22 obligation 2, P7 criterion 7), which is
+ * why the signature is `(stereo)` and nothing here calls `resolveStereo` — it
+ * throws on `sepNear >= sepFar`, one of the configurations this must answer.
+ * A separation it cannot read yields no detents rather than a detent at NaN,
+ * the same silence {@link fusionComfort} keeps on a budget it cannot read.
+ *
+ * **Invariant under `noiseScale`**, and in scene px throughout, for
+ * {@link encodableDepths}' reasons: `upscale` is the last stage and the encoder
+ * never sees it (design §10.6).
+ *
+ * **This is the necessary half; the application rules are P4's.** Design §10.4
+ * says stops apply to `text` and `shape`, are meaningless for heightmap layers
+ * — continuous per-pixel depth, though the detents still render on the strip as
+ * reference — and apply only to the **endpoints** of animated depth. None of
+ * that is computable from a `StereoOpts`, and the layer-type half needs the
+ * view that owns the gesture, exactly as {@link collidingPairs} ships the
+ * depth-only half of §10.4's tie badge and P4 filters it by overlap. Nothing
+ * here reads a layer, a type or a track.
+ *
+ * **One interaction measured rather than reasoned about.** At a *fractional*
+ * separation with a capacity of three — `10.4/8.4` — the near extreme's band
+ * centre is at depth 1.2, off the axis, so pinning that stop at depth 1 puts it
+ * closer than one step to its neighbour and {@link collidingPairs} reports the
+ * pair. The two depths encode differently, so it is not a tie: it is
+ * {@link quantisationStep} being a uniform *sufficient* bound, failing toward
+ * the false positive. `can still be over-reported at a fractional separation`
+ * pins both that it happens and that the separations differ, so the day a P4
+ * badge is built on this the scope is a test and not a sentence (§9).
+ */
+export function depthStops(stereo: StereoOpts): DepthStop[] {
+  const range = disparityBudget(stereo)
+  const far = sepAt(0, stereo.sepFar, range, UNBOUNDED_PLATE)
+  const near = sepAt(1, stereo.sepFar, range, UNBOUNDED_PLATE)
+  const count = stopCount(encodableDepths(stereo))
+  if (count < 2) return []
+
+  const stops: DepthStop[] = []
+  for (let i = 0; i < count; i++) {
+    // The depth that reaches a given separation is the one quantity in this
+    // module `sepAt` cannot be *asked* for — there is no call that inverts it —
+    // so E-7's other route is taken, as {@link quantisationStep} already does
+    // for the slope: the inverse is written out and the agreement is asserted
+    // across every regime instead of derived. `(sepFar − s) / range` is the
+    // exact centre of `s`'s rounding band, and `sepAt`'s floor is provably
+    // inert for every *interior* target — an interior target is strictly
+    // between two values that are each at least 2, so it is at least 3 — which
+    // is why only the endpoints need the pinning above and why the clamped
+    // configurations in the test sweep do not need a second branch here.
+    //
+    // A bisection on `sepAt` itself was built and measured against this: it
+    // agrees to under 1e-12 everywhere, and it is *worse*, because a half-open
+    // band makes its midpoint land one ulp off centre. At `10/8` that returns
+    // 0.5000000000000001 for a stop whose depth is exactly a half, and the ulp
+    // is enough to drop the gap to the next stop a hair under one step and make
+    // `collidingPairs` report two detents the encoder resolves perfectly well.
+    const depth = i === 0
+      ? 0
+      : i === count - 1
+        ? 1
+        : (stereo.sepFar - Math.round(far + (near - far) * (i / (count - 1)))) / range
+    // Read back rather than predicted: `separation` is what the encoder says
+    // about `depth`, so a wrong inverse shows up as a repeated or out-of-band
+    // separation instead of as a confident wrong label.
+    const separation = sepAt(depth, stereo.sepFar, range, UNBOUNDED_PLATE)
+    stops.push({ depth, separation, name: `${separation} px` })
+  }
+  return stops
+}
+
+/**
  * The widest budget the fusion sweep measured as comfortable, in scene px.
  *
  * **Where it comes from.** `docs/2026-10-12-legibility-findings.md` §1's fusion
