@@ -94,7 +94,15 @@
  * `./<lowercase>.js`.
  */
 import { LAYER_KEYS, PARAM_UNITS, PRESET_PARAMS, SCENE_KEYS, STEREO_KEYS } from '../src/core/index.js'
-import type { AssertNever, LayerKey, ParamDescriptor, ParamShape, ParamUnit } from '../src/core/index.js'
+import type {
+  AssertNever,
+  LayerKey,
+  ParamDefault,
+  ParamDescriptor,
+  ParamShape,
+  ParamUnit,
+  SirdsAlgorithm,
+} from '../src/core/index.js'
 import type { Layer } from '../src/core/types.js'
 import type { LayoutConfig } from './layout.js'
 import { mountedPanels } from './layout.js'
@@ -166,6 +174,18 @@ type _NoOwnerExtra = AssertNever<Exclude<typeof CONTROL_OWNERS[number], ControlO
  * control — that is the whole point of deriving — and it carries this tag
  * until somebody records what the key measures. {@link unrecordedUnits} is
  * what makes that loud, per §9's *"a recorded note is not a sensor"*.
+ *
+ * **`opaque` and `identity` were both `none`, and the widget floor is what
+ * separated them.** `none` was carrying three jobs: an unordered integer the
+ * author sets (`stereo.seed`), a stable string key the model assigns
+ * (`layer.id`), and the two keys that are not single values at all (`mask`,
+ * `anim`). Being structured is already said by `shape: 'structured'`, so
+ * splitting along *that* line would have restated it. The split that mattered
+ * is between the other two: both are scalars, and `site/widgets.ts` has to
+ * choose a number field for one and a text field for the other with nothing
+ * but the unit to go on. `none` now means *no unit applies*, which is true
+ * only where the value is structured; a `none` scalar is a mis-tag and the
+ * resolver reports it rather than guessing.
  */
 export type ControlUnit =
   | ParamUnit
@@ -173,6 +193,8 @@ export type ControlUnit =
   | 'framesPerSecond'
   | 'boolean'
   | 'text'
+  | 'opaque'
+  | 'identity'
   | 'none'
   | 'unrecorded'
 
@@ -197,6 +219,8 @@ export const CONTROL_UNITS = [
   'enum',
   'boolean',
   'text',
+  'opaque',
+  'identity',
   'none',
   'unrecorded',
 ] as const
@@ -267,6 +291,40 @@ export interface ControlInfo {
    */
   readonly per?: 'second'
   /**
+   * Every name this control accepts, on a control whose unit is `enum`.
+   *
+   * **Carried down rather than looked up again**, for `per`'s reason: the
+   * descriptor that knows the vocabulary is the one being read here, and a
+   * consumer that had to re-derive it would be re-deriving it from somewhere
+   * other than the declaration. Absent where no vocabulary is recorded — see
+   * {@link KeySpec.values}.
+   */
+  readonly values?: readonly string[]
+  /**
+   * The syntax of the other form the reader accepts, where `values` is not
+   * the whole of it.
+   *
+   * `EnumParam.open`, carried down. `ease` is the live case: five named curves
+   * *or* `cubic-bezier(a,b,c,d)`, and a control that offered only the list
+   * would tell an author a valid easing is invalid — the exact error
+   * `overrides()`' message was rewritten to stop giving.
+   */
+  readonly open?: string
+  /**
+   * Where this control's value comes from when the author writes nothing.
+   *
+   * Carried down from the descriptor, and **absent on most of the registry**:
+   * the model's own keys record a unit and an arity and no default, and a
+   * field here that was present on the verb parameters and silently absent on
+   * everything else would be read as "defaults to zero". A consumer wanting an
+   * initial value for the rest reads the scene.
+   *
+   * Tagged rather than valued, so a consumer switches on `from` instead of
+   * sniffing the value's JavaScript type. `remainder` carries no number at
+   * all, which is a thing only the tag can say.
+   */
+  readonly default?: ParamDefault
+  /**
    * Which panel this control is mounted in.
    *
    * Design §9.2's regression is *"spec written, assigned to a panel no layout
@@ -311,9 +369,71 @@ interface KeySpec {
   readonly unit: ControlUnit
   /** Defaults to `scalar`, which is what all but four model keys are. */
   readonly shape?: ControlShape
+  /**
+   * Every name the key accepts, on a key whose unit is `enum`.
+   *
+   * **Recorded for the same reason the unit is, and discovered by the same
+   * consumer.** `unit: 'enum'` tells a generated control that the value is one
+   * of a fixed set of names and does not tell it *which*, so a picker built
+   * from the unit alone has no options in it — an instrument an author cannot
+   * use and cannot tell is broken. `EnumParam` upstream has carried its
+   * `values` from the beginning and this is the model side of the same field.
+   *
+   * Partial for the table's own reason: a key that gains an `enum` unit and no
+   * values still produces a control, and `site/widgets.ts` names it rather
+   * than offering an empty list.
+   */
+  readonly values?: readonly string[]
   /** Why this unit and not a neighbouring one — §2.3, and §9.1's provenance trap. */
   readonly note: string
 }
+
+/**
+ * The model's own enum vocabularies, written out beside the union each one
+ * comes from.
+ *
+ * **Written out and tied, never spread**, for `CONTROL_UNITS`' reason: the
+ * union lives in `src/core/types.ts` and the tuple lives here, so a member
+ * added or removed upstream is a compile error in this file rather than an
+ * option a generated picker silently stops offering. A spread would make the
+ * pair a tautology — it would prove only that the derivation ran twice.
+ *
+ * `Extract`/`NonNullable` rather than a hand-written union: the three layer
+ * vocabularies are declared inline inside `Layer`'s variants, so naming them
+ * here is the only way to point at the declaration without editing
+ * `src/core/`, which is out of this phase's blast radius.
+ */
+type ImageMode = NonNullable<Extract<Layer, { type: 'image' }>['mode']>
+type GifLoop = NonNullable<Extract<Layer, { type: 'gif' }>['loop']>
+type ShapeKind = Extract<Layer, { type: 'shape' }>['shape']
+
+const ALGORITHM_VALUES = ['shift', 'linked'] as const
+const MODE_VALUES = ['silhouette', 'heightmap'] as const
+const LOOP_VALUES = ['loop', 'once', 'pingpong'] as const
+const SHAPE_VALUES = ['circle', 'rect'] as const
+
+type _NoAlgorithmMissing = AssertNever<Exclude<SirdsAlgorithm, typeof ALGORITHM_VALUES[number]>>
+type _NoAlgorithmExtra = AssertNever<Exclude<typeof ALGORITHM_VALUES[number], SirdsAlgorithm>>
+type _NoModeMissing = AssertNever<Exclude<ImageMode, typeof MODE_VALUES[number]>>
+type _NoModeExtra = AssertNever<Exclude<typeof MODE_VALUES[number], ImageMode>>
+type _NoLoopMissing = AssertNever<Exclude<GifLoop, typeof LOOP_VALUES[number]>>
+type _NoLoopExtra = AssertNever<Exclude<typeof LOOP_VALUES[number], GifLoop>>
+type _NoShapeKindMissing = AssertNever<Exclude<ShapeKind, typeof SHAPE_VALUES[number]>>
+type _NoShapeKindExtra = AssertNever<Exclude<typeof SHAPE_VALUES[number], ShapeKind>>
+
+/**
+ * `gif`'s `mode` is `image`'s, asserted rather than assumed.
+ *
+ * The flat `LAYER_SPECS` table gives one entry to a key name shared by two
+ * variants, and its own docblock records that nothing proves the two mean the
+ * same thing. For the one shared key that now carries a *vocabulary* the claim
+ * is cheap to make, so it is made: if the two ever diverge, the shared entry
+ * is offering one variant the other's options.
+ */
+type _NoGifModeDivergence = AssertNever<
+  Exclude<NonNullable<Extract<Layer, { type: 'gif' }>['mode']>, ImageMode>
+>
+
 
 /**
  * What each of `Scene`'s own keys measures.
@@ -402,12 +522,15 @@ const STEREO_SPECS: Partial<Record<StereoKey, KeySpec>> = {
   },
   cross: { unit: 'boolean', note: 'Invert depth for cross-eyed viewers.' },
   seed: {
-    unit: 'none',
-    note: 'An opaque integer handed to the RNG. Deliberately `none` and not `multiplier`: it is ' +
-      'not a quantity, nothing about it is ordered, and a slider would be the wrong instrument.',
+    unit: 'opaque',
+    note: 'An opaque integer handed to the RNG. Deliberately not `multiplier`: it is not a ' +
+      'quantity, nothing about it is ordered, and a slider would be the wrong instrument. It ' +
+      'was `none` until a widget resolver had to pick between a number field and a text field ' +
+      'for it and `layer.id`, which were tagged alike and are not alike.',
   },
   algorithm: {
     unit: 'enum',
+    values: ALGORITHM_VALUES,
     note: 'One of `SIRDS_ALGORITHMS` (`shift` | `linked`). In the guarded roster since the ' +
       'encoder split and with no control in the current editor — survey §I-1 names it as the ' +
       'one countable R6 gap this registry closes with no design input at all.',
@@ -440,12 +563,19 @@ const LAYER_SPECS: Partial<Record<LayerKey, KeySpec>> = {
     note: 'The discriminant. A *control* because R6 is about every authorable key and this one is ' +
       'in every scene file; creating a layer by choosing one is a different mechanism — design ' +
       '§5.6 assigns it to `OPERATIONS`, because "the author must choose a variant before any ' +
-      'control applies".',
+      'control applies". **No `values`, deliberately**: `site/widgets.ts` refuses to generate a ' +
+      'widget over this key at all, so a vocabulary here would be an option list nothing ' +
+      'offers — and the set that would be correct is the validator\'s answer about which ' +
+      'variants load, not a constant.',
   },
   id: {
-    unit: 'none',
+    unit: 'identity',
     note: 'Stable identity (design §4.1), assigned on first mutation and never minted by a ' +
-      'validator. Not a quantity and not free text a human composes.',
+      'validator. Not a quantity and not free text a human composes — which is why it is no ' +
+      'longer tagged alike with `stereo.seed`: both were `none` scalars and a generated ' +
+      'control has to offer a string for one and a number for the other. The browser\'s ' +
+      'validator accepts any non-empty string here, duplicates included, so the uniqueness ' +
+      'this key is for is not enforced where a control would write it.',
   },
   name: {
     unit: 'text',
@@ -490,6 +620,7 @@ const LAYER_SPECS: Partial<Record<LayerKey, KeySpec>> = {
   },
   mode: {
     unit: 'enum',
+    values: MODE_VALUES,
     note: 'One of `silhouette` | `heightmap`. `heightmap` is the mode that already ships the ' +
       'cardboarding cure design §10.5 wanted, which is why it is authorable per layer.',
   },
@@ -500,8 +631,16 @@ const LAYER_SPECS: Partial<Record<LayerKey, KeySpec>> = {
       'enum. Opaque artwork (a logo on white) needs the luma form, which is why the token alone ' +
       'is not enough.',
   },
-  loop: { unit: 'enum', note: 'One of `loop` | `once` | `pingpong`, for a GIF\'s own playback.' },
-  shape: { unit: 'enum', note: 'One of `circle` | `rect`, and it decides which of r / w,h applies.' },
+  loop: {
+    unit: 'enum',
+    values: LOOP_VALUES,
+    note: 'One of `loop` | `once` | `pingpong`, for a GIF\'s own playback.',
+  },
+  shape: {
+    unit: 'enum',
+    values: SHAPE_VALUES,
+    note: 'One of `circle` | `rect`, and it decides which of r / w,h applies.',
+  },
   r: { unit: 'scenePx', note: 'Circle radius, in scene px.' },
   w: { unit: 'scenePx', note: 'Rect width, in scene px.' },
   h: { unit: 'scenePx', note: 'Rect height, in scene px.' },
@@ -704,6 +843,7 @@ function control(
     key,
     unit: spec.unit,
     shape: spec.shape ?? 'scalar',
+    ...(spec.values === undefined ? {} : { values: spec.values }),
     panel: OWNER_PANELS[owner],
   }
 }
@@ -714,6 +854,14 @@ function control(
  * Discriminated on `unit` for `ParamDescriptor`'s own reason: `values` is
  * reachable only on an enum and `shape`/`per` only on a numeric one, so a flat
  * read would compile with an enum that lists nothing.
+ *
+ * **Everything the descriptor records is carried down, including the three
+ * fields this function used to drop.** `per`'s docblock already states the
+ * rule — a tag dropped in the derivation reintroduces a fail-open defect one
+ * level down — and `values`, `open` and `default` are the same bargain for the
+ * consumer that generates a widget: without them a picker has no options, a
+ * `cubic-bezier(...)` is reported invalid, and a field initialises to a number
+ * for a parameter whose default is "the rest of the scene".
  */
 function presetControl(kind: string, d: ParamDescriptor): ControlInfo {
   const base = {
@@ -721,9 +869,18 @@ function presetControl(kind: string, d: ParamDescriptor): ControlInfo {
     owner: 'preset' as const,
     scope: kind,
     key: d.name,
+    default: d.default,
     panel: OWNER_PANELS.preset,
   }
-  if (d.unit === 'enum') return { ...base, unit: 'enum', shape: 'scalar' }
+  if (d.unit === 'enum') {
+    return {
+      ...base,
+      unit: 'enum',
+      shape: 'scalar',
+      values: d.values,
+      ...(d.open === undefined ? {} : { open: d.open }),
+    }
+  }
   return { ...base, unit: d.unit, shape: d.shape, ...(d.per === undefined ? {} : { per: d.per }) }
 }
 
