@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
 import { decodeGif } from './gif.js'
-import { solid3Gif } from './testing/gifFixtures.js'
+import { makeGif, solid3Gif } from './testing/gifFixtures.js'
 import { writeScene } from './sceneWrite.js'
 import { writeZip, type ZipEntry } from './zip.js'
 import { writeStst, type StstMember } from './container.js'
@@ -214,6 +214,12 @@ describe('readStst', () => {
     // question, which is nothing: a three-frame GIF is bytes with a name, and
     // it comes back as the same bytes under the same name. Neither half needs
     // a frame convention, so neither half can impose one.
+    //
+    // **That scope limit still stands and is still right.** What it does not
+    // cover is the half R17 actually asks for — a *scene* that refers to the
+    // member — and until 2026-10-15 that was recorded here as a note rather
+    // than asserted anywhere. P1 criterion 9 is the test below this one; see
+    // its comment for the measurement that showed the gap was real.
     const gif = solid3Gif()
     const back = await readStst(await writeStst(scene(), [{ name: 'spin.gif', role: 'mask', data: gif }]))
 
@@ -222,6 +228,142 @@ describe('readStst', () => {
     // byte equality to a fixture proves the bytes survived, this proves what
     // survived is still three frames of animation.
     expect(decodeGif(back.members[0]!.data).frames.length).toBe(3)
+  })
+
+  it('round-trips a project whose scene has a multi-frame gif layer, twice over', async () => {
+    /**
+     * **P1 criterion 9** (added 2026-10-15), and R17's own words for why it
+     * exists: *"that would also save the multi-frame / gif layer if i want to
+     * share the full editable project with someone else."*
+     *
+     * ## The gap this fills, measured rather than argued
+     *
+     * The test above pins the *member* half — GIF bytes in, same bytes out,
+     * still N frames — and deliberately stops there. Nothing pinned the
+     * *scene* half, so nothing connected the two. Paired control (§6.5a),
+     * both halves named: `writeStst` was patched to carry every member
+     * faithfully and silently drop every `type: 'gif'` layer from the scene
+     * on the way out — a container that keeps the animation's bytes and loses
+     * the layer that refers to them, which is the precise shape of "R17 is
+     * unmet". Result: **18 shared test files / 209 tests passed, and the full
+     * suite's only failure was the unrelated `dist/` staleness gate.** The
+     * whole repo was blind to it. Reverted; this test is what sees it.
+     *
+     * ## What this does *not* do, because the scope call above is right
+     *
+     * It imposes no frame convention and no naming convention. The scene and
+     * the member share a name because **this test's caller chose that**, the
+     * way an import path would; the container is never asked to derive one
+     * from the other, and an assertion that it did would be the container
+     * answering a question §6.1 owns. What is asserted is only that neither
+     * side is mangled, so whatever convention P5 picks still has two intact
+     * halves to connect.
+     *
+     * ## Why write → read → **write**
+     *
+     * "Share the full editable project" means the recipient opens it, works,
+     * and saves again. One round trip proves the bytes arrived; the second
+     * write proves nothing was quietly dropped in between — a reader that
+     * returned a scene missing `loop` would pass a single round trip against
+     * a hand-written expectation and fail here. It is also the cheapest
+     * possible assertion: feed `readStst`'s own output straight back in.
+     */
+    const gif = makeGif(4, 4, [
+      { index: 1 }, { index: 2 }, { index: 3 }, { index: 1 }, { index: 2 },
+    ])
+    // Five, not three: `solid3Gif` is already the fixture above, and a count
+    // that differs from the neighbouring test's cannot be satisfied by a
+    // decoder that has learned to say 3.
+    const FRAMES = 5
+    expect(decodeGif(gif).frames.length).toBe(FRAMES)
+
+    /**
+     * Every gif-specific key the roster admits, not a minimal layer.
+     * `loop` is the one that only a multi-frame layer has any use for, so a
+     * roster that lost it would be a `.stst` that cannot express animation —
+     * and `type`, `src`, `mode` and `mask` are what make it a *mask* layer
+     * rather than a decoration. `id` and `name` are there because a shared
+     * project is one someone else's editor has to show in a panel.
+     */
+    const gifLayer = {
+      type: 'gif', src: 'spin.gif', loop: 'pingpong',
+      mode: 'silhouette', mask: { luma: 0.4 },
+      id: 'G1', name: 'the spinner', depth: 0.75, at: [40, 60],
+    }
+    const project = {
+      layers: [
+        { type: 'text', text: 'привет', at: [10, 20], depth: 0.5, name: 'greeting' },
+        gifLayer,
+        { type: 'shape', shape: 'circle', r: 12, at: [90, 90], depth: 0.2 },
+      ],
+      stereo: { sepFar: 110, sepNear: 78 },
+      size: [320, 200],
+    } as unknown as Scene
+
+    // The member list a baking layer would hand over: the baked mask and the
+    // original the author imported, under one name in two roles.
+    const members: StstMember[] = [
+      { name: 'spin.gif', role: 'mask', data: gif },
+      { name: 'spin.gif', role: 'source', data: gif },
+    ]
+
+    const first = await writeStst(project, members)
+    const back = await readStst(first)
+
+    // (a) The layer survived, with every key it went in with. Written out
+    // rather than compared to `gifLayer`, so a writer and a reader that agreed
+    // on dropping one cannot both move and stay green.
+    expect(back.scene.layers.map(l => l.type)).toEqual(['text', 'gif', 'shape'])
+    expect(back.scene.layers[1]).toEqual({
+      type: 'gif', src: 'spin.gif', loop: 'pingpong',
+      mode: 'silhouette', mask: { luma: 0.4 },
+      id: 'G1', name: 'the spinner', depth: 0.75, at: [40, 60],
+    })
+
+    // (b) The member the layer names is still there, under that name, in both
+    // roles, and still decodes to five frames by a decoder that is not ours.
+    const named = back.members.filter(m => m.name === gifLayer.src)
+    expect(named.map(m => m.role)).toEqual(['mask', 'source'])
+    for (const m of named) {
+      expect(m.data).toEqual(gif)
+      expect(decodeGif(m.data).frames.length).toBe(FRAMES)
+    }
+
+    // (c) Re-saving what was opened gives the same file. This is the property
+    // "share the editable project" actually needs: `readStst`'s output is
+    // shaped to go straight back into `writeStst`, and if that is lossy the
+    // loss lands on the recipient's copy rather than the author's.
+    const again = await writeStst(back.scene, [...back.members])
+    expect(again).toEqual(first)
+
+    /* ----------------------------------------------------------- controls
+     *
+     * Three nulls above — "the layer matched", "the bytes matched", "the
+     * archives matched" — and a null is indistinguishable from a broken
+     * instrument unless the same instrument is shown moving. One control per
+     * claim, each mutating exactly the thing that claim is about.
+     */
+
+    // (a)'s control: a scene with `loop` removed must not satisfy the layer
+    // assertion. Otherwise `toEqual` is matching on something weaker than the
+    // key set, and a container that dropped `loop` would pass.
+    const { loop: _dropped, ...noLoop } = gifLayer
+    expect(noLoop).not.toEqual(back.scene.layers[1])
+
+    // (b)'s control: the frame count must be able to be wrong. A two-frame
+    // GIF is still a GIF and still decodes, so this separates "it has five
+    // frames" from "`decodeGif` returns whatever it is given".
+    expect(decodeGif(makeGif(4, 4, [{ index: 1 }, { index: 2 }])).frames.length).not.toBe(FRAMES)
+
+    // (c)'s control: the comparison must separate two archives that differ.
+    // A re-save that changed the loop mode is the realistic loss — the layer
+    // is still a gif layer, still names the same member, and only the
+    // animation's behaviour has gone.
+    const edited = {
+      ...back.scene,
+      layers: back.scene.layers.map((l, i) => (i === 1 ? { ...l, loop: 'once' } : l)),
+    } as Scene
+    expect(await writeStst(edited, [...back.members])).not.toEqual(first)
   })
 
   it('reads a .stst assembled by /usr/bin/zip from hand-written parts', async () => {
