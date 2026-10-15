@@ -40,7 +40,7 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P2** player | **merged** | 60 files / 1333; zero files under `src/` |
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
-| **P3a** shell, additive half | **in progress** | **cluster C complete**; **76 files / 1791**, sixteen tasks with no numeric floor. Remaining: C-17, C-18, D-1…D-6 |
+| **P3a** shell, additive half | **in progress** | **cluster C complete** incl. C-17/C-18; **76 files / 1791**. Remaining: **D-1…D-6**, two verifier clusters, reviewer, gate runner |
 | **P3b** store, shell, teardown | not started | depends on P3a |
 | **P1** `.stst` · **P7** perception | **not started, unblocked** | both depend only on P0 |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
@@ -127,6 +127,7 @@ orchestrator.
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 | 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 15 | **Adopted criteria 12–20 and ruling E14 in a message and never wrote them into any document.** Three of them are what cluster D is aimed at; one had already cost two tasks; two briefs quoted E14 as "verbatim". Invisible to the quote-diff rule, because a diff is blind to what was never written | the PM asked what its criteria said and found they said nothing |
 | 14 | Amended criterion 3 in the execution plan and **not in the design document**, leaving two tier-0 documents in conflict for a whole sub-cluster — in a phase whose idiom parses the design document | the PM read both and reported it rather than editing |
 | 13 | Wrote criterion 3 as "a dummy appears **without touching another file**" — measured false for a real registration on three registries. A PM correctly refused to reinterpret it in a ledger | C-13, C-14, C-15 measured it; the PM escalated rather than deciding |
 
@@ -144,6 +145,8 @@ binding on tier 0 as on tier 1.
   second one is added. Confirmed by measurement, not inferred.
 - **P4 — `site/depthmap.ts`'s recorded rationale** still argues against a default colour
   ramp; P4 owns amending it in place (plan §7 P4.12).
+- **Open from E14's sweep:** three more P2 rosters share the `SMOOTH_MODES` defect —
+  `DepthView`, `Legibility`, `FitLimit`, the last in live non-orphaned code.
 - **P3b — criterion 14 / `EDITOR_ONLY_MODULES`**: three cluster-C modules are absent from
   a hand-written `toHaveLength(7)` list in a merged P2 file and **none of them reddens
   it**.

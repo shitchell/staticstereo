@@ -430,6 +430,18 @@ own diagnosis is the rule: *"a PM can't check that one, so the fix isn't 'verify
 never to repeat a relayed claim outside its label."* The label travels with the claim or
 the claim does not travel.
 
+### 1.2q `ps` is the PM-legal way to ask whether a worker is alive
+
+When this PM was terminated mid-shift and resumed, the obvious inference was that its
+in-flight worker had been orphaned. It **measured instead** — `ps` plus time-separated
+sampling showed a live plant/revert loop around a stable deliverable — and did not
+dispatch, because *"dispatching a worker there would have put two agents inside one
+cycle."*
+
+`ps` reads process state, not source, so it is inside the tier's boundary, and no shift
+had used it. Use it before concluding a worker is gone, for the same reason §1.2b says a
+task-notification is not a termination.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -863,6 +875,38 @@ running before P3. The module lands standalone; P4 consumes it.
 **`CONTROLS` is complete; visibility sets select from it.** A filtered registry would fail
 criterion 6.
 
+### P3 criteria 12–20 and ruling E14 — written down for the first time, 2026-10-15
+
+**These were adopted in a message and never committed to any document.** A PM found it:
+criteria 12–20 — including criterion 13, which had already cost two tasks, and 17, 18 and
+20, which are the whole of cluster D — **have no text in any tier-0 document**, and
+neither does E14, the ruling that created task C-18, which two briefs nonetheless quoted
+as "verbatim". This is orchestrator error 15.
+
+Reconstructed below from the orchestrator's own rulings. **Two are marked unreconstructed
+and the owning PM must restate them from its ledger before cluster D dispatches against
+them** — writing down a criterion I cannot state exactly would be the §1.2j error on top
+of this one.
+
+| # | Criterion |
+|---|---|
+| **12** | `Scene`'s own-key guard. Design §9.1 adopts it and nothing implemented it. |
+| **13** | `KEYBINDINGS` exists as a registry. *(Met at `5fc8fc8`.)* |
+| **14** | *Unreconstructed — PM to restate.* Concerns `EDITOR_ONLY_MODULES`: three cluster-C modules are absent from a hand-written `toHaveLength(7)` list in a merged P2 file and **none of them reddens it**. P3b's. |
+| **15** | The player-bundle check carries its measured paired control — a bare import is tree-shaken away and proves nothing. |
+| **16** | The centre slot admits nothing above the canvas in flow (design §8.3's sub-pixel measurement). |
+| **17** | `ease`, `repeat`, `start` and `duration` are declared as parameter descriptors. They are declared **nowhere** today. |
+| **18** | `CONTROLS` is **derived** from the guarded rosters — never enumerated. **Do not conflate this with the withdrawn criterion-3 wording.** |
+| **19** | *Unreconstructed — PM to restate.* Store-side; belongs to cluster E, i.e. P3b. |
+| **20** | `ParamShape` expresses a **number-or-token union**. Today it is `'scalar' \| 'pair'` only, so the shape genuinely does not exist. |
+
+**Ruling E14**, also previously unwritten: a fourth `SMOOTH_MODES` member was planted and
+typechecked **0** while the test named *"is total"* passed and could not fail. The fix is a
+compile-time `AssertNever` `default:` arm that **returns the existing fallback rather than
+throwing** — zero runtime change. Paired with a sweep of other registries sharing the
+shape. Landed at `2a44191`; the sweep found **three more** (`DepthView`, `Legibility`,
+`FitLimit`, the last in live non-orphaned code) and those are open.
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
@@ -990,6 +1034,8 @@ Each already cost a correction. Hand this table to every worker.
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
 | headless reproduces what headful does | Not in the sub-pixel regime. Headless Chromium and Firefox have **zero-width scrollbars**, and `scrollWidth` / max-`scrollLeft` are integer-snapped — structurally blind to exactly this bug class. The reproduction needed a real page, a real fractional layout viewport, and **headful under Xvfb**, reading the gutter as `offsetHeight - clientHeight`. |
 | `git diff -U0` shows what the task changed | Not for a file the task **created** — an untracked file has no diff, so the check silently measures nothing. Grep the file, not the diff. |
+| the quote-diff came back clean, so the documents agree | **A diff compares two written things and is blind to what was never written.** Nine criteria and a ruling existed only in agent messages; §9 and §2 diffed 37/37 and 11/11, mutation-controlled, and reported clean throughout — because both sides were equally silent. Quote-diffing catches drift; only reading the *consumer* against the *source* catches absence. Ask "what does this brief rely on that no document contains?" |
+| a grep census is a census | One used repeatedly in this phase finds **9 of 13** rosters where a parse finds 13 of 13, **and does not report the miss**. A 30% blind spot reporting clean is the fail-open shape again, this time in the phase's own tooling. Where the compiler can be the instrument, make it the instrument. |
 | "I diffed it and it is clean" | Clean **on which axis?** A document declared clean by one PM was re-run on all axes by the next and yielded a quote containing a clause that exists nowhere, an altered "verbatim" quote with an inserted clause, a spliced first-person quote the record does not support, a dropped load-bearing opening sentence, and a deliverable routed to a later cluster in as many words and never delivered. A clean verdict that names no axis is a partial check wearing a complete one's clothes. |
 | a clean diff means the document matches | Only for whatever you diffed. One PM diffed a table's **row keys**, reported clean, and said it had not checked bodies; the next diffed bodies and found **four rows grown a sentence the source never contained, one row missing, and two sentences deleted from a "verbatim" block**. A partial check that reports clean is worse than none, because the next reader believes it. |
 | a conclusion recorded in four documents is settled | Four documents carried "C-13 and C-14 have prose upstreams with no executable equivalent". The premise was true and **the conclusion had been spent two clusters earlier** — the acceptance had already been taken, in the very files their successors were sent to extend. A conclusion propagates; the thing that spent it does not. |
