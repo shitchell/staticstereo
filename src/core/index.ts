@@ -76,7 +76,16 @@ export type {
 export { createRasterCache, gifFrameIndex, rasterDepth, sceneDurationOf } from './raster.js'
 export type { RasterCache } from './raster.js'
 export { blurDepth } from './blur.js'
-export { sirdsFromDepth, upscale } from './sirds.js'
+/**
+ * `sepAt` is surfaced alongside the encoder it belongs to, for the same reason
+ * `degToRad` is surfaced below: it is the vocabulary, not an implementation
+ * detail. Separation pixels are the unit this whole model is written in, and
+ * anything reasoning about depth resolution rather than rendering a frame —
+ * `shared/perception.ts` first — has to ask the encoder what a depth encodes
+ * to rather than re-derive it. See its docblock for what the re-derivation
+ * gets wrong.
+ */
+export { sepAt, sirdsFromDepth, upscale } from './sirds.js'
 export { makeRng } from './rng.js'
 
 /* -------------------------------------------------------------------- units */
