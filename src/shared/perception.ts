@@ -1,5 +1,7 @@
 import { sepAt } from '../core/sirds.js'
-import type { Layer, Scene, StereoOpts } from '../core/types.js'
+import type {
+  AssertNever, Layer, LayerKey, LayerOf, Scene, StereoOpts,
+} from '../core/types.js'
 
 /**
  * The authoring legibility check: is this text wide enough to fuse at all?
@@ -810,6 +812,383 @@ export function depthStops(stereo: StereoOpts): DepthStop[] {
     stops.push({ depth, separation, name: `${separation} px` })
   }
   return stops
+}
+
+/**
+ * The depth-map blur radius at which a slab stops reading as a floating plane,
+ * in **scene px** — `src/core/render.ts` runs `blurDepth` before `padDepth`
+ * and before `upscale`, in its own words "in stage coordinates, because that
+ * is the space the scene is authored in", so this radius is on the same axis
+ * as every other count in this module (design §10.6) and is unscaled by
+ * `noiseScale` for {@link disparityBudget}'s reason.
+ *
+ * **Where it comes from.** `src/core/types.ts`'s `depthBlur` field, which
+ * records Shaun comparing blur 0/1/2 by eye at the default 18px budget,
+ * switching between them in place with `feh` while holding fusion:
+ *
+ * > "i think blur0 was clean … genuinely little to no difference. i will say:
+ * > blur1 and blur2 *seemed* to have almost a sort of extra border at the
+ * > bottom that gave a sense of more of a mountain sort of thing? like the
+ * > square was connected to and protruding from the background. whereas blur0
+ * > seemed to just be more of a floating square."
+ *
+ * That paragraph is written there as a *cost* — the mesa is the opposite of
+ * what a clean floating square wants, which is why the default went to 0. It
+ * is the same observation read from the other end here: cardboarding is the
+ * complaint that every surface is a cut-out, and "connected to and protruding
+ * from the background" is precisely not one. Design §10.5 and execution plan
+ * §9 both name `depthBlur` as one of the two relief mechanisms that already
+ * ship, on this evidence.
+ *
+ * **How weak the evidence is, on two different axes.**
+ *
+ * *Observationally, weaker than {@link FUSION_PLATEAU_BUDGET}* — which is
+ * already this file's weakest, one observer and unblinded. This is one
+ * observer, unblinded, and the report is hedged three times in one sentence
+ * ("seemed", "almost a sort of", "sort of thing?"). It is a single square at a
+ * single budget.
+ *
+ * *Mechanically, stronger than any of them.* A Gaussian over a depth map puts
+ * a literal gradient at every silhouette edge, and `src/core/types.ts` reasons
+ * from that rather than from the quote: "blur puts a literal depth gradient at
+ * the edge, and a gradient, fused, is a slope". That part is a property of
+ * `blurDepth`, not of a viewer, and it holds whether or not anyone reports it.
+ * What the observation adds is only that the slope is *above* perceptual
+ * threshold at this radius.
+ *
+ * **1 is the smallest radius tried, not a measured boundary.** `blurDepth`
+ * blurs at any radius above 0 — its only floor is `radius <= 0`, which returns
+ * a copy — so a 0.3px radius does put a gradient in the map, about a pixel
+ * wide, and nothing has ever been looked at between 0 and 1. This module
+ * reports such a scene as cardboarded, which is the reading `types.ts` states
+ * for the same band in its own words ("the cure is above perceptual threshold
+ * and the disease is below it"). `stops calling the scene flat once the depth
+ * map is blurred` pins both sides of the boundary, so the day someone measures
+ * the gap the decision is a failing test and not a sentence (§9: a recorded
+ * note is not a sensor).
+ *
+ * **And the trade reverses.** `types.ts` keeps `depthBlur` as a knob because
+ * "the trade reverses as the budget widens: at sepFar/sepNear far apart the
+ * echo should become visible and worth blurring". At a wide budget the author
+ * raises it for the echo and gets this relief as a side effect; nothing here
+ * can tell the two intents apart, and nothing needs to — the gradient is in
+ * the map either way.
+ */
+export const DEPTH_BLUR_RELIEF = 1
+
+/**
+ * Whether one layer's own depth varies across its surface.
+ *
+ * - `'flat'` — one depth over the whole layer, which is the cardboard cut-out
+ *   design §10.5 is named for.
+ * - `'relief'` — per-pixel depth. Today that is `mode: 'heightmap'` and
+ *   nothing else; the name is the general one because §10.5's scoped-out cure
+ *   (per-layer Add / Carve / Keep blend modes) would add a second.
+ * - `'undecided'` — the model does not carry the answer. Two cases, both
+ *   measured and both recorded on {@link reliefOf}.
+ *
+ * **`depthBlur` is deliberately not one of these.** It is scene-wide and acts
+ * on the composited map, so it is not a property of any layer; it enters at
+ * {@link cardboarding} instead. A consumer wanting the per-row badge reads
+ * these, and one wanting §10.5's answer reads the boolean.
+ */
+export type LayerRelief = 'flat' | 'relief' | 'undecided'
+
+/**
+ * Which of each `Layer` variant's keys decide whether it carries relief, and
+ * which were judged inert — a decision record the compiler checks.
+ *
+ * **Why this exists when {@link reliefOf} already reads the fields.** It does
+ * not read the ones it dismisses, and that is the regression this guards. The
+ * realistic failure is not a sixth layer variant — `RELIEF_OF` below is a
+ * `Record` over `Layer['type']` and would not type without it — but a *field*
+ * arriving on an existing variant that carries relief, which `reliefOf` would
+ * then silently not look at. Design §9.1 adopts exactly this mechanism for
+ * exactly this reason: "`Record<Layer['type'], readonly LayerKeys[]>` with one
+ * `AssertNever` pair **per variant**. A new field on `LayerShape` is then a
+ * compile error, which is the real regression."
+ *
+ * The pairs below are pointed at `keyof LayerOf<T>` — the upstream type — and
+ * not at `LAYER_KEYS`, which is a roster built from the same place and would
+ * make this a guard proving only that the derivation ran twice (execution plan
+ * §9). Add `bevel?: number` to the `shape` variant and
+ * `_NoShapeReliefKeyUnclassified` fails typecheck naming `"bevel"`, which
+ * forces the author to put it in one list or the other — i.e. to answer
+ * whether `shape` just gained the relief mechanism §10.5 says it does not have.
+ *
+ * Exported for the reason `types.ts` exports `LAYER_KEYS` and `anim/track.ts`
+ * exports `SUMMED_CHANNELS`: `AssertNever` is enforced by `npm run typecheck`
+ * alone, so without a runtime witness the ten lines below are invisible to
+ * `npm test`. `perception.cardboarding.test.ts` is that witness.
+ *
+ * `depth` is read for `image` and `gif` and inert everywhere else, which is not
+ * an inconsistency: it scales a heightmap's luminance and so can switch one
+ * off, while for a `text` or `shape` layer it only says *where* the one flat
+ * plane sits. See {@link reliefOf}.
+ *
+ * **`reads` is checked against the code, not against a second list.** Moving a
+ * key out of `reads` and into `inert` is the one edit the `AssertNever` pairs
+ * cannot see — both lists satisfy them — and it is also the shape of the
+ * mistake they exist to catch, because it is how a key stops being consulted
+ * without anyone saying so. `consults exactly the keys it declares` recovers
+ * the true set by running `reliefOf` over a branch-covering sample of each
+ * variant behind a recording `Proxy`, which is execution plan §9's rule for
+ * this: derive the set from the call sites, never from an enumeration someone
+ * typed. A union over all five variants is **not** enough and was measured not
+ * to be — demoting `mode` on `image` alone left `gif`'s copy in the union and
+ * reddened nothing.
+ */
+export const LAYER_RELIEF_KEYS = {
+  text: {
+    reads: ['type'],
+    inert: ['text', 'size', 'font', 'weight', 'id', 'name', 'depth', 'at', 'anim'],
+  },
+  image: {
+    reads: ['type', 'mode', 'mask', 'depth'],
+    inert: ['src', 'id', 'name', 'at', 'anim'],
+  },
+  gif: {
+    reads: ['type', 'mode', 'mask', 'depth'],
+    inert: ['src', 'loop', 'id', 'name', 'at', 'anim'],
+  },
+  shape: {
+    reads: ['type'],
+    inert: ['shape', 'r', 'w', 'h', 'start', 'end', 'id', 'name', 'depth', 'at', 'anim'],
+  },
+  draw: {
+    // `fn` is inert in the exact sense this list means it: no *value* of it
+    // changes the answer, because the answer is `'undecided'` for all of them.
+    // That is not the same as `fn` being irrelevant — it is the reason the
+    // variant is undecidable at all ({@link RELIEF_OF}) — but `reads` is the
+    // narrower claim "the classifier consults this", and it does not.
+    reads: ['type'],
+    inert: ['fn', 'id', 'name', 'depth', 'at', 'anim'],
+  },
+} as const satisfies Record<
+  Layer['type'], { reads: readonly LayerKey[]; inert: readonly LayerKey[] }
+>
+
+/** Every key of a variant this module has an opinion about, either way. */
+type ReliefClassified<T extends Layer['type']> =
+  | typeof LAYER_RELIEF_KEYS[T]['reads'][number]
+  | typeof LAYER_RELIEF_KEYS[T]['inert'][number]
+
+// One pair per variant rather than one pair over a mapped type, for
+// `types.ts:417-420`'s reason: the generic form reduces to a single `never` and
+// the error then names the mapped type instead of the variant that drifted.
+type _NoTextReliefKeyUnclassified = AssertNever<Exclude<keyof LayerOf<'text'>, ReliefClassified<'text'>>>
+type _NoTextReliefKeyExtra = AssertNever<Exclude<ReliefClassified<'text'>, keyof LayerOf<'text'>>>
+type _NoImageReliefKeyUnclassified = AssertNever<Exclude<keyof LayerOf<'image'>, ReliefClassified<'image'>>>
+type _NoImageReliefKeyExtra = AssertNever<Exclude<ReliefClassified<'image'>, keyof LayerOf<'image'>>>
+type _NoGifReliefKeyUnclassified = AssertNever<Exclude<keyof LayerOf<'gif'>, ReliefClassified<'gif'>>>
+type _NoGifReliefKeyExtra = AssertNever<Exclude<ReliefClassified<'gif'>, keyof LayerOf<'gif'>>>
+type _NoShapeReliefKeyUnclassified = AssertNever<Exclude<keyof LayerOf<'shape'>, ReliefClassified<'shape'>>>
+type _NoShapeReliefKeyExtra = AssertNever<Exclude<ReliefClassified<'shape'>, keyof LayerOf<'shape'>>>
+type _NoDrawReliefKeyUnclassified = AssertNever<Exclude<keyof LayerOf<'draw'>, ReliefClassified<'draw'>>>
+type _NoDrawReliefKeyExtra = AssertNever<Exclude<ReliefClassified<'draw'>, keyof LayerOf<'draw'>>>
+
+/**
+ * `image` and `gif`, which share `mode`/`mask` and therefore share an answer.
+ *
+ * **The decidable half, and the boundary is `raster.ts`'s own.**
+ * `imageReadback(mode, mask, hasAlpha)` resolves in four steps and only the
+ * last one leaves the model:
+ *
+ * - `mode: 'heightmap'` → per-pixel depth. Relief, and the case execution plan
+ *   §9 exists to stop this function getting wrong.
+ * - `mode: 'silhouette'` → `mask ?? 'alpha'`. A mask is flat depth by
+ *   definition — `composite` uses it to *gate* pixels, never to set them.
+ * - no `mode` but a `mask` → the mask. `raster.ts:443` records why this clause
+ *   is not a rounding error: "a `mask` with no `mode` must select silhouette",
+ *   because alpha auto-detection would otherwise fall through to heightmap and
+ *   silently ignore the mask that was the whole point of writing it.
+ * - neither → `hasAlpha ? 'alpha' : 'heightmap'`, and `hasAlpha` comes from
+ *   `await loadImage(src)` / `loadGif(src)`. That is a decode, and execution
+ *   plan §7's preamble requires a predicate over a plain importable module —
+ *   the same wall {@link collidingPairs} hit on `contentW`/`contentH`. So this
+ *   case is `'undecided'` and P4, which has the canvas, can close it.
+ *
+ * **Depth 0 switches a heightmap off, and that is arithmetic rather than
+ * judgement.** `raster.ts` composites a heightmap as
+ * `clamp01(baseDepth * luma + depthOffset)` with `baseDepth = layer.depth ?? 1`
+ * — so at depth 0 the luminance term is multiplied away and every pixel of the
+ * layer lands on the same value. The relief is not merely invisible, it is
+ * never computed. The depth read is {@link restingDepth}'s, which is where
+ * `?? 1` lives, so a layer that has never been given a depth is relief rather
+ * than flat.
+ *
+ * Only `=== 0` and not `<= 0`, which is a scope and not an oversight. A
+ * negative depth flattens the layer too *while nothing animates it* — every
+ * product is below the clamp's floor — but the animator's offset is inside the
+ * same clamp, so `clamp01(-5·luma + 1)` varies with luma and that layer does
+ * have relief. Zero is the only depth where the luminance term is gone for
+ * every offset. Reporting a negative-depth heightmap as relief is in any case
+ * the quiet answer, which is the direction {@link cardboarding} fails in
+ * everywhere else.
+ */
+function pixelDepthRelief(layer: LayerOf<'image'> | LayerOf<'gif'>): LayerRelief {
+  if (layer.mode === 'heightmap') return restingDepth(layer) === 0 ? 'flat' : 'relief'
+  if (layer.mode === 'silhouette' || layer.mask !== undefined) return 'flat'
+  return 'undecided'
+}
+
+/**
+ * One treatment per `Layer` variant, so a sixth variant is a compile error
+ * before it is a wrong answer. Design §9.1's adopted mechanism; `keyof Layer`
+ * cannot be used for this and `types.ts:352-364` records why.
+ */
+const RELIEF_OF: { [T in Layer['type']]: (layer: LayerOf<T>) => LayerRelief } = {
+  // No relief mechanism at all, which is design §10.5's "honest gap": "text and
+  // `shape` layers have no relief mechanism". The cure named there — per-layer
+  // Add / Carve / Keep blend modes, one compositing function in `raster.ts` —
+  // is scoped out by design §2 and is not built here.
+  text: () => 'flat',
+  shape: () => 'flat',
+  image: pixelDepthRelief,
+  gif: pixelDepthRelief,
+  // `core` throws on `draw` because `fn` is a module *path* and resolving one
+  // is platform-specific (`raster.ts:386`). The module it names could draw a
+  // smooth gradient or a hard slab; the model carries a string. Not a gap this
+  // module can close — the loader seam is undesigned, so even P4 cannot.
+  draw: () => 'undecided',
+}
+
+/**
+ * Whether one layer's depth varies across its surface — design §10.5's
+ * question, asked of a single layer.
+ *
+ * Exported as the seam {@link cardboarding} is a fold over, and as the per-row
+ * answer design §5.4's layer panel wants. A caller that only has one layer
+ * never has to build a `Scene` around it.
+ *
+ * Advisory only (R22 obligation 2): never throws, and that includes a
+ * discriminant no `Layer` variant has. Both validators do reject an unknown
+ * `type` by name (`src/cli/scene.ts:263`, `site/scene.ts`'s `LAYER_TYPES`), so
+ * the case is not reachable *through them* — but nothing obliges a caller to
+ * have used one. This module is handed a `Scene` an editor is holding
+ * mid-edit, and it may not refuse. The honest answer to an unreadable
+ * discriminant is the same as `draw`'s.
+ */
+export function reliefOf(layer: Layer): LayerRelief {
+  // The index is correlated with the argument type and TypeScript does not
+  // track that through a `Record` lookup, so the cast is the lookup's cost. The
+  // `undefined` in it is not slack: it is the unknown-discriminant case above,
+  // and `answers every variant without throwing, including one no variant has`
+  // is what keeps it from becoming dead code.
+  const classify = RELIEF_OF[layer.type] as ((l: Layer) => LayerRelief) | undefined
+  return classify === undefined ? 'undecided' : classify(layer)
+}
+
+/** What {@link cardboarding} measured, and only then what it concludes. */
+export interface CardboardReading {
+  /**
+   * Design §10.5's answer: every layer is a flat plane. **Only when that is
+   * known** — a scene holding a layer this module cannot decide reports
+   * `false`, not a claim it cannot support.
+   */
+  cardboarding: boolean
+  /**
+   * Each layer's own relief, index-aligned with `scene.layers` — the same
+   * identifier {@link collidingPairs} uses, and for the same reason
+   * ({@link CollidingPair}: `Layer.id` is optional by design §4.1).
+   *
+   * **Before `depthBlur`**, which is scene-wide. When blur alone defeats the
+   * claim these still all read `'flat'`, which is deliberate: a per-row badge
+   * should not say the layer has relief when the layer does not.
+   */
+  relief: LayerRelief[]
+  /** The radius it was read against, in scene px. May be non-finite. */
+  depthBlur: number
+  /** The threshold that radius was compared with. {@link DEPTH_BLUR_RELIEF}. */
+  blurRelief: number
+}
+
+/**
+ * Is every layer a flat plane? — design §10.5, "computed, surfaced in the
+ * diagnostics readout, **not** shipped as a UI warning in v1".
+ *
+ * **Both shipping relief mechanisms are honoured, which is the trap.**
+ * Execution plan §9 carries it verbatim: "cardboarding needs a rasteriser
+ * change | `heightmap` mode and `depthBlur` already ship. The gap is `text`
+ * and `shape` only." So this is false for a heightmap layer
+ * ({@link reliefOf}) and false for a blurred depth map
+ * ({@link DEPTH_BLUR_RELIEF}), and only the first of those is a property of a
+ * layer.
+ *
+ * **Silence where the model does not know, and the direction is the opposite
+ * of {@link collidingPairs}'.** That function ships a *necessary* condition and
+ * over-reports on purpose, because P4 filters its list by overlap and cannot
+ * recover what it omits. This one is a claim that a defect is *present*, so
+ * over-reporting it is advice nobody can check: a `draw` layer's module may
+ * well paint a gradient. It is therefore the *sufficient* condition — `true`
+ * means every layer was decided and every decision was flat — and it keeps
+ * quiet otherwise, the same stance {@link fusionComfort} takes on a budget it
+ * cannot read and {@link depthStops} on a configuration it cannot.
+ *
+ * **An empty scene is not cardboarded.** Vacuously every layer of it is a flat
+ * plane, and a readout printing that is reporting a property of the quantifier
+ * rather than an observation about the scene. {@link depthStops}' answer at a
+ * capacity of 1 is the same shape — a claim needs something to be about.
+ *
+ * **Animated depth needs no seam here, and that is a finding rather than a
+ * choice.** Design §5.3 draws a depth-verb layer as "the resting mark plus a
+ * swept range", and {@link collidingPairs} had to pick one reading and export
+ * {@link restingDepth} as the seam between them. For *this* question the two
+ * readings agree, because `raster.ts` composites the animator's contribution as
+ * `clamp01(baseDepth · luma + depthOffset)` and `composeAnim` **sums** `depth`
+ * (`SUMMED_CHANNELS`): the offset is added to every pixel of the layer
+ * uniformly, so a sweep translates a flat plane along z and never bends it. A
+ * swept layer is a flat plane at every frame, and a depth-0 heightmap stays
+ * flat under a sweep too. `restingDepth` is still the function the one depth
+ * read goes through, so if that ever stops being true there is one place to
+ * change; `treats a depth sweep as a translation of the plane, not a bend in
+ * it` is the tripwire (§9: a recorded note is not a sensor).
+ *
+ * **`rotateX`/`rotateY` are not a third mechanism — today.** `types.ts:212`
+ * says so in as many words: "What they do not yet do is read as depth … The
+ * turn becomes a real one when the rasteriser transforms *depth* alongside
+ * position — rotate a heightmap about y and each column's depth should shift
+ * too. That is a rasteriser change and not a model change." Orthographically
+ * they are a cosine scale on one axis, which moves pixels and not depths. When
+ * that rasteriser change lands, `rotateX`/`rotateY` join `mode` in
+ * {@link LAYER_RELIEF_KEYS}, and nothing here will go red by itself.
+ *
+ * **`StereoOpts` as a second argument where design §10.5 writes
+ * `cardboarding(scene)`**, for {@link collidingPairs}' reasons exactly: a
+ * `Scene` carries only `Partial<StereoOpts>`, so `depthBlur` may be absent
+ * there, and the one function that completes it — `resolveStereo` — *throws* on
+ * `sepNear >= sepFar`, which this module may not do (R22 obligation 2, P7
+ * criterion 7). Merging `DEFAULT_STEREO.depthBlur` in here instead would be a
+ * second copy of that merge, and would let a panel and this check disagree
+ * while an editor control is mid-edit and not yet written back.
+ *
+ * **Objective and ungraded.** The 2026-10-15 ruling reads "**graded** functions
+ * return quantities and a grade"; §10.5 names a boolean, nothing here is
+ * positioned on a scale, and inventing a severity would be the subjective score
+ * R22 obligation 4 forbids. The reading carries the threshold its boolean turns
+ * on, so no consumer inlines it (R22 obligation 3). `reports quantities and no
+ * grade` pins the shape and is the assertion to amend if the ruling reverses —
+ * {@link depthStops}, {@link collidingPairs} and {@link encodableDepths} all
+ * carry the same pin.
+ *
+ * In scene px throughout (design §10.6): `depthBlur` acts before `padDepth` and
+ * before `upscale`, so it is unscaled by `noiseScale` like everything else here.
+ */
+export function cardboarding(scene: Scene, stereo: StereoOpts): CardboardReading {
+  const relief = scene.layers.map(reliefOf)
+  // Written as `<` rather than `>=` negated so a non-finite radius falls
+  // through to the quiet answer: every comparison against NaN is false, so an
+  // unreadable blur withholds the claim rather than making it. The caller still
+  // sees the NaN in `depthBlur`. A radius at or below 0 is not blur at all —
+  // `blurDepth` returns a copy for `radius <= 0` — and lands here as flat,
+  // which is correct and not a fallthrough.
+  const unblurred = stereo.depthBlur < DEPTH_BLUR_RELIEF
+  return {
+    cardboarding: relief.length > 0 && unblurred && relief.every(r => r === 'flat'),
+    relief,
+    depthBlur: stereo.depthBlur,
+    blurRelief: DEPTH_BLUR_RELIEF,
+  }
 }
 
 /**
