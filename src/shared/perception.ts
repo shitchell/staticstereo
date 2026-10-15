@@ -1,5 +1,5 @@
 import { sepAt } from '../core/sirds.js'
-import type { Scene, StereoOpts } from '../core/types.js'
+import type { Layer, Scene, StereoOpts } from '../core/types.js'
 
 /**
  * The authoring legibility check: is this text wide enough to fuse at all?
@@ -384,6 +384,159 @@ export function encodableDepths(stereo: StereoOpts): number {
  */
 export function quantisationStep(stereo: StereoOpts): number {
   return 1 / Math.abs(disparityBudget(stereo))
+}
+
+/**
+ * Two layers the encoder cannot tell apart, and how far apart they are.
+ *
+ * **Identified by index, not by `id`.** `Layer.id` is optional by design
+ * (§4.1: "assigned on first mutation rather than on load", so that loading a
+ * scene and saving it back stays byte-identical), which makes the index the
+ * only identifier every layer in every scene has. It is also stable enough to
+ * be one here: design §5.4 measured that `max` is commutative, so reordering
+ * `scene.layers` is not an authoring gesture the editor offers — "the layer
+ * list is a set, not a stack".
+ */
+export interface CollidingPair {
+  /** Index into `scene.layers`. Always the lower of the two. */
+  a: number
+  /** Index into `scene.layers`. Always the higher of the two. */
+  b: number
+  /**
+   * `|depth(a) − depth(b)|`, on the normalised depth axis — **not** scene px.
+   * Same unit as {@link quantisationStep}, which is what it was compared
+   * against; see that function for why the unit is depth and not px.
+   */
+  gap: number
+}
+
+/**
+ * A layer's depth before any animator runs — the pose design §4.5 calls the
+ * resting pose.
+ *
+ * **`?? 1` is not a local default.** It is the one `raster.ts` composites
+ * with: `const layerDepth = layer.depth ?? 1`, hoisted there because presets
+ * need it too, and `types.ts` documents the field as "Default 1 (nearest)".
+ * Reading an absent depth as 0 here would miss the commonest tie there is —
+ * two layers neither of which has ever been given a depth, which is every
+ * freshly-added layer in the editor.
+ *
+ * **What this deliberately does not do, and the gap is open.**
+ * `Transform.depth` is an animatable channel (`SUMMED_CHANNELS` includes it),
+ * so a layer's depth can sweep a range rather than sit at a point — execution
+ * plan §9 lists "every layer has one depth" as a trap for exactly this reason.
+ * "Closer than one step" is then a question about *time*, and design §10.1
+ * does not say whether it means at rest, at the sampled frame, or over the
+ * whole sweep. The semantics is not chosen here; the resting reading is built
+ * and the question is referred up. §10.4 is the only place the design touches
+ * it and it points the other way — "animated depth interpolates continuously
+ * *between* stops by construction" — which says quantisation is the wrong
+ * frame for an animated layer, not what a tie means for one.
+ *
+ * Exported as the seam a time-aware version would replace, and
+ * `perception.collisions.test.ts`'s `reads the resting depth` is the tripwire
+ * that reddens the day one does: §9 says a recorded note is not a sensor.
+ *
+ * (Not every animated depth is even inspectable from the model. A `Track`'s
+ * keys are plain data, but a `Preset` is opaque without compiling it against a
+ * `PresetCtx` whose `contentW`/`contentH` are measured in `raster.ts` — the
+ * same unavailable quantities that make overlap uncomputable here, below.)
+ */
+export function restingDepth(layer: Layer): number {
+  return layer.depth ?? 1
+}
+
+/**
+ * Layer pairs closer than one {@link quantisationStep} — the ones the encoder
+ * maps to the same separation, so no viewer can read them as two surfaces.
+ *
+ * Design §10.1, which words it "layer pairs closer than one step, which encode
+ * identically".
+ *
+ * **Depth-only, and the overlap test design §10.4 wants cannot live here.**
+ * §10.4 says the layer-panel tie badge "fires only on **overlapping** layers at
+ * equal depth, which is the case where `max` actually merges two surfaces into
+ * one". That is a stronger condition than this one and it is not computable
+ * from a `Scene`: a layer's extent is `contentW`/`contentH`, and `raster.ts`'s
+ * `prepare` obtains those from `scratch.measureText(layer.text).width` for
+ * `text` (needs a `CanvasLike`), from `await loadImage(...)` / `loadGif(...)`
+ * for `image` and `gif` (an async decode), and not at all for `draw`, which
+ * `core` deliberately throws on because `fn` is a module path. Only `shape`
+ * is derivable from the model — one of five variants. Execution plan §7's
+ * preamble requires every criterion to be a predicate over a plain importable
+ * module with no browser, and `prepare` is neither plain nor synchronous, so
+ * the overlap half belongs to P4, which has the rasteriser and the canvas.
+ *
+ * This function is therefore the **necessary** condition: a pair it does not
+ * report cannot be a tie, and a pair it reports is a tie exactly when the two
+ * also overlap. A view that wants §10.4's badge filters this list by overlap;
+ * it cannot recover what this list omits.
+ *
+ * **Sign-safe twice over, and both are load-bearing.** The comparison is
+ * `|Δdepth| < step` where `step` is {@link quantisationStep}'s magnitude.
+ * Drop either absolute value and the function fails *open* in a different
+ * direction: without the one inside `quantisationStep`, an inverted
+ * `StereoOpts` gives a negative step and nothing is ever below it — an
+ * inverted configuration silently reports no collisions at all. Without the
+ * one here, the comparison is `depth(a) − depth(b) < step`, which is satisfied
+ * by every pair listed near-to-far, so the *further* apart two layers are the
+ * more certainly they are reported as tied. The first of those is not
+ * hypothetical: it was planted as a mutation in `quantisationStep` and
+ * reddened nothing, because every assertion in
+ * `perception.capacity.test.ts` only asked whether the separation moved and
+ * not which way. `is sign-safe` and `measures a gap as a magnitude` are the
+ * two assertions that close it.
+ *
+ * **Strictly closer, so exactly one step apart is not a collision.**
+ * {@link quantisationStep}'s own guarantee is that a depth difference of
+ * `1 / budget` moves `sepAt`'s argument by exactly 1 and "a rounding of two
+ * values a whole apart cannot collapse them" — so a pair exactly one step
+ * apart is a pair the encoder *does* resolve, and reporting it would be a
+ * false positive on a badge whose whole job is to be believed. Design §10.1's
+ * "closer than" agrees. The test asserts both sides of that boundary against
+ * `sepAt` as well as against this function, so the boundary does not take its
+ * justification from the quantity under test.
+ *
+ * **Objective and ungraded**, for {@link encodableDepths}' reasons and under
+ * the same unresolved conflict: design §10's preamble says every function here
+ * returns quantities *and* a grade, §10.1 presents collisions as objective,
+ * and this file's standing practice is that objective quantities are bare
+ * values while graded judgements are readings. The conflict is referred up
+ * rather than settled here; if the preamble wins, a grade is additive and
+ * `reports a pair closer than one step` is the assertion to amend.
+ *
+ * **`StereoOpts` as a second argument where design §10.1 writes
+ * `collidingPairs(scene)`.** A `Scene` carries only `Partial<StereoOpts>`, and
+ * the one function in the repository that completes it — `resolveStereo` —
+ * *throws* on `sepNear >= sepFar`, which this module may not do (R22, design
+ * §10's second obligation; and the inverted case is one this function is
+ * explicitly required to answer). Re-merging `DEFAULT_STEREO` here instead
+ * would be a second copy of that merge and would also let a panel and this
+ * check disagree while an editor control is mid-edit and not yet written back
+ * to the scene. Taking the resolved options is what every other function in
+ * this module already does, and it costs the caller nothing: P4 holds both.
+ *
+ * Advisory only: never throws. A non-finite depth compares false against
+ * everything, so an unreadable layer ties with nothing while the rest of the
+ * scene is still measured — the same silence {@link fusionComfort} keeps on a
+ * budget it cannot read.
+ *
+ * In depth units throughout, not scene px — see {@link quantisationStep},
+ * which is the only quantity in this module on that axis and the one this
+ * compares against.
+ */
+export function collidingPairs(scene: Scene, stereo: StereoOpts): CollidingPair[] {
+  const step = quantisationStep(stereo)
+  const out: CollidingPair[] = []
+  const n = scene.layers.length
+  for (let a = 0; a < n; a++) {
+    const da = restingDepth(scene.layers[a]!)
+    for (let b = a + 1; b < n; b++) {
+      const gap = Math.abs(da - restingDepth(scene.layers[b]!))
+      if (gap < step) out.push({ a, b, gap })
+    }
+  }
+  return out
 }
 
 /**
