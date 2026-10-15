@@ -38,12 +38,21 @@ import {
 } from './controlspec.js'
 import type { ControlInfo, ControlRosters } from './controlspec.js'
 import { validateScene } from './scene.js'
+import { PRESETS, PRESET_PARAMS, compilePreset } from '../src/core/index.js'
 // A deep import, because the barrel does not re-export the universals —
 // `site/scalescene.test.ts:36` is the precedent for reaching past it rather
 // than widening it from a test.
 import { UNIVERSAL_PARAMS, universalParams } from '../src/core/anim/params.js'
+import type { ParamDescriptor } from '../src/core/anim/params.js'
 import { CUBIC_BEZIER_SYNTAX } from '../src/core/anim/easing.js'
-import type { PresetKind } from '../src/core/anim/presets.js'
+// The token vocabulary, by the same deep import `site/scalescene.test.ts:36`
+// takes and for its reason: it is deliberately not published through the
+// `core` barrel, because it is a seam for the probes in this repo rather than
+// API, and routing it through the barrel would make it the latter.
+import { OFF_STAGE_TOKENS } from '../src/core/anim/presets.js'
+import type { PresetCtx, PresetKind } from '../src/core/anim/presets.js'
+import { CTX } from '../src/core/testing/ctx.fixture.js'
+import type { Preset } from '../src/core/types.js'
 
 /**
  * What a part starts at, where a part can have a starting value at all.
@@ -183,7 +192,10 @@ describe('the arity of the control is the number of fields', () => {
     // same fail-open defect one level further down.
     const speed = resolveWidget(specFor('preset.move.speed')).parts
     expect(speed.map(p => (p as NumberPart).per)).toEqual(['second'])
+    // The number fields only: `move`'s endpoints also carry a picker per slot,
+    // and a rate tag is a statement about a quantity rather than about a name.
     const distance = resolveWidget(specFor('preset.move.from')).parts
+      .filter(p => p.kind === 'number')
     expect(distance.map(p => (p as NumberPart).per)).toEqual([undefined, undefined])
   })
 
@@ -260,6 +272,253 @@ describe('a choice needs the values it is choosing between', () => {
   })
 })
 
+/**
+ * The slots that take a number **or** a name, and get a field for each.
+ *
+ * Design §4.2 gives `move`'s `from`/`to` a symbolic off-stage endpoint *as
+ * well as* a number, per slot — `['offRight', 0]` is as valid as `[320, 0]`.
+ * Design §9.3 makes the generated widget the floor that guarantees R6, so a
+ * floor offering two spinners and no way to write `offRight` does not reach
+ * the parameter it is standing under: an author with only this surface cannot
+ * write the scroll `README.md` opens with.
+ *
+ * Two fields for one slot, which is the artefact `ease` already ships as
+ * `[choice, text]`. The order the assertions pin is number-then-picker **per
+ * slot**, because a pair's two slots are two separate decisions and
+ * interleaving them is what keeps a renderer from having to pair them up by
+ * index arithmetic.
+ *
+ * ## The hazard this cannot be allowed to reproduce
+ *
+ * A picker whose options are wrong for the slot is `REFUSED_WIDGETS`'
+ * `layer.type` again, one parameter over: `offTop` belongs to the `y` slot and
+ * `compilePreset` throws when it is written into `x`, so a floor that offered
+ * all four names in both slots would hand an author a scene the player
+ * refuses. The vocabulary is therefore asserted **per slot and against the
+ * verb**, not against a list in this file.
+ */
+describe('a slot that takes a number or a token gets both, and only that slot’s tokens', () => {
+  /** Every preset parameter the registry describes, as `kind.name`. */
+  function presetDescriptors(): ReadonlyMap<string, ParamDescriptor> {
+    const out = new Map<string, ParamDescriptor>()
+    for (const [kind, params] of Object.entries(PRESET_PARAMS)) {
+      for (const d of params) out.set(`${kind}.${d.name}`, d)
+    }
+    return out
+  }
+
+  /** The arity a descriptor declares, or `undefined` for an enum, which has none. */
+  function shapeOf(d: ParamDescriptor): string | undefined {
+    return d.unit === 'enum' ? undefined : d.shape
+  }
+
+  /** The pickers of one control, in the order the spec writes them. */
+  function pickers(control: string): readonly ChoicePart[] {
+    return resolveWidget(specFor(control)).parts.filter((p): p is ChoicePart => p.kind === 'choice')
+  }
+
+  /** `move.from` with `token` written into one slot and a plain number in the other. */
+  function endpoint(slot: 0 | 1, token: string): Preset {
+    return { kind: 'move', from: slot === 0 ? [token, 0] : [0, token] } as unknown as Preset
+  }
+
+  it('gives each endpoint slot a number field and a picker beside it', () => {
+    const parts = resolveWidget(specFor('preset.move.from')).parts
+    expect(parts.map(p => p.kind), 'an endpoint slot got one field where it needs two')
+      .toEqual(['number', 'choice', 'number', 'choice'])
+    expect(parts.filter(p => p.kind === 'number').map(p => (p as NumberPart).index)).toEqual([0, 1])
+    expect(
+      parts.filter(p => p.kind === 'choice').map(p => (p as ChoicePart).index),
+      'a picker does not say which member of the pair it writes',
+    ).toEqual([0, 1])
+  })
+
+  it('offers a slot only the tokens the verb accepts there, so the floor cannot write an unloadable scene', () => {
+    // Measured against `compilePreset` rather than quoted from `OFF_STAGE`'s
+    // docblock: the slot assignments are module-private, so the only honest
+    // witness that a picker's options are right for its slot is the reader
+    // that resolves them.
+    const slots = pickers('preset.move.from')
+    expect(slots.length, 'there are no pickers, so everything below is vacuous').toBe(2)
+    for (const picker of slots) {
+      const slot = picker.index
+      expect(slot, 'a picker with no slot cannot be checked against one').toBeDefined()
+      expect(picker.options.length, `slot ${slot} offers nothing`).toBeGreaterThan(0)
+      for (const token of picker.options) {
+        expect(
+          () => compilePreset(endpoint(slot!, token), CTX),
+          `the picker for slot ${slot} offers "${token}", which the verb refuses there`,
+        ).not.toThrow()
+      }
+      // §6.5a's other half, and the `layer.type` hazard in miniature: the same
+      // instrument over the names this picker withholds. Without it, a picker
+      // that offered every token in every slot would pass the loop above.
+      const withheld = OFF_STAGE_TOKENS.filter(t => !picker.options.includes(t))
+      expect(withheld.length, `slot ${slot} withholds nothing, so the loop below is empty`)
+        .toBeGreaterThan(0)
+      for (const token of withheld) {
+        expect(
+          () => compilePreset(endpoint(slot!, token), CTX),
+          `"${token}" is accepted in slot ${slot}, so withholding it hides a valid endpoint`,
+        ).toThrow()
+      }
+    }
+  })
+
+  it('offers every token the verb has, between them, so no slot’s half was typed short', () => {
+    // The completeness half, derived from the live table. A token added to
+    // `OFF_STAGE` reaches a picker or reds here; a written-out copy of the
+    // names in the descriptor would go stale in silence instead.
+    expect(OFF_STAGE_TOKENS.length, 'the token table is empty').toBeGreaterThan(0)
+    expect(
+      pickers('preset.move.from').flatMap(p => [...p.options]).sort(),
+      'the pickers and the verb disagree about the vocabulary',
+    ).toEqual([...OFF_STAGE_TOKENS].sort())
+  })
+
+  it('declares the shape on exactly the parameters a probe finds token-accepting', () => {
+    /*
+     * The tie that makes the declaration answerable to behaviour, and the
+     * reason the shape is worth more than the `scenePx` tag it sits beside: a
+     * descriptor claiming a token slot that no verb reads, or a verb reading a
+     * token in a slot no descriptor declares, is a disagreement between the
+     * registry and the code — and until the shape existed there was nothing to
+     * disagree with, only a probe and a unit tag that happened to coincide.
+     *
+     * The discriminator is `site/scalescene.test.ts`': a symbolic endpoint is
+     * by definition read out of the `PresetCtx`, so placing one makes the
+     * compiled track depend on the context where a number does not.
+     * `layerDepth` is held equal because `push` reads it for its *numeric*
+     * parameters, which would otherwise look token-accepting in every slot.
+     */
+    const PROBE_B = Object.fromEntries(
+      Object.entries(CTX).map(([k, v]) => [k, k === 'layerDepth' ? v : v + 37]),
+    ) as unknown as PresetCtx
+
+    const compiled = (p: Preset, ctx: PresetCtx): string | null => {
+      try {
+        return JSON.stringify(compilePreset(p, ctx))
+      } catch {
+        return null
+      }
+    }
+    const readsCtx = (kind: string, name: string, v: unknown): boolean => {
+      const p = { kind, [name]: v } as Preset
+      const a = compiled(p, CTX)
+      const b = compiled(p, PROBE_B)
+      return a !== null && b !== null && a !== b
+    }
+    const placements: readonly ((v: unknown) => unknown)[] = [v => v, v => [v, 0], v => [0, v]]
+
+    const accepting = new Set<string>()
+    let probes = 0
+    for (const kind of Object.keys(PRESETS)) {
+      for (const d of PRESET_PARAMS[kind as PresetKind]) {
+        for (const token of OFF_STAGE_TOKENS) {
+          for (const place of placements) {
+            probes++
+            if (readsCtx(kind, d.name, place(token)) && !readsCtx(kind, d.name, place(1))) {
+              accepting.add(`${kind}.${d.name}`)
+            }
+          }
+        }
+      }
+    }
+    expect(
+      accepting.size,
+      `probed ${probes} parameter/token/placement combinations and found nothing that accepts ` +
+      'a token, so the equality below is two empty sets',
+    ).toBeGreaterThanOrEqual(1)
+
+    const declared = [...presetDescriptors()]
+      .filter(([, d]) => shapeOf(d) === 'endpoint-pair')
+      .map(([id]) => id)
+    expect(
+      declared.sort(),
+      'the registry and the verbs disagree about which parameters accept a symbolic endpoint',
+    ).toEqual([...accepting].sort())
+  })
+
+  it('leaves scalability on the unit tag, so the rate that scales for free still does', () => {
+    // The asymmetry this change had to price. `move.speed` is `scenePx` with
+    // `per: 'second'` **on purpose**, so that a consumer whose rule is "scale
+    // every `scenePx` parameter" catches a rate for free. The new shape says
+    // which slots accept a name; it says nothing about whether a value is a
+    // length, and a rule re-keyed onto it would drop `speed` silently — the
+    // identical fail-open defect one level down from the one the shape was
+    // added to fix. This is the test that would catch that.
+    const speed = resolveWidget(specFor('preset.move.speed')).parts
+    expect(speed.map(p => p.kind), 'the rate was given a picker it has no tokens for')
+      .toEqual(['number'])
+    expect((speed[0] as NumberPart).unit).toBe('scenePx')
+    expect((speed[0] as NumberPart).per).toBe('second')
+
+    const descriptors = presetDescriptors()
+    const tagged = [...descriptors].filter(([, d]) => d.unit === 'scenePx').map(([id]) => id).sort()
+    const tokened = [...descriptors]
+      .filter(([, d]) => shapeOf(d) === 'endpoint-pair')
+      .map(([id]) => id)
+      .sort()
+    expect(tagged, 'nothing carries the tag the scaling rule keys on').not.toEqual([])
+    expect(tokened, 'nothing declares the token shape').not.toEqual([])
+    expect(tagged, 'move.speed lost the tag that scales it').toContain('move.speed')
+    expect(tokened, 'move.speed was told it accepts a symbolic endpoint, and it does not')
+      .not.toContain('move.speed')
+    expect(
+      tagged.filter(id => !tokened.includes(id)),
+      'every scene-px parameter now accepts a token, so the two rules have become the same ' +
+      'rule and re-keying one onto the other would no longer be visible here',
+    ).toContain('move.speed')
+  })
+
+  it('starts the number at the recorded default and the picker at nothing', () => {
+    // The descriptor's own type is why: a numeric default is a number or a
+    // pair of them, so the value the registry records belongs in the field
+    // that takes numbers. A picker pre-selected with a token nobody wrote
+    // would claim a default the table does not hold.
+    const parts = resolveWidget(specFor('preset.move.from')).parts
+    expect(parts.filter(p => p.kind === 'number').map(initialOf)).toEqual([
+      { from: 'literal', value: 0 },
+      { from: 'literal', value: 0 },
+    ])
+    expect(parts.filter(p => p.kind === 'choice').map(initialOf)).toEqual([undefined, undefined])
+  })
+
+  it('offers no picker at all where the slot’s tokens are not recorded, and says so', () => {
+    // The enum arm's bargain, applied to the other half of the descriptor: a
+    // picker over an empty list is an instrument an author cannot use and
+    // cannot tell is broken, so the control becomes a countable hole instead.
+    for (const tokens of [undefined, [[], []] as const]) {
+      const planted = {
+        control: 'preset.probe.from',
+        owner: 'preset',
+        scope: 'probe',
+        key: 'from',
+        unit: 'scenePx',
+        shape: 'endpoint-pair',
+        ...(tokens === undefined ? {} : { tokens }),
+        panel: 'inspector',
+      } as unknown as ControlInfo
+      const widget = resolveWidget(planted)
+      expect(widget.parts, `tokens=${JSON.stringify(tokens)} produced a field anyway`).toEqual([])
+      expect(widget.deferred, 'the missing vocabulary is unexplained').toBeDefined()
+    }
+    // The paired control: the same plant with a vocabulary is not a hole.
+    const recorded = {
+      control: 'preset.probe.from',
+      owner: 'preset',
+      scope: 'probe',
+      key: 'from',
+      unit: 'scenePx',
+      shape: 'endpoint-pair',
+      tokens: [['near'], ['far']],
+      panel: 'inspector',
+    } as unknown as ControlInfo
+    expect(resolveWidget(recorded).parts.map(p => p.kind))
+      .toEqual(['number', 'choice', 'number', 'choice'])
+  })
+})
+
 describe('a default is read by its tag, never by its JavaScript type', () => {
   it('shows a literal where the preset substitutes one', () => {
     expect(initialOf(resolveWidget(specFor('preset.rotate.from')).parts[0]))
@@ -267,7 +526,10 @@ describe('a default is read by its tag, never by its JavaScript type', () => {
   })
 
   it('splits a pair default across the two fields it belongs to', () => {
-    const from = resolveWidget(specFor('preset.move.from')).parts
+    // The number fields, which are the ones a recorded default can start: the
+    // only pair defaults in the registry belong to `move`'s endpoints, whose
+    // slots each carry a picker as well.
+    const from = resolveWidget(specFor('preset.move.from')).parts.filter(p => p.kind === 'number')
     expect(from.map(initialOf)).toEqual([
       { from: 'literal', value: 0 },
       { from: 'literal', value: 0 },

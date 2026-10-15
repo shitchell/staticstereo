@@ -198,9 +198,28 @@ const OFF_STAGE: Readonly<Record<string, OffStageEndpoint>> = {
   offBottom: { slot: 1, of: ctx => ctx.sceneH },
 }
 
-/** The tokens valid in one slot, derived from the table so a message cannot go stale. */
+/**
+ * The tokens valid in one slot, derived from the table so no copy can drift.
+ *
+ * **Per slot, where {@link OFF_STAGE_TOKENS} is flat**, and the difference is
+ * the whole of what a consumer offering these names to an author needs:
+ * `offTop` in the `x` slot throws, so a picker built on the flat list would
+ * offer a name the verb rejects and produce a scene the player refuses. The
+ * slot assignments themselves stay private — this answers the one question
+ * about them that is anybody else's business.
+ *
+ * `src/core/anim/params.ts` reads it into `move`'s endpoint descriptors, which
+ * is the same bargain `ease` strikes with `CUBIC_BEZIER_SYNTAX`: the
+ * vocabulary a control offers comes from the reader that accepts it, so a hint
+ * and a refusal cannot disagree.
+ */
+export function offStageTokens(slot: 0 | 1): readonly string[] {
+  return Object.keys(OFF_STAGE).filter(name => OFF_STAGE[name]!.slot === slot)
+}
+
+/** The tokens valid in one slot, as a message fragment that cannot go stale. */
 function tokensIn(slot: 0 | 1): string {
-  return Object.keys(OFF_STAGE).filter(name => OFF_STAGE[name]!.slot === slot).join(', ')
+  return offStageTokens(slot).join(', ')
 }
 
 /**

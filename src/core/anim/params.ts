@@ -19,6 +19,7 @@
  * three different quantities wearing two words.
  */
 import { CUBIC_BEZIER_SYNTAX } from './easing.js'
+import { offStageTokens } from './presets.js'
 import type { AssertNever, NamedEasing } from '../types.js'
 import type { PresetCtx, PresetKind } from './presets.js'
 
@@ -85,12 +86,38 @@ export const PARAM_UNITS = [
 export type ParamUnit = typeof PARAM_UNITS[number]
 
 /**
- * Scalar or `[x, y]` pair. P2 must be able to tell `move.from` (a pair of
- * scene-pixel offsets, both of which scale) from `move.speed` (one scalar)
- * without inspecting a scene that happens to use them, so the arity is part of
- * the descriptor rather than something discovered at the value.
+ * Scalar, `[x, y]` pair, or a pair whose slots each take a number **or** a
+ * name. P2 must be able to tell `move.from` (a pair of scene-pixel offsets,
+ * both of which scale) from `move.speed` (one scalar) without inspecting a
+ * scene that happens to use them, so the arity is part of the descriptor
+ * rather than something discovered at the value.
+ *
+ * ## `endpoint-pair`, and why the union it describes is in the shape
+ *
+ * Design §4.2 gives `move`'s `from`/`to` a symbolic off-stage endpoint *as
+ * well as* a number, **per slot**: `['offRight', 0]` is as valid as
+ * `[320, 0]`, and `endpointPair` below is the reader the member is named
+ * after. With only `scalar` and `pair` to say it in, a descriptor could record
+ * that the value is two numbers and nothing could record that either of them
+ * may be a name — so a consumer generating a control offered two spinners and
+ * no way to write `offRight`, which is the whole of what an author needs to
+ * write the scroll `README.md` opens with.
+ *
+ * **It says which slots take a name. It does not say whether the value is a
+ * length, and must not be read as if it did.** Scalability stays on the
+ * `unit`, where `move.speed` is `scenePx` + `per: 'second'` on purpose so that
+ * a consumer whose rule is "scale every `scenePx` parameter" catches a rate
+ * for free (see {@link NumericParam.per}). `speed` takes no token and never
+ * will; a rule re-keyed from the unit onto this shape would drop it silently,
+ * which is the same fail-open defect one level down from the one the member
+ * was added to fix. The two facts are orthogonal and are recorded in two
+ * fields precisely so that neither can be mistaken for the other.
+ *
+ * The names a slot accepts are data, not type, so they travel beside the shape
+ * in {@link NumericParam.tokens} rather than being something a consumer is
+ * expected to know.
  */
-export type ParamShape = 'scalar' | 'pair'
+export type ParamShape = 'scalar' | 'pair' | 'endpoint-pair'
 
 /**
  * Where a parameter's default comes from, tagged so a consumer switches over
@@ -218,6 +245,22 @@ export interface NumericParam {
    * down.
    */
   readonly per?: 'second'
+  /**
+   * The names each slot accepts in place of a number, indexed by slot.
+   *
+   * Present exactly where `shape` is `endpoint-pair`, and **read from the
+   * module that resolves them** (`offStageTokens`) rather than written out
+   * here: a copy of the four names in this file would be a second roster of a
+   * set that already exists, and `presets.ts` records that drift as the reason
+   * its own message builder derives the list instead of holding one.
+   *
+   * Indexed by slot because the vocabulary is: `offLeft`/`offRight` are
+   * horizontal distances and `endpointPair` throws when either is written into
+   * the `y` slot. A consumer handed one flat list would offer a name the verb
+   * rejects, and design §9.3's floor would be producing scenes the player
+   * refuses to load.
+   */
+  readonly tokens?: readonly [readonly string[], readonly string[]]
 }
 
 /** A parameter chosen from a fixed set of names. */
@@ -264,8 +307,22 @@ export type ParamDescriptor = NumericParam | EnumParam
  */
 const value = <V>(v: V): ValueDefault<V> => ({ from: 'value', value: v })
 
-const SCENE_PX_PAIR = (name: string, def: readonly [number, number]): NumericParam =>
-  ({ name, unit: 'scenePx', shape: 'pair', default: value(def) })
+/**
+ * A pair of scene-pixel offsets, either slot of which may instead be one of
+ * `move`'s symbolic off-stage endpoints. See {@link ParamShape}.
+ *
+ * The vocabulary is read per slot at module load, from the table that
+ * resolves it, so a token added there reaches every consumer without this
+ * line being edited and no consumer can be offered a name for the wrong axis.
+ */
+const SCENE_PX_ENDPOINTS = (name: string, def: readonly [number, number]): NumericParam =>
+  ({
+    name,
+    unit: 'scenePx',
+    shape: 'endpoint-pair',
+    tokens: [offStageTokens(0), offStageTokens(1)],
+    default: value(def),
+  })
 
 const DEPTH = (name: string, def: NumericDefault): NumericParam =>
   ({ name, unit: 'depth', shape: 'scalar', default: def })
@@ -312,8 +369,8 @@ const MULTIPLIER = (name: string, def: number): NumericParam =>
  */
 export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
   move: [
-    SCENE_PX_PAIR('from', [0, 0]),
-    SCENE_PX_PAIR('to', [0, 0]),
+    SCENE_PX_ENDPOINTS('from', [0, 0]),
+    SCENE_PX_ENDPOINTS('to', [0, 0]),
     // **No default, and that is not a gap.** Omitting `speed` does not
     // substitute a number — it leaves `duration` unset, so the move runs for
     // the remainder of the scene. The `60` in `move`'s `num(p, 'speed', 60)`

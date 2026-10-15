@@ -233,14 +233,21 @@ type _NoUnitExtra = AssertNever<Exclude<typeof CONTROL_UNITS[number], ControlUni
  *
  * **Extends `ParamShape`, which is already this repo's answer to "is an
  * `[x, y]` pair one control or two".** `PRESET_PARAMS` carries
- * `SCENE_PX_PAIR('from', [0, 0])` as *one* descriptor with `shape: 'pair'`, so
+ * `move`'s `from` as *one* pair-shaped descriptor, so
  * the eleven preset controls are already counted that way. Applying the same
  * rule to the model's two pair-valued keys — `scene.size` and `LayerBase.at` —
  * is what keeps three populations from being counted by three conventions.
  * (Survey §F-11 counts `scene.size` as two controls and `layer.at` as one;
  * those are the same shape and cannot both be right. See this task's report.)
  *
- * `structured` is the third member and names what neither of the others can:
+ * `endpoint-pair` comes down from `ParamShape` unchanged and says the one
+ * thing `pair` cannot: each slot takes a number **or** one of the names
+ * recorded beside it, so a generated control needs a field *and* a picker per
+ * slot rather than a spinner. It is a statement about the value's spelling and
+ * not about whether the value is a length — that stays on the unit, where
+ * `move.speed` depends on it.
+ *
+ * `structured` names what none of the others can:
  * `anim` is a `Track | Preset | (Track | Preset)[]` and `mask` is
  * `'alpha' | {luma: number}`. Both are real authorable keys, both must appear
  * for R6, and neither is a widget — a `structured` control is the registry
@@ -251,7 +258,7 @@ type _NoUnitExtra = AssertNever<Exclude<typeof CONTROL_UNITS[number], ControlUni
 export type ControlShape = ParamShape | 'structured'
 
 /** The runtime witness for {@link ControlShape}. Written out, for {@link CONTROL_UNITS}'s reason. */
-export const CONTROL_SHAPES = ['scalar', 'pair', 'structured'] as const
+export const CONTROL_SHAPES = ['scalar', 'pair', 'endpoint-pair', 'structured'] as const
 
 type _NoShapeMissing = AssertNever<Exclude<ControlShape, typeof CONTROL_SHAPES[number]>>
 type _NoShapeExtra = AssertNever<Exclude<typeof CONTROL_SHAPES[number], ControlShape>>
@@ -300,6 +307,17 @@ export interface ControlInfo {
    * {@link KeySpec.values}.
    */
   readonly values?: readonly string[]
+  /**
+   * The names each slot accepts in place of a number, indexed by slot, on a
+   * control whose shape is `endpoint-pair`.
+   *
+   * **Carried down rather than looked up again**, for `values`' reason, and
+   * **per slot rather than flat** for the reason `NumericParam.tokens`
+   * records: `offLeft` is a horizontal distance and the verb throws when it is
+   * written into the `y` slot, so a consumer handed one list would offer a
+   * name that produces a scene the player refuses to load.
+   */
+  readonly tokens?: readonly [readonly string[], readonly string[]]
   /**
    * The syntax of the other form the reader accepts, where `values` is not
    * the whole of it.
@@ -861,7 +879,9 @@ function control(
  * level down — and `values`, `open` and `default` are the same bargain for the
  * consumer that generates a widget: without them a picker has no options, a
  * `cubic-bezier(...)` is reported invalid, and a field initialises to a number
- * for a parameter whose default is "the rest of the scene".
+ * for a parameter whose default is "the rest of the scene". `tokens` joined
+ * them when the endpoint shape arrived, on the same bargain: without it a
+ * slot that accepts a name offers no way to write one.
  */
 function presetControl(kind: string, d: ParamDescriptor): ControlInfo {
   const base = {
@@ -881,7 +901,13 @@ function presetControl(kind: string, d: ParamDescriptor): ControlInfo {
       ...(d.open === undefined ? {} : { open: d.open }),
     }
   }
-  return { ...base, unit: d.unit, shape: d.shape, ...(d.per === undefined ? {} : { per: d.per }) }
+  return {
+    ...base,
+    unit: d.unit,
+    shape: d.shape,
+    ...(d.per === undefined ? {} : { per: d.per }),
+    ...(d.tokens === undefined ? {} : { tokens: d.tokens }),
+  }
 }
 
 /**

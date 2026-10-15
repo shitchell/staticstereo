@@ -35,9 +35,10 @@
  * free-text field, because `ease` is five named curves or
  * `cubic-bezier(a,b,c,d)` and a closed picker would tell an author that a
  * valid easing is invalid. Those are the same artefact — a value with more
- * than one way to write it — and so is the parameter shape the editor still
- * has to grow, a scene-pixel number *or* a token like `offRight`. A return
- * type of one field per control would be known-wrong before it shipped.
+ * than one way to write it — and so is `move`'s endpoint pair, each slot of
+ * which is a scene-pixel number *or* a token like `offRight`: it gets a field
+ * **and** a picker per slot, four parts for one control. A return type of one
+ * field per control would have been known-wrong before it shipped.
  *
  * ## Where the refusals live
  *
@@ -163,6 +164,16 @@ export interface TextPart {
 export interface ChoicePart {
   readonly kind: 'choice'
   readonly options: readonly string[]
+  /**
+   * Which member of an `[x, y]` pair this picker writes; absent on a scalar.
+   *
+   * {@link NumberPart.index}'s field, for {@link NumberPart.index}'s reason
+   * and one more: the two slots of an endpoint pair accept **different**
+   * names, so a renderer that paired a picker with its field by position
+   * would be one index-arithmetic slip away from offering a vertical token
+   * for the horizontal slot — which the verb refuses on load.
+   */
+  readonly index?: 0 | 1
   readonly initial?: WidgetInitial
 }
 
@@ -267,16 +278,21 @@ export function refusedWidget(key: string): RefusedWidget | undefined {
  * The `default:` arm is §1.2k's and E14's form: an `AssertNever` that
  * **returns the existing fallback rather than throwing**, so widening
  * `ParamShape` upstream is a compile error here and zero runtime change. That
- * widening is expected — the editor still has to express a scene-pixel number
- * *or* a token — and this is where it should land loudly, because a new arity
- * silently treated as a scalar would ship one field for a value that needs
+ * widening has happened once, exactly as written: `endpoint-pair` arrived and
+ * landed here loudly, which is what this arm was for — a new arity silently
+ * treated as a scalar would have shipped one field for a value that needs
  * two.
+ *
+ * `endpoint-pair` is two members like `pair`, and that is the whole of what
+ * *this* function has to say about it: the slots are two, and whether each one
+ * also gets a picker is {@link resolveWidget}'s question, not an arity's.
  */
 function members(shape: ControlShape): readonly (0 | 1 | undefined)[] {
   switch (shape) {
     case 'scalar':
       return [undefined]
     case 'pair':
+    case 'endpoint-pair':
       return [0, 1]
     case 'structured':
       return []
@@ -346,7 +362,8 @@ function deferred(control: string, reason: string): WidgetSpec {
  * 2. **An instrument wins over a field.** `shape: 'structured'` is the
  *    registry's record that this key needs §9.3's spatial instrument, and it
  *    is a statement about the *value*, which no unit can override.
- * 3. **Then the unit chooses the field**, and the arity chooses how many.
+ * 3. **Then the unit chooses the field**, and the arity chooses how many —
+ *    plus a picker beside each slot that accepts a name as well as a number.
  *
  * The `default:` arm is E14's `AssertNever` returning a fallback rather than
  * throwing: §1.2k reserves a runtime throw for registries where a wrong answer
@@ -370,16 +387,57 @@ export function resolveWidget(control: ControlInfo): WidgetSpec {
     }
   }
 
+  // A shape saying the slots accept names, with no names recorded, is the
+  // enum arm's hole one field over: a picker over nothing is an instrument an
+  // author cannot use and cannot tell is broken, and a field *without* the
+  // picker would be worse still — it would silently withdraw the only way to
+  // write `offRight` while looking complete. Every slot must have a
+  // vocabulary or the control is a countable hole. `KeySpec.tokens` does not
+  // exist, so a model key that took this shape would land here by design.
+  if (
+    control.shape === 'endpoint-pair' &&
+    !(control.tokens !== undefined &&
+      control.tokens.length === members(control.shape).length &&
+      control.tokens.every(names => names.length > 0))
+  ) {
+    return deferred(
+      control.control,
+      'Each slot of this value takes a number or a name, and the registry does not record ' +
+      'which names — so the picker that is half of the control would offer nothing. Record ' +
+      'them per slot, beside the shape: the two slots of a pair do not accept the same ones.',
+    )
+  }
+
   const initial = control.default === undefined ? undefined : control.default
   const numbers = (unit: QuantityUnit): WidgetSpec => ({
     control: control.control,
-    parts: members(control.shape).map(index => ({
-      kind: 'number' as const,
-      unit,
-      ...(control.per === undefined ? {} : { per: control.per }),
-      ...(index === undefined ? {} : { index }),
-      ...(initial === undefined ? {} : { initial: initialFor(initial, index) }),
-    })),
+    // One slot can want two parts. The number is written first and the picker
+    // beside it rather than the two pickers being collected at the end: a
+    // slot is one decision, and keeping its fields adjacent is what stops a
+    // renderer pairing them up by index arithmetic over a flat list.
+    parts: members(control.shape).flatMap((index): readonly WidgetPart[] => {
+      const field: NumberPart = {
+        kind: 'number',
+        unit,
+        ...(control.per === undefined ? {} : { per: control.per }),
+        ...(index === undefined ? {} : { index }),
+        ...(initial === undefined ? {} : { initial: initialFor(initial, index) }),
+      }
+      // Per slot, never flattened: `offLeft` is a horizontal distance and the
+      // verb throws when it is written into `y`, so a picker offering the
+      // whole vocabulary in both slots would let the floor produce a scene
+      // the player refuses — `REFUSED_WIDGETS['layer.type']`'s failure, one
+      // parameter over, and the reason that one gets no widget at all.
+      const names =
+        control.shape === 'endpoint-pair' && index !== undefined
+          ? control.tokens?.[index]
+          : undefined
+      if (names === undefined) return [field]
+      // No `initial`: the descriptor's default is a number or a pair of them,
+      // so the recorded value belongs in the field that takes numbers. A
+      // pre-selected token would claim a default the table does not hold.
+      return [field, { kind: 'choice', options: names, index }]
+    }),
   })
 
   switch (control.unit) {
