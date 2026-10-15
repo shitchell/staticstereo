@@ -608,8 +608,9 @@ const LAYER_SPECS: Partial<Record<LayerKey, KeySpec>> = {
   at: {
     unit: 'scenePx',
     shape: 'pair',
-    note: 'Position on the stage, in scene px. A pair, exactly as `scene.size` is and as ' +
-      '`PRESET_PARAMS`\' `SCENE_PX_PAIR` descriptors are.',
+    note: 'Position on the stage, in scene px. A pair; the `PRESET_PARAMS` endpoints are the ' +
+      'narrower `endpoint-pair` — `SCENE_PX_ENDPOINTS` in `src/core/anim/params.ts`, whose ' +
+      'slots may each be a symbolic off-stage token rather than a number.',
   },
   anim: {
     unit: 'none',

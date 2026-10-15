@@ -378,7 +378,7 @@ describe('every control names its unit', () => {
 
   it('records a pair as one control with an arity, not as two controls', () => {
     // `ParamShape` is already this repo's answer to "is an [x, y] pair one
-    // control or two" — `PRESET_PARAMS` carries `SCENE_PX_PAIR('from', …)` as
+    // control or two" — `PRESET_PARAMS` carries `SCENE_PX_ENDPOINTS('from', …)` as
     // one descriptor. Applying it to `scene.size` and `layer.*.at` is what
     // keeps the two pair-valued model keys from being counted differently from
     // each other and from the eleven preset descriptors.
@@ -567,6 +567,18 @@ describe('registering a control costs one declaration and nothing else', () => {
     // P3 criterion 3 is the same requirement in the plan's words: *"One
     // registration test per registry — a dummy entry appears without touching
     // another file … This is what makes R7 falsifiable."*
+    //
+    // **"Appears without touching any other file" has since been withdrawn,
+    // so the two quotes above are the record of what this test was built
+    // against and not current doctrine.** The execution plan amended
+    // criterion 3 as *"always the wrong property"* — a real registration on
+    // three registries does touch another file — and design §11 was amended
+    // to match, so §11's sentence now reads *"asserts that **a consumer can
+    // now use it**"*. The replacement property is *"adding an entry costs one
+    // declaration, and everything else that must change is named by the
+    // compiler"* rather than discovered at runtime or missed, which is what
+    // the assertions below in fact measure. Row 3 itself was not amended and
+    // is still verbatim; only the sentence it sits under was.
     //
     // **Row 3 says "one declaration" where rows 2, 4, 6 and 7 say "one
     // registration", and the difference is this registry's whole shape.** A

@@ -472,7 +472,7 @@ export interface Scene {
  * runtime, and an editor that generates a control per field (R6, design §9.1)
  * needs the names as *values*. The validators learned the same thing the
  * expensive way — `src/cli/scene.ts:103` carries its own hand-written
- * `SCENE_KEYS` with no guard on it, and `site/scene.ts:361` carries no list at
+ * `SCENE_KEYS` with no guard on it, and `site/scene.ts:369` carries no list at
  * all, rebuilding the six fields inline. A seventh key is therefore three
  * coordinated edits today, and missing one is silent in both directions: the
  * CLI rejects by name a field the browser accepts, or the browser quietly

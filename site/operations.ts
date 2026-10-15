@@ -666,9 +666,16 @@ export const ABSENT_OPERATIONS: Record<string, AbsentOperation> = {
       'the `layer.<variant>.type` control, and is owned by no registry today. The control is a ' +
       'real control — `type` is in every scene file and R6 is about every authorable key — but ' +
       'a generated enum widget over it would let an author switch `text` → `shape` and leave ' +
-      '`text`, `size`, `font` and `weight` set with no `shape` key, which `site/scene.ts` ' +
-      'refuses on load. So the overlap between the two registries hides a third mechanism: a ' +
-      'migration that drops the old variant\'s keys and supplies the new one\'s required ones. ' +
+      '`text`, `size`, `font` and `weight` set with no `shape` key. The refusal that follows ' +
+      'is not a leftover-key check — `site/scene.ts` **silently drops** keys it does not name, ' +
+      'and what fails is the *target* variant\'s own missing required key ' +
+      '("layers[0].shape must be one of circle, rect"). `REFUSED_WIDGETS[\'layer.type\']` in ' +
+      '`site/widgets.ts` carries the measurement and is the other end of this fact: of the ' +
+      'twelve browser-reachable bare retypes ten are rejected on load, and the two that load ' +
+      'are the worse half — `gif` → `image` loads while the validator silently drops `loop`, ' +
+      'with no error anywhere. So the overlap between the two registries hides a third ' +
+      'mechanism: a migration that drops the old variant\'s keys and supplies the new one\'s ' +
+      'required ones. ' +
       'Deferred rather than refused — nobody has argued against it, it simply has no owner. ' +
       'Raised by C-4; design §9.3 and P4\'s widget work are where it lands.',
   },

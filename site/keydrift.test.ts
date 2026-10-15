@@ -43,7 +43,7 @@ import { validateScene } from './scene.js'
  *
  * **`draw` is the one deliberate disagreement between the two validators**,
  * and it is encoded here as an expectation rather than tolerated as noise:
- * `site/scene.ts:267-278` refuses it by name citing design §9.5 (a module path
+ * `site/scene.ts:267-286` refuses it by name citing design §9.5 (a module path
  * cannot be resolved inside a static bundle), while `src/cli/scene.ts:104`
  * accepts it and `src/core/raster.ts:386` renders it. Both are right; the
  * partition between them is the thing worth pinning, because the day it moves

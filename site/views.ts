@@ -15,7 +15,10 @@
  * the view renders it however reads best"* — and it is why none of the three
  * can be folded into the others: every combination of (which canvas, which
  * buffer, which LUT) is a meaningful editor state, so a single list would have
- * to be their product.
+ * to be their product. **Read "every combination" against the correction
+ * below** — the buffer axis turned out to be subordinate to the canvas axis
+ * rather than independent of it, which narrows the product without making any
+ * of the three foldable.
  *
  * ## `DEPTH_SOURCES` is here because ruling R-p put it here
  *
@@ -26,7 +29,14 @@
  * depth` — the depth map **before** versus **after** `depthBlur`. Survey §I-2
  * **[M]** measured it as a third axis orthogonal to both `VIEWS` and
  * `SHADINGS`, and said *"PM-SHELL must decide where it lands, or it is dropped
- * silently by the teardown."*
+ * silently by the teardown."* **"Orthogonal to both" is the half of that
+ * survey sentence C-6 disproved**, and the disproof is the measurement twenty
+ * lines below — *"the depth canvas is shown by more than one view and by not
+ * all of them"* — which is a subordination and not an independence: the axis
+ * is live only under the views that show the canvas. The accurate form is
+ * **orthogonal to `SHADINGS`, subordinate to `VIEWS`**, and nothing R-p
+ * concluded turns on the difference, because subordination is still not
+ * membership in `VIEWS`.
  *
  * R-p is that it lands here. {@link DEPTH_SOURCE_PROVENANCE} records the
  * ruling as data rather than as a comment, because §9's last trap is that *"a
@@ -430,6 +440,15 @@ export const DEPTH_SOURCE_PROVENANCE: AxisProvenance = {
     'The axis ships today with no registry behind it, so the teardown — which deletes ' +
     '`site/index.html` and `site/main.ts` — would remove the only places it is written down and ' +
     'nothing in `npm test` would notice an editor that had quietly lost a control.',
+  // The quoted ruling's premise did not survive, and the quote is left
+  // verbatim anyway. R-p quoted survey §I-2's "a third axis orthogonal to
+  // both"; C-6 then measured the axis as orthogonal to `SHADINGS` but
+  // **subordinate** to `VIEWS` — the depth canvas is shown by more than one
+  // view and by not all of them, so the combinations are not a free product
+  // (see the header above). Editing the string would falsify the record of
+  // what R-p actually said, and the ruling's disposition is unaffected:
+  // subordination is still not membership in `VIEWS`, so the axis still
+  // lands here rather than folding into either neighbour.
   ruling:
     'Ruling R-p (PM-SHELL-2\'s): today\'s `composited | encoded` axis is "a third axis orthogonal ' +
     'to both `VIEWS` and `SHADINGS`" (survey §I-2, §F-11), and it "ships in C-6\'s file as a ' +

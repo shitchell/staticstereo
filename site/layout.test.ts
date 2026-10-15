@@ -298,6 +298,17 @@ describe('the placements design §5.1 refused', () => {
  * *"without that, 'moving a panel costs a declaration' is unverified until the
  * first time it is false."*
  *
+ * **The plan's wording above was withdrawn after this test shipped, and is
+ * kept as the record of what it was built against.** The execution plan
+ * amended criterion 3 as *"always the wrong property"* — a real registration
+ * on three registries does touch another file — and design §11 was amended to
+ * match, so §11 now reads *"asserts that a consumer can now use it"*. The
+ * replacement property is *"adding an entry costs one declaration, and
+ * everything else that must change is named by the compiler"* rather than
+ * discovered at runtime or missed. The §11 row 1 budget and the §11 rationale
+ * quoted beside it are unamended. Read the later uses of the old phrase in
+ * this file — the census sections below — against the replacement.
+ *
  * ### The unit of registration here is a PLACEMENT, not a slot
  *
  * §11 row 1 budgets **panel placement**, and the mechanism it names is

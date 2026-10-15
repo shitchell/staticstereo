@@ -805,6 +805,16 @@ describe("design §11 row 4 — one registration, and the budget is a count of m
     // worth keeping: *"without that, 'moving a panel costs a declaration' is
     // unverified until the first time it is false."*
     //
+    // **The first of those two quotes was withdrawn after this test shipped,
+    // and is kept as the record of what it was built against.** The execution
+    // plan amended criterion 3 as *"always the wrong property"* — a real
+    // registration on three registries does touch another file — and design
+    // §11 now reads *"asserts that a consumer can now use it"*. The
+    // replacement property is *"adding an entry costs one declaration, and
+    // everything else that must change is named by the compiler"* rather than
+    // discovered at runtime or missed. The §11 rationale quoted beside it is
+    // unamended and still current.
+    //
     // The registration is performed here, in the test file, through the seam
     // `operations.ts` already exports — so **no file outside this one is
     // edited**, which is the negative under test. The `git diff --stat` for

@@ -558,8 +558,12 @@ export const ABSENT_SHADINGS: Record<string, AbsentShading> = {
     reason:
       'Today\'s `#depth-view` offers `composited | encoded` (`site/index.html:153-154`, ' +
       '`site/controls.ts:29`) — the depth map before versus after `depthBlur`. Survey §I-2 ' +
-      '**[M]** measured it as a third axis, orthogonal to both which canvas is shown (`VIEWS`) ' +
-      'and which LUT is applied (this registry): every combination of the three is meaningful, ' +
+      '**[M]** called it a third axis "orthogonal to both" which canvas is shown (`VIEWS`) and ' +
+      'which LUT is applied (this registry). C-6 measured that down: it is **orthogonal to ' +
+      '`SHADINGS`, subordinate to `VIEWS`** — the depth canvas is shown by more than one view ' +
+      'and by not all of them (`site/views.ts`), so the axis is live only under the views that ' +
+      'show the canvas, and not every combination of the three is meaningful after all. What ' +
+      'survives is the half that governs here: which LUT is applied is independent of it, ' +
       'so folding it in here would double the membership and still not express ' +
       '`encoded` + `relief`. Recorded rather than left out because ruling R-p is that without ' +
       'somewhere to land it is dropped silently by the teardown.',

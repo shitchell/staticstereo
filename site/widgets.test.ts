@@ -78,12 +78,18 @@ function specFor(control: string): ControlInfo {
  * the preset table, built here rather than shipped.
  *
  * Whether `site/controlspec.ts` should carry this wiring is a registry
- * question and is answered in this task's report; what the resolver needs is
- * the four descriptors `src/core/anim/params.ts` declares, because they are
- * the only ones in the tree exercising three of the five default tags and the
- * only enum carrying an `open` form. Driving them through the real
- * `deriveControls` rather than hand-building a `ControlInfo` keeps the test
- * answerable to the derivation instead of to a literal somebody typed.
+ * question, and the position is recorded in the tree at
+ * `site/reachability.test.ts:54-58`: the four universal parameters have
+ * descriptors but are **not yet wired into `MODEL_ROSTERS`**, that wiring is
+ * expected growth rather than a fix, and no assertion may redden when it
+ * lands. So the wiring is built locally here rather than waited on, and
+ * nothing in this file is pinned to the registry carrying it. What the
+ * resolver needs is the four descriptors `src/core/anim/params.ts` declares,
+ * because they are the only ones in the tree exercising three of the five
+ * default tags and the only enum carrying an `open` form. Driving them
+ * through the real `deriveControls` rather than hand-building a `ControlInfo`
+ * keeps the test answerable to the derivation instead of to a literal
+ * somebody typed.
  */
 const WITH_UNIVERSALS: ControlRosters = {
   ...MODEL_ROSTERS,

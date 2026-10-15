@@ -310,12 +310,23 @@ describe('the panels the design refused', () => {
  * own header spells out as *"one entry in `PANELS` plus its name in `PANEL_IDS`
  * and `PanelId` — three spellings in this file … and nothing anywhere else."*
  *
- * Plan §7 P3 criterion 3 words the deliverable as *"a dummy entry appears
+ * Plan §7 P3 criterion 3 *worded* the deliverable as *"a dummy entry appears
  * without touching another file"*; design §11 gives the reason it is a test and
  * not a comment: *"without that, 'moving a panel costs a declaration' is
  * unverified until the first time it is false."* That sentence was prose in a
  * docblock until this file, which is §9's *"a recorded note is not a sensor"*
  * pointed at the registry's own budget.
+ *
+ * **Past tense deliberately: that first wording was withdrawn after this test
+ * shipped, and is kept as the record of what it was built against.** The
+ * execution plan amended criterion 3 as *"always the wrong property"* — a real
+ * registration on three registries does touch another file — and design §11
+ * was amended to match, so §11 now reads *"asserts that a consumer can now use
+ * it"*. The replacement property is *"adding an entry costs one declaration,
+ * and everything else that must change is named by the compiler"* rather than
+ * discovered at runtime or missed. The §11 row 2 budget and the rationale
+ * quoted beside it are unamended, and the census below measures the
+ * replacement: every moved row is a `registry` row.
  *
  * ## Why the readers grew a `table` parameter
  *

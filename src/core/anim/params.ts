@@ -63,8 +63,12 @@ import type { PresetCtx, PresetKind } from './presets.js'
  * clause.** `PRESET_PARAMS` still describes none of them and still should
  * not: a sibling table is what "they are universal" means, and a pseudo-key
  * here would redden the registry tie `params.test.ts` holds over this one.
- * What is no longer true is only that a consumer finds nothing — it finds the
- * sibling.
+ * What is no longer true is only that a consumer finds nothing — a consumer
+ * **of this module** finds the sibling. It is not on the `core` barrel yet:
+ * neither `src/core/index.ts` nor `src/core/anim/index.ts` exports
+ * `UNIVERSAL_PARAMS`, so a consumer importing through either still finds
+ * nothing. That wiring is part of P4's cost and is routed there by ruling
+ * R-ag; adding the export here would be taking that scope.
  *
  * The reason given above for `ease` and `repeat` having no tag — that neither
  * is a physical quantity — turned out not to be a reason this vocabulary
