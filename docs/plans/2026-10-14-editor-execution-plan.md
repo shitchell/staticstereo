@@ -647,7 +647,7 @@ A **gate runner** (implemented none of the phase) executes exactly this, in CI o
 reports the exit codes:
 
 ```sh
-git rebase main                                           # conflict ⇒ STOP, escalate
+git merge main                                            # conflict ⇒ STOP, escalate
 npm run typecheck > /tmp/tc.log 2>&1; echo "typecheck=$?"
 npm run build      > /tmp/b1.log 2>&1; echo "build=$?"
 npm run build:site > /tmp/b2.log 2>&1; echo "buildsite=$?"
@@ -875,6 +875,36 @@ running before P3. The module lands standalone; P4 consumes it.
 **`CONTROLS` is complete; visibility sets select from it.** A filtered registry would fail
 criterion 6.
 
+### P3a's five carried findings — open, by name
+
+Restated out of a session-scoped ledger so they survive it. Items 4 and 5 are conventions
+for P4 to adopt, not merged files to reopen.
+
+1. **`REPEATS` is hand-written in four unguarded places** — `src/core/anim/presets.ts:93`,
+   `src/cli/scene.ts:130`, `site/scene.ts:38`, and an inline union at
+   `src/core/types.ts:276`. Pre-existing. A fifth site, `params.ts:491-500`, is **this
+   phase's and is correct** — it writes the vocabulary out deliberately, because spreading
+   the upstream constant would compare a constant with itself. The hazard is visibility:
+   `src/cli/scene.ts:126-129` carries an `AssertNever` pair *immediately above* the
+   unguarded `REPEATS`, which hides the asymmetry by adjacency.
+2. **`TRACK_KEYS`' over-permissive direction is wholly unsensored** — `src/cli/scene.ts:113`
+   and `:435`, nowhere else, zero test mentions. An extra name that is not a `Track` key is
+   accepted with nothing able to see it. Pre-existing.
+3. **Criterion 14** — `site/dist.test.ts:1430`'s `toHaveLength(7)`. **Eight** modules are
+   absent from `EDITOR_ONLY_MODULES`, not the three on record. **Inherited** (pre-branch-point
+   at `773cc32`) and **P3b's**. Nothing leaks: none of the eight is imported by `main.ts`
+   or `player.ts`.
+4. **Absence-table convention divergence** — `REFUSED_*{key,reason}` versus
+   `ABSENT_*{disposition}`. **`ABSENT_* + disposition` should win**: `refused` proved to be
+   one of three dispositions actually needed. Paired with it, five readers take a defaulted
+   `table` parameter and five do not — **taking it should win**, because the four without
+   it are exactly the four with no control over "the absences did not move under a
+   registration."
+5. **`*_IDS` means two opposite things** — `as const` tuples tied by `AssertNever` in
+   `PANEL_IDS`, `SHADING_IDS`, `VIEW_IDS`, `BINDING_IDS`, `DEPTH_SOURCE_IDS`; derived
+   `readonly string[]` in `CONTROL_IDS` and `OPERATION_IDS`. Same suffix, opposite
+   provenance, **in the phase that spent itself on provenance.**
+
 ### P3 criteria 12–20 and ruling E14 — written down for the first time, 2026-10-15
 
 **These were adopted in a message and never committed to any document.** A PM found it:
@@ -1057,6 +1087,10 @@ Each already cost a correction. Hand this table to every worker.
 | `git diff -U0` shows what the task changed | Not for a file the task **created** — an untracked file has no diff, so the check silently measures nothing. Grep the file, not the diff. |
 | a grep proves the change was comment-only | It samples **line shapes**, not semantics. The structural proof is to transpile every changed file at `HEAD` and in the working tree with `removeComments: true` and diff the outputs. **But it has three blind spots and one of them is live in this repo** — see the row below before relying on it. |
 | the transpile-diff answers "did this change what the suite proves" | **It does not, here.** Three blind spots, measured by the reviewer that reproduced the instrument independently: (1) **directive comments are invisible** — `removeComments` strips `@ts-expect-error`, `@ts-ignore`, `@__PURE__` and `eslint-disable`, so deleting one is a typecheck or tree-shaking change the instrument calls IDENTICAL; close it with a repo-wide census of each. (2) It is single-file and type-blind. (3) **🚩 This repo has tests that read source text, comments included** — `site/query.test.ts:170` walks raw files for an import regex, and `site/controlspec.test.ts:124` filters ids by whether the *whole text* of `controlspec.ts` contains the quoted id. A comment edit moves those. Close it by diffing the quoted-token set and planting a control; the reviewer did, and the planted `// planted: 'layer.text.at'` was duly reported. |
+| a sha in the record resolves | Two on record for a met criterion — `f3b9a1c` and `9c2d84e` — **do not exist in this repository.** A sha is checkable in one command and these were not. |
+| the gate's instrument and the branch's instrument are the same kind of thing | **`git log <ref>` takes a ref; `npm test` takes a working directory.** They look interchangeable and are not. The orchestrator ran P3a's gate in a worktree checked out on `main` and got **60/1358** — the baseline, a figure already in the record. **A wrong answer that matches something already written down is the hardest kind to catch.** |
+| "the sweep found three" means there are three | C-18's own warning, and its scope reached no durable document while its results did. The five axes it swept: `as const` tuple rosters (13 present) · inline literal unions in struct fields (3 found) · **discriminated-union tag rosters, the shape `OPERATIONS` has**, of which it measured exactly one rather than leave the axis unnamed · rosters declared in `src/` that P2 consumes · **`.svelte` files — axis *empty*, not skipped.** Without the scope, the next sweep cannot tell what was covered, and empty-vs-skipped is invisible once the list is gone. |
+| recency is authority | **"Better than what it replaced" is not "verified."** A PM rewrote a ledger row on a reviewer's authority before the gate runner reported, then named it as a fabrication: *"recording a worker's finding as settled because it was the most recent one I heard is the same error as taking a handover's count."* |
 | a line number in a fix instruction is current | **It is stale on arrival if anything else in the same change touches the file above it.** A repair was handed `370` and `267-287` for two stale citations; both had been computed against a tree that still contained an orphan line the *same repair* was folding. The true answers were `369` and `267-286`. The worker folded first, recomputed, and said so: *"had I written them as given, I'd have re-introduced the exact defect class this repair exists to remove."* **Order the edits so the numbers are computed last, or hand over the predicate, not the number.** |
 | naming a citation defect by one location is unambiguous | It is not — **a citation has two addresses**, the line the pointer *sits on* and the line it *points at*, and only one of them is stale. Relayed as `types.ts:475 → 370` the location reads as the target, and the worker nearly declined both items as fabrications: nothing cites `types.ts:475`, and a 226-line file cannot contain `267-287`. Say which number is wrong and in which file. |
 | inserting lines is safe if nothing above the cited line moves | Only for citations *into* the lines above. A repair inserted **below** a heavily-cited line — correctly protecting nine citations — and broke **two pointers aiming further down the same file**. Inserting into a file breaks citations *into that file from elsewhere*; sweep for them. The worker understood the hazard well enough to make its own new comment immune, and still did not sweep. |

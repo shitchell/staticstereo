@@ -1185,9 +1185,18 @@ property is: **adding an entry costs one declaration, and everything else that m
 is named by the compiler** rather than discovered at runtime or missed.
 
 With a further bound measured after the amendment: of eight registries the property is
-**assertable for three and only reportable for five**, because five have costs that are
-not type-shaped, so "named by the compiler" has no truth value for them. They are *outside
-the property's domain*, not failing it. And `FIT_MODES`, cited as the exemplar, satisfies
+**assertable for three and only reportable for five** — and the reason is two reasons, not
+one: **of eight, four have a cost that is not type-shaped and one has no cost at all.**
+They are *outside the property's domain*, not failing it.
+
+**The members, which no document previously named.** Assertable: **`PANELS`,
+`FIT_MODES`, `LayoutConfig`.** Reportable: **`CONTROLS`, `OPERATIONS`, `SHADINGS`,
+`VIEWS`, `KEYBINDINGS`.** Measured by planting one real registration in each of the eight:
+two are compiler-named outright; `CONTROLS`, `OPERATIONS`, `SHADINGS` and `VIEWS` cost a
+partial unit table, a `string`-typed `Operation.verb` *by design*, a table row, and §5.2's
+prose including its written-out numeral respectively; and **`LayoutConfig` and
+`KEYBINDINGS` cost nothing at all.** `LayoutConfig` is assertable because an *invalid*
+placement **is** a compile error naming `layout.ts:266` and `:275` plus three more files. And `FIT_MODES`, cited as the exemplar, satisfies
 it for only one of its two plan kinds.
 
 **`CONTROLS` is complete; visibility is layered over it.** Revision 1 said simple mode
