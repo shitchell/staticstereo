@@ -118,7 +118,22 @@ Each of these cost a round trip. A successor that reopens one is spending it twi
   this pixel in the layer" and "how near is it".
 - The preset golden **stays**, against an earlier sentence calling it one-shot. Its
   exception to "assert on structure" is narrowed in plan §2.4.
-- `seek` clamps to the last frame; playback wrap is a separate operation.
+- **`seek` and `snapTime` must agree, and both clamp.** *(Re-grounded 2026-10-15 — see
+  error 22. The previous wording, "`seek` clamps to the last frame; playback wrap is a
+  separate operation", was an orchestrator inference written in this document's own birth
+  commit, and P2's handoff record says the opposite: "Nothing pins `seek`, so a flip either
+  way is unguarded — P3 must decide which the editor's scrubber calls." A PM refused to
+  build on it and was right to.)*
+
+  Decided now, on merits, for the first time. P2 measured the two disagreeing in the final
+  inter-frame gap: on a 2 s 12 fps scene `seek(…, 1.99)` anchors at **frame 0** while
+  `snapTime(…, 1.99)` gives **1.9167**, and they agree again at 1.95. Two functions that
+  both answer "which frame is at time *t*" must not disagree for any *t* — that, not the
+  endpoint convention, is the invariant worth pinning, and it is assert-on-structure rather
+  than a value pin: **∀t, `seek` and `snapTime` select the same frame.** Both clamp, because
+  an editor scrubber dragged past the end parks at the end; a playhead that teleports to
+  zero is a bug in every timeline tool anyone has used. **Playback wrap remains a separate
+  operation** — looping is `repeat`, which acts on advance, not on frame selection.
 
 **Process**
 - For `FIT_MODES`, a **compile error beats runtime registration** — it serves §11 better.
@@ -156,6 +171,9 @@ orchestrator.
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 | 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
+| 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
+| 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
 | 20 | **Applied four ruling edits with string replacements carrying no assertion; two silently no-opped — then asserted all four were landed in a commit message.** §1.2o committed by the tier that wrote it: an edit instrument used without a control, and the false claim put into the durable record | the PM read the file rather than the commit |
 | 19 | Ran P3a's verification gate **against the wrong worktree** and got the baseline back — `git log <branch>` names a ref, `npm test` runs whatever is checked out. It returned 60/1358, a *plausible* number already in the record | caught on re-reading my own output before reporting it |
 | 18 | Relayed a citation defect as `file:line → newline`, collapsing the **location of the citation** with the **target it points at** — the worker nearly declined both items as fabrications, since nothing cites the location and a 226-line file cannot contain the cited range. Also relayed "four-word orphan" for a one-word one | the repair worker swept every citation into its own edited files |
@@ -217,9 +235,20 @@ binding on tier 0 as on tier 1.
   measured blind simultaneously over exactly the P1 files.
 - **Open from E14's sweep:** three more P2 rosters share the `SMOOTH_MODES` defect —
   `DepthView`, `Legibility`, `FitLimit`, the last in live non-orphaned code.
-- **P3b — criterion 14 / `EDITOR_ONLY_MODULES`**: three cluster-C modules are absent from
-  a hand-written `toHaveLength(7)` list in a merged P2 file and **none of them reddens
-  it**.
+- **P3b — criterion 14 / `EDITOR_ONLY_MODULES`: WITHDRAWN as measurably false**, 2026-10-15.
+  This said three cluster-C modules were absent from a hand-written `toHaveLength(7)` list
+  and none reddened it; §7 then relayed it as eight. Both are wrong. The list is **7 of 7
+  correct today**; the "eight" are P3a registry modules in **neither** bundle, and planting
+  them **reddens** the suite. A real leak plant made the check **fail by name**. The live
+  hazards that survive are the hand-written list's capacity to rot, and extending the
+  needles to the shell's own modules after teardown. See orchestrator error 21.
+- **P3b owns `src/node/canvas.vendored.test.ts`.** It reads `site/index.html`, will throw
+  ENOENT on teardown, and is named by no phase. P3b may touch that file and **no other** in
+  `src/node/`; `canvas.generics.test.ts` is P1/P7's and both PMs have been told so.
+- **A freshness flake is open and unreproduced.** One `vitest list --json` run read a
+  freshly-built tree as stale and **withdrew 20 Pages-critical assertions**; three further
+  attempts could not reproduce it. Not dismissed — if a gate ever reports a count low by
+  roughly twenty, suspect this before suspecting the branch.
 - **Operational:** the suite is ~43s and three harnesses spawning `svelte-check` are >60%
   of it. A fourth must be re-measured before it lands — four concurrent processes have
   already timed out a merged-phase test.

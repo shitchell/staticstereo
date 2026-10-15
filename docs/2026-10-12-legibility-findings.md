@@ -97,8 +97,18 @@ The data separates cleanly into two independent effects, which the shipped rule 
 | **can you hold fusion** | depth budget | flat to ~22px, cliff past ~32px |
 
 They point in **opposite directions**, which is why conflating them produces actively bad
-advice: the current panel, seeing a thin stroke, effectively suggests widening the budget —
-which does nothing for resolving letters and makes fusion harder.
+advice.
+
+**Corrected 2026-10-15; this paragraph had the mechanism exactly backwards and three other
+documents copied it.** It read: *"the current panel, seeing a thin stroke, effectively
+suggests widening the budget — which does nothing for resolving letters and makes fusion
+harder."* Measured against the shipped string, which says **"raise `sepNear` to *shrink*
+the budget"**: shrinking moves the budget *toward* the plateau above, so fusion gets
+**easier**, not harder. The advice is still worse than silence, for a different reason —
+it **trades away depth range and buys nothing for legibility**, and the string advertises
+the cost while the purchase does not exist. The conclusion survives; the sentence does
+not, and the sentence is what got copied. Same shape as the `DEPTH_SOURCES` ruling: never
+re-cite the sentence.
 
 ---
 
