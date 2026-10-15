@@ -343,6 +343,41 @@ describe('row locality on the committed examples', () => {
 
   const marginsOf = (algorithm: SirdsAlgorithm): Margins => marginsFor(SEP_FAR, algorithm)
 
+  /**
+   * 20s, not the 5s default, for the three `it.each` blocks below — the six
+   * tests that call `sweep()`, and only those. The rest of this file is not
+   * raised: the other eight tests measured 15–92ms alone and 74–498ms inside a
+   * full run, which is not a thin margin by any reading.
+   *
+   * `sweep()` rasterises and encodes three committed scenes at four times
+   * each — twice over for the NO-margins pair, which runs the whole sweep
+   * unpadded and again padded — so these six carry nearly all of the file's
+   * cost and all of its sensitivity to how contended the box is. Measured on
+   * 12 cores with other agents' suites running concurrently (load average
+   * 9–12), inside a full `vitest run`:
+   *
+   *   shift / linked: the same sweep with NO margins   5226 / 5191 ms  ← RED
+   *   linked: no row with depth produces nothing             3312 ms
+   *   shift: no row with depth produces nothing              1969 ms
+   *   shift / linked: no row changes without depth     1841 / 1607 ms
+   *
+   * The first pair timed out. The other four cleared 5s by less than 2×, and
+   * the same four moved by up to 1.7× between two back-to-back full runs
+   * (3312→2007, 1607→1208), so that margin is scheduling noise and not
+   * headroom — which is why all six are raised together rather than only the
+   * two seen red.
+   *
+   * This is a concurrency hazard, not a slow test. Alone on the same box the
+   * six run in 338–932ms, and CI — which has the runner to itself — took
+   * 1.95s for the slowest and 7.1s for the whole file (run 38804539248).
+   *
+   * What the raise costs: a genuine slowdown of several times over would no
+   * longer turn this red. The numbers above are the reference for telling that
+   * apart from a loaded machine — compare a suspect run against the 338–932ms
+   * solo figures, never against the timeout.
+   */
+  const SWEEP_TIMEOUT_MS = 20_000
+
   // NO LEAKAGE. The real-content confirmation of PROPERTY 1: across three
   // committed scenes at four sample times, not one row without authored depth
   // changed. This is the positional-noise fix holding on content rather than on
@@ -354,7 +389,7 @@ describe('row locality on the committed examples', () => {
     report(`${algorithm} example rows leaked`,
       rows.map(r => `${r.label}:${r.leaked}`).join(' '))
     expect(rows.map(r => r.leaked)).toEqual(rows.map(() => 0))
-  })
+  }, SWEEP_TIMEOUT_MS)
 
   // WAS `it.fails` — LIVE DEFECT #3, now fixed by the plate/stage split.
   //
@@ -376,7 +411,7 @@ describe('row locality on the committed examples', () => {
       report(`${algorithm} example rows lost (padded)`,
         rows.filter(r => r.lost > 0).map(r => `${r.label}:${r.lost}/${r.depthRows}`).join(' ') || 'none')
       expect(rows.map(r => r.lost)).toEqual(rows.map(() => 0))
-    })
+    }, SWEEP_TIMEOUT_MS)
 
   // The before/after, as a measurement rather than a comment. Keeps the defect
   // this fixed on the record and proves the probe above can fail: run the exact
@@ -394,7 +429,7 @@ describe('row locality on the committed examples', () => {
         `${total(before)} → ${total(after)}`)
       expect(total(before)).toBeGreaterThan(0)
       expect(total(after)).toBe(0)
-    })
+    }, SWEEP_TIMEOUT_MS)
 
   // The calibration for `CONFIRM_SEEDS`, and the reason it is not a tolerance.
   // Two kinds of silence exist in this probe and they behave oppositely under a
