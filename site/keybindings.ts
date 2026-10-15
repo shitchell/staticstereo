@@ -415,6 +415,41 @@ export function chromeBindingInfo(table: KeyBindingTable = KEYBINDINGS): KeyBind
 }
 
 /**
+ * Every binding on offer, in the order the table declares them.
+ *
+ * **The question a consumer actually asks, and the one nothing here could
+ * answer.** {@link KeyBinding.label} is documented as *"a help panel row, a
+ * menu item"* and {@link KeyBinding.caption} as what to print in a `<kbd>`, so
+ * the consumer this registry is for **enumerates**. {@link bindingInfo} and
+ * {@link bindingForChord} both require the caller to already know the answer —
+ * an id or a chord — and the module's only enumerating answer was
+ * {@link BINDING_IDS}, an `as const` tuple that **no registration can move**.
+ * A binding composed in by P4 through {@link composeKeybindings} was therefore
+ * reachable only by a caller who already knew its name, which is design §11
+ * row 5's "one entry" budget being true of the table and false of the product.
+ *
+ * **Defined in terms of {@link bindingInfo}, and that is structural rather than
+ * tidy.** `Object.prototype`'s members are non-enumerable, so the lookup
+ * hazard E8 / R-l names does not transfer to an enumerator — but a table built
+ * on another table (`Object.create(TABLE)`, which a later phase's layering
+ * could easily produce) offers rows through `for…in` that `Object.hasOwn`
+ * then refuses. Going through the lookup makes a row this function offers and
+ * that function denies **impossible to write**, rather than merely absent
+ * today.
+ *
+ * Declaration order, not sorted: a help panel reads top to bottom and the
+ * table is the place that decides what order the author meets the commands in.
+ */
+export function offeredBindings(table: KeyBindingTable = KEYBINDINGS): readonly KeyBinding[] {
+  const offered: KeyBinding[] = []
+  for (const id of Object.keys(table)) {
+    const info = bindingInfo(id, table)
+    if (info !== undefined) offered.push(info)
+  }
+  return offered
+}
+
+/**
  * The chords more than one binding claims, sorted and deduplicated.
  *
  * **B-4's `LAYER_KEYS` defect, in the registry where it bites hardest.** The
@@ -785,8 +820,18 @@ export const ABSENT_BINDINGS: Record<string, AbsentBinding> = {
  * so a help panel would show a refusal whose chord and reason are both
  * `undefined`. A wrong answer is at least visible; well-formed prose that
  * explains nothing is not.
+ *
+ * `table` is a parameter for {@link bindingInfo}'s reason and for one more:
+ * the phases this registry defers chords to — P3b for `ctrl+z`, P4 for
+ * `Delete` and the arrows — each bind theirs in their own module and will each
+ * have their own absences to argue. Without the parameter a later tier's
+ * refusal is unreachable through this reader, and a registration test cannot
+ * move the absence row at all, which makes it a declaration nothing checks.
  */
-export function absentBinding(chord: string): AbsentBinding | undefined {
-  if (!Object.hasOwn(ABSENT_BINDINGS, chord)) return undefined
-  return ABSENT_BINDINGS[chord]
+export function absentBinding(
+  chord: string,
+  table: Readonly<Record<string, AbsentBinding>> = ABSENT_BINDINGS,
+): AbsentBinding | undefined {
+  if (!Object.hasOwn(table, chord)) return undefined
+  return table[chord]
 }
