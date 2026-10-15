@@ -94,7 +94,30 @@ sat inside the `child.on('close')` callback, so it escaped as an uncaught except
 promise never settled, and `beforeAll` ran out 300s and 600s timeouts reporting a verdict
 it already had at 8 seconds.
 
-**`pages` now measured, not inferred.** Both `ci` and `pages` are green on the merge
+**One `pages` run is red and the site is nonetheless correct — read this before reacting.**
+*(2026-10-15.)* `pages` failed on `5dca775` with **"No artifacts named github-pages were
+found"**, in a run whose own upload step logged success — artifact ID `12009955142`, 191628
+bytes. A `gh run rerun --failed` reproduced it exactly.
+
+**The site is current regardless, and this is checkable rather than hopeful:** `cc88b4b`
+deployed successfully 35 seconds earlier, and `git diff cc88b4b 5dca775 -- . ':(exclude)docs'`
+is **empty** — the two trees build identically, so the deployed bytes are the right bytes.
+Both URLs return 200.
+
+**Not a concurrency defect.** `pages.yml:30` already carries `concurrency: {group: pages,
+cancel-in-progress: false}`, the setting GitHub recommends for Pages, so the second run
+queued rather than clashed. Five of the six most recent `pages` runs succeeded; the failure
+sits on a docs-only commit.
+
+**Unresolved, and deliberately so.** A re-run of a failed run is a weaker probe than a fresh
+run — `actions/deploy-pages` has known attempt-scoping behaviour — and a fresh run had not
+been tried at the time of writing. **The next commit to `main` is the probe.** If `pages`
+goes green on it, this was isolated to that run and needs nothing; if it fails too, the
+workflow has a real defect and it must be fixed **before** any phase merges, because a
+persistently red `pages` means the next real deploy cannot be told from noise. Do not
+conclude either way from the five greens alone.
+
+**`pages` green on the merge commit, measured not inferred.** Both `ci` and `pages` are green on the merge
 commit `57f1e15`, the deployment advanced to `ab6ca789`, and **`/staticstereo/` and
 `/staticstereo/player/` both return 200** — so R14 is re-witnessed in production as a
 *directory* URL rather than by an assertion about build output. The worker flagged `pages`
