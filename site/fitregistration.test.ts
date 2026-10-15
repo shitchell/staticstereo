@@ -115,6 +115,27 @@ const DUMMY = 'tile'
 /** Where the gate's own config lives, relative to a tree root. */
 const GATE_TSCONFIG = 'tsconfig.typecheck.json'
 
+/**
+ * The checker's output format, pinned on the command line rather than inherited.
+ *
+ * **Not a tidy-up. This is the line whose absence kept `main` red for nine
+ * hours while the same suite was green on every developer machine.**
+ * `svelte-check` 4.7.6 picks its format in `getOutputFormat()`, and with no
+ * `--output` flag the choice is
+ * `process.env.CLAUDECODE === '1' ? 'machine' : 'human-verbose'` — a hook it
+ * grew for an unrelated issue. `runGate` hands the child `...process.env`, so
+ * the format was being decided by whether the suite happened to be run from
+ * inside Claude Code: locally it was, on a GitHub runner it is not, and the
+ * human format carries no `COMPLETED` line at all. Every assertion in this
+ * file then reduced to "expected null not to be null".
+ *
+ * The child's environment also has `CLAUDECODE` deleted, and that half is what
+ * makes this self-guarding rather than merely correct: with the ambient switch
+ * gone, deleting this flag turns the suite red **everywhere** instead of only
+ * where nobody was looking.
+ */
+const MACHINE_OUTPUT = ['--output', 'machine'] as const
+
 interface GateResult {
   /** Distinct files the checker named, as it spelled them. */
   readonly files: readonly string[]
@@ -149,6 +170,17 @@ function typecheckCommand(): readonly string[] {
     tokens.some(t => t.endsWith(GATE_TSCONFIG)),
     `typecheck must name ${GATE_TSCONFIG}`,
   ).toBe(true)
+  // ...and it must leave `--output` to the harness, because a repeated
+  // `--output` is NOT "last wins". `svelte-check` parses argv with mri, which
+  // collects a duplicated flag into an array; `outputFormats.includes()` then
+  // fails on the array and falls back to the human format. Measured at 4.7.6:
+  // `--output human --output machine` emits no `COMPLETED` line at all. So a
+  // script that grew its own `--output` has to be a red test here rather than
+  // a silent return to the bug `MACHINE_OUTPUT` documents.
+  expect(
+    tokens.some(t => t === '--output' || t.startsWith('--output=')),
+    'typecheck must not pin --output; this harness pins it — see MACHINE_OUTPUT',
+  ).toBe(false)
   return tokens
 }
 
@@ -279,17 +311,24 @@ function plantArithmetic(tree: string): void {
 function runGate(tree: string): Promise<GateResult> {
   const [cmd, ...args] = typecheckCommand()
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd!, args, {
-      cwd: tree,
-      // `node_modules/.bin` on PATH is what `npm run` does; going through `npx`
-      // risks a network fetch for a committed devDependency.
-      env: { ...process.env, PATH: `${join(ROOT, 'node_modules', '.bin')}:${process.env.PATH}` },
-    })
+    // `node_modules/.bin` on PATH is what `npm run` does; going through `npx`
+    // risks a network fetch for a committed devDependency.
+    // Annotated rather than inferred: the inferred shape of the spread has
+    // `PATH` as a required property and no index signature, and `delete` is
+    // only legal on an optional one.
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${join(ROOT, 'node_modules', '.bin')}:${process.env.PATH}`,
+    }
+    // The ambient format switch, removed so the format is decided here and in
+    // exactly one place — see `MACHINE_OUTPUT`.
+    delete env.CLAUDECODE
+    const child = spawn(cmd!, [...args, ...MACHINE_OUTPUT], { cwd: tree, env })
     let raw = ''
     child.stdout.on('data', (d: Buffer) => { raw += d.toString() })
     child.stderr.on('data', (d: Buffer) => { raw += d.toString() })
     child.on('error', reject)
-    child.on('close', () => {
+    child.on('close', (code, signal) => {
       // The checker's machine format wraps each message in quotes and
       // backslash-escapes the ones inside it, so the message is unescaped here
       // rather than at every assertion — a TypeScript error about a string
@@ -297,10 +336,27 @@ function runGate(tree: string): Promise<GateResult> {
       const errors = [...raw.matchAll(/^\d+ ERROR "([^"]+)" \d+:\d+ "((?:[^"\\]|\\.)*)"$/gm)]
         .map(m => ({ file: m[1]!, message: m[2]!.replace(/\\(.)/g, '$1') }))
       const completed = /^\d+ COMPLETED (\d+) FILES (\d+) ERRORS/m.exec(raw)
-      // A format this file cannot read must not look like a clean run. Without
-      // this, a checker that changed its output would report zero errors and
-      // every assertion below would pass while measuring nothing.
-      expect(completed, `could not read the checker's COMPLETED line from:\n${raw}`).not.toBe(null)
+      if (completed === null) {
+        // A format this file cannot read must not look like a clean run —
+        // without that, a checker that changed its output would report zero
+        // errors and every assertion below would pass while measuring nothing.
+        //
+        // Two further things this failure has to get right, both learned from
+        // the nine hours it went unread. It must say which of two **opposite**
+        // diagnoses applies: "the checker did not run, or printed something
+        // this file cannot parse" is not "the compiler declined to report the
+        // error the criterion needs", and an `expect` on a null match reported
+        // them identically. And it must REJECT rather than throw into this
+        // callback: a throw here escapes as an uncaught exception, the promise
+        // never settles, and `beforeAll` sits until its timeout — so CI spent
+        // 10m45s to report what it already knew at 8s.
+        reject(new Error(
+          'the type gate emitted no machine-format COMPLETED line, so it did not run or '
+          + 'could not be read. This is NOT a missing compiler error: the criterion was '
+          + `never measured. exit=${code} signal=${signal} tree=${tree}\n${raw}`,
+        ))
+        return
+      }
       resolve({
         files: [...new Set(errors.map(e => e.file))].sort(),
         messages: errors.map(e => e.message),
