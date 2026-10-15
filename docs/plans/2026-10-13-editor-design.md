@@ -1172,9 +1172,23 @@ tell". It is the one readout that makes the 19-level quantisation visible.
 | Verbs and bundles | `PRESETS` registry (exists) | one `PresetFn` + descriptors |
 | Perceptual thresholds | `perception.ts` functions (§10) | one function body |
 
-**Each registry gets one test** that registers a dummy entry and asserts it appears
-without touching any other file. Without that, "moving a panel costs a declaration" is
+**Each registry gets one test** that registers a dummy entry and asserts that **a
+consumer can now use it**. Without that, "moving a panel costs a declaration" is
 unverified until the first time it is false.
+
+*Amended 2026-10-15, and the amendment itself is a cautionary tale.* This read "asserts it
+appears **without touching any other file**". Three workers measured that false — a real
+registration on three registries does touch another file — and the execution plan was
+corrected while **this document was not**, leaving two tier-0 documents disagreeing about
+one criterion for a whole sub-cluster, in a phase whose idiom parses *this* file. The
+property is: **adding an entry costs one declaration, and everything else that must change
+is named by the compiler** rather than discovered at runtime or missed.
+
+With a further bound measured after the amendment: of eight registries the property is
+**assertable for three and only reportable for five**, because five have costs that are
+not type-shaped, so "named by the compiler" has no truth value for them. They are *outside
+the property's domain*, not failing it. And `FIT_MODES`, cited as the exemplar, satisfies
+it for only one of its two plan kinds.
 
 **`CONTROLS` is complete; visibility is layered over it.** Revision 1 said simple mode
 would use "a filtered `CONTROLS` set", which contradicts §9's completeness requirement.

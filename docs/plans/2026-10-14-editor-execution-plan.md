@@ -414,6 +414,22 @@ turned inward: **the command you hand someone is itself an instrument, and a wro
 reports confidently.** Run your own check against a case you know the answer to before
 you ship it in a brief.
 
+### 1.2p An audit is an instrument, and a relayed claim never leaves its label
+
+Two from one shift, same root.
+
+A PM repairing a document from an auditor's report **corrected its own auditor twice and
+rejected two of its claims** — and recorded why that mattered: *"had I repaired from its
+report unchecked I'd have introduced defects into the document I was fixing."* §1.2o says
+verify your instrument; an audit is one. A report of defects is a set of claims, not a
+work order.
+
+And the sharper form of §1.2h: a PM received a false claim **inside a block it had itself
+labelled "relayed, unverified"**, then restated it in its own voice without the label. Its
+own diagnosis is the rule: *"a PM can't check that one, so the fix isn't 'verify it' — it's
+never to repeat a relayed claim outside its label."* The label travels with the claim or
+the claim does not travel.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -974,6 +990,7 @@ Each already cost a correction. Hand this table to every worker.
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
 | headless reproduces what headful does | Not in the sub-pixel regime. Headless Chromium and Firefox have **zero-width scrollbars**, and `scrollWidth` / max-`scrollLeft` are integer-snapped — structurally blind to exactly this bug class. The reproduction needed a real page, a real fractional layout viewport, and **headful under Xvfb**, reading the gutter as `offsetHeight - clientHeight`. |
 | `git diff -U0` shows what the task changed | Not for a file the task **created** — an untracked file has no diff, so the check silently measures nothing. Grep the file, not the diff. |
+| "I diffed it and it is clean" | Clean **on which axis?** A document declared clean by one PM was re-run on all axes by the next and yielded a quote containing a clause that exists nowhere, an altered "verbatim" quote with an inserted clause, a spliced first-person quote the record does not support, a dropped load-bearing opening sentence, and a deliverable routed to a later cluster in as many words and never delivered. A clean verdict that names no axis is a partial check wearing a complete one's clothes. |
 | a clean diff means the document matches | Only for whatever you diffed. One PM diffed a table's **row keys**, reported clean, and said it had not checked bodies; the next diffed bodies and found **four rows grown a sentence the source never contained, one row missing, and two sentences deleted from a "verbatim" block**. A partial check that reports clean is worse than none, because the next reader believes it. |
 | a conclusion recorded in four documents is settled | Four documents carried "C-13 and C-14 have prose upstreams with no executable equivalent". The premise was true and **the conclusion had been spent two clusters earlier** — the acceptance had already been taken, in the very files their successors were sent to extend. A conclusion propagates; the thing that spent it does not. |
 | "registered" means the entry appears | Not necessarily. Two consecutive registration tests passed on **appears** rather than on **register**: a dummy reached a function's return value and was invisible to every reader, and another reached an info lookup while being invisible to the only question the consumer asks. A registration test must assert that the thing a *consumer* does is now possible — not that the entry can be found. |
