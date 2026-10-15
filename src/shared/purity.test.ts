@@ -246,6 +246,41 @@ function relativeVerdict(spec: string, fromDir: string, pkgDir: string, coreDir:
   }
 }
 
+/**
+ * Does a relative specifier land on a file the roster covers?
+ *
+ * The question `relativeVerdict` does not ask. It checks the *direction* of a
+ * hop — into `shared` or `core`, not into `node`, `web`, `cli` or `site` —
+ * and a hop into `src/shared/testing/` passes it, because that directory is
+ * under `src/shared`. But `tsconfig.json` excludes it, so nothing downstream
+ * ever reads those files: not the specifier census, not the ambient-global
+ * walk. Node-only code one hop from a browser-bound module, with no
+ * instrument on it.
+ *
+ * `roster` is passed in rather than read here so the predicate can be
+ * controlled on inputs that do not depend on the tree, like the two beside it.
+ *
+ * ## Resolution is `.js` → `.ts`, deliberately naive
+ *
+ * `module: node16` makes every relative specifier in this repo an explicit
+ * `.js` path, which is the emitted name of a sibling `.ts`. Asking TypeScript
+ * to resolve properly would be more general and would also make this a second
+ * opinion about module resolution; the naive mapping fails **closed** —
+ * anything it cannot turn into a roster entry is reported — so a specifier
+ * shape it does not understand reddens rather than passes.
+ */
+function rosterVerdict(spec: string, fromDir: string, roster: ReadonlySet<string>): Verdict {
+  const target = resolve(fromDir, spec.replace(/\.js$/, '.ts'))
+  if (roster.has(target)) return OK
+  return {
+    ok: false,
+    why: `${spec} resolves to ${target}, which tsconfig.json does not compile — so every ` +
+      `guard in this file stops at the import and never reads what it imports. A module ` +
+      `reachable from shared/ must itself be guarded, or it is a Node-only (or DOM-only) ` +
+      `hop that no instrument here can see`,
+  }
+}
+
 /* ===================================================================== */
 /*  the installation probe                                                */
 /* ===================================================================== */
@@ -376,6 +411,24 @@ describe('the shared/ rule, as a predicate', () => {
     expect(bareVerdict('gifenc', stub(['gifenc'], {})).ok).toBe(false)
   })
 
+  it('rejects a relative hop onto a module the roster does not cover', () => {
+    const pkg = '/r/src/shared'
+    const roster = new Set(['/r/src/shared/zip.ts', '/r/src/core/index.ts'])
+    expect(rosterVerdict('./zip.js', pkg, roster)).toEqual(OK)
+    expect(rosterVerdict('../core/index.js', pkg, roster)).toEqual(OK)
+
+    // The real shape: `src/shared/testing/**` is a `tsconfig.json` exclude, so
+    // a hop into it is `shared → shared` to `relativeVerdict` and invisible to
+    // every other instrument here.
+    const v = rosterVerdict('./testing/spawnEnv.js', pkg, roster)
+    expect(v.ok).toBe(false)
+    expect(v.ok ? '' : v.why).toContain('testing/spawnEnv')
+
+    // And a specifier pointing at nothing at all, which is the same failure
+    // with a different cause and must not be waved through as "not excluded".
+    expect(rosterVerdict('./gone.js', pkg, roster).ok).toBe(false)
+  })
+
   it('allows shared → shared and shared → core, and nothing else', () => {
     const pkg = '/r/src/shared'
     const core = '/r/src/core'
@@ -484,6 +537,56 @@ describe('src/shared and dist/shared import only what runs in both runtimes', ()
     const { count, bad } = violations(guardedSources(), SRC_SHARED, join(SRC, 'core'))
     expect(count).toBeGreaterThan(0)
     expect(bad).toEqual([])
+  })
+
+  /**
+   * **Closure**: a guarded module may not reach an unguarded one.
+   *
+   * Everything above classifies each *specifier* and then stops. That leaves
+   * one hop uninspected, and it is not hypothetical — it is the hop into
+   * `src/shared/testing/`, which `tsconfig.json` excludes and which holds two
+   * knowingly Node-only modules: `spawnEnv.ts` (`node:os`) and
+   * `gifFixtures.ts` (`Buffer`). To `relativeVerdict` a hop there is
+   * `shared → shared`, which is allowed; the roster never contains those
+   * files, so neither the specifier census nor the ambient-global walk ever
+   * looks inside them.
+   *
+   * Measured before this assertion existed, on `src/shared/containerRead.ts`
+   * — the `.stst` reader, i.e. exactly the module P1 criterion 10 is about —
+   * with `import { CHILD_ENV } from './testing/spawnEnv.js'` planted:
+   *
+   * ```
+   * unbuilt tree   11 passed | 3 skipped   [green, node:os one hop away]
+   * after build     3 failed | 10 passed   [all three are dist/-gated]
+   * ```
+   *
+   * So the whole file saw it only through `dist/`, which is the blindness the
+   * roster change of 2026-10-15 was made to remove — restated one hop out.
+   * The control above is the paired half on pure inputs; this is the sweep.
+   *
+   * It is **containment of the import graph**, not a ban on `testing/`: a new
+   * `tsconfig` exclude, a renamed module, or a specifier pointing at nothing
+   * all redden it, and in each case the cheapest satisfying action is the
+   * correct one — either the target belongs in the roster or the import does
+   * not belong in shared code.
+   */
+  it('every relative import from a guarded source lands on another guarded source', () => {
+    const roster = new Set(compiledFiles())
+    const sources = guardedSources()
+    let relatives = 0
+    const escapes: string[] = []
+    for (const { file, spec } of census(sources)) {
+      if (!spec.startsWith('.')) continue
+      relatives++
+      const v = rosterVerdict(spec, dirname(file), roster)
+      if (!v.ok) escapes.push(`${relative(ROOT, file)}: ${v.why}`)
+    }
+    // The vacuity floor, as a relation rather than a literal: every guarded
+    // source is reached from `tsconfig.json`, so a walk that found no relative
+    // specifier at all would be a parser that found nothing.
+    expect(relatives, 'no relative specifier found in src/shared, so this assertion saw nothing')
+      .toBeGreaterThan(sources.length / 2)
+    expect(escapes.sort()).toEqual([])
   })
 
   it.skipIf(!built)('dist/shared — the sources the published package and the CLI load', () => {
