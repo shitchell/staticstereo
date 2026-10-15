@@ -20,8 +20,10 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 
 ## 1. First acts for a successor
 
-1. `git log --oneline -5` on `main`, and `git worktree list`. Three commands, inside §1.3's
-   exception. Do not take §2's state table on trust.
+1. `git log --oneline -5` on `main`, **and `git rev-list --count HEAD..main`**, and
+   `git worktree list`. Do not take §2's state table on trust. The hash alone is not the
+   check — a briefing with a *correct* hash and a stale derived "0 behind" reads as fully
+   verified and is not. That has now been caught nine times out of nine.
 2. Read `docs/plans/2026-10-14-editor-execution-plan.md` §1 **entirely**. It has grown to
    fourteen subsections and every one past §1.2 was paid for by a failure.
 3. Message each live agent in §3 and ask for a §5.4 report. **A task-notification is not a
@@ -127,6 +129,7 @@ orchestrator.
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 | 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 16 | **Reconstructed those nine criteria wrongly: five rows defective, and criterion 15 deleted** by putting criterion 14's content in its row. Nine rows, no gap, internally consistent — quote-diff clean, row count nine, both checks pass. A cure for an absence that produced a better-hidden absence | the PM checked all nine against its ledger after two of the three I asked about came back wrong |
 | 15 | **Adopted criteria 12–20 and ruling E14 in a message and never wrote them into any document.** Three of them are what cluster D is aimed at; one had already cost two tasks; two briefs quoted E14 as "verbatim". Invisible to the quote-diff rule, because a diff is blind to what was never written | the PM asked what its criteria said and found they said nothing |
 | 14 | Amended criterion 3 in the execution plan and **not in the design document**, leaving two tier-0 documents in conflict for a whole sub-cluster — in a phase whose idiom parses the design document | the PM read both and reported it rather than editing |
 | 13 | Wrote criterion 3 as "a dummy appears **without touching another file**" — measured false for a real registration on three registries. A PM correctly refused to reinterpret it in a ledger | C-13, C-14, C-15 measured it; the PM escalated rather than deciding |

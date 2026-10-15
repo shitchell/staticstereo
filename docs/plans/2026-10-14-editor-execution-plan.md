@@ -888,17 +888,27 @@ and the owning PM must restate them from its ledger before cluster D dispatches 
 them** — writing down a criterion I cannot state exactly would be the §1.2j error on top
 of this one.
 
+**Corrected 2026-10-15 after the first attempt was audited: five of nine rows were
+defective and one criterion had vanished entirely.** See error 16 below the table.
+
 | # | Criterion |
 |---|---|
-| **12** | `Scene`'s own-key guard. Design §9.1 adopts it and nothing implemented it. |
-| **13** | `KEYBINDINGS` exists as a registry. *(Met at `5fc8fc8`.)* |
-| **14** | *Unreconstructed — PM to restate.* Concerns `EDITOR_ONLY_MODULES`: three cluster-C modules are absent from a hand-written `toHaveLength(7)` list in a merged P2 file and **none of them reddens it**. P3b's. |
-| **15** | The player-bundle check carries its measured paired control — a bare import is tree-shaken away and proves nothing. |
+| **12** | `Scene`'s own-key guard. **MET and verified — `05aeb26`.** |
+| **13** | `KEYBINDINGS` exists as a registry. **MET — `5fc8fc8`.** |
+| **14** | `dist.test.ts`'s no-editor-code check **has teeth, shown with the measured paired control**. P3b's. Plan P2.10 flagged it as "a tautology until P3 exists… re-verified as a P3 criterion" and no criterion received it. Live instance: `site/dist.test.ts:1382`'s hand-written `toHaveLength(7)` — three cluster-C modules absent, **none reddens it**, "now true of two modules and heading for ten". |
+| **15** | **The hash projection coalesces on a microtask: N mutations in one tick ⇒ one write.** |
 | **16** | The centre slot admits nothing above the canvas in flow (design §8.3's sub-pixel measurement). |
-| **17** | `ease`, `repeat`, `start` and `duration` are declared as parameter descriptors. They are declared **nowhere** today. |
-| **18** | `CONTROLS` is **derived** from the guarded rosters — never enumerated. **Do not conflate this with the withdrawn criterion-3 wording.** |
-| **19** | *Unreconstructed — PM to restate.* Store-side; belongs to cluster E, i.e. P3b. |
-| **20** | `ParamShape` expresses a **number-or-token union**. Today it is `'scalar' \| 'pair'` only, so the shape genuinely does not exist. |
+| **17** | `ease`, `repeat`, `start` and `duration` are declared as parameter descriptors — **and `push`'s non-uniform `easeOut` is expressible.** The second clause is decisive: *a descriptor scheme that cannot express a per-verb default override has not met criterion 17.* Without it the criterion is satisfied by adding four descriptors and going green. **MET, both clauses — `a9cd1c1`.** |
+| **18** | `CONTROLS` is **derived** from the guarded rosters — never enumerated. **Do not conflate with the withdrawn criterion-3 wording.** |
+| **19** | **R13 and R4 are recorded as *partially* closed by P3.** Status `ruled`, discharged by R-e. This is a **conflict** between plan §3 and design §13/§15, not a gap — **not store-side, not buildable, and not P3b's.** (Criterion **8** is the store-side one; both mention R13, which is how the orchestrator confused them.) |
+| **20** | `ParamShape` expresses a **number-or-token union**, **and the resolver yields a number input *plus* a token picker for it.** The resolver half is what D-5 exists for; without it a worker reading this table finds no criterion for D-5 at all, and D-6 loses the clause saying what the type change is *for*. |
+
+**Error 16, recorded here because the lesson is in the shape of it.** The first attempt
+put criterion 14's content in row 15, which deleted the real criterion 15. The result had
+**nine numbered rows, no gap in the sequence, and internal consistency** — so a quote-diff
+returned clean, counting rows returned nine, and both checks passed. A document written to
+cure an absence produced a better-hidden one. It was found only because a PM checked all
+nine rows against its ledger after two of the three it was asked to check came back wrong.
 
 **Ruling E14**, also previously unwritten: a fourth `SMOOTH_MODES` member was planted and
 typechecked **0** while the test named *"is total"* passed and could not fail. The fix is a
@@ -1034,6 +1044,7 @@ Each already cost a correction. Hand this table to every worker.
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
 | headless reproduces what headful does | Not in the sub-pixel regime. Headless Chromium and Firefox have **zero-width scrollbars**, and `scrollWidth` / max-`scrollLeft` are integer-snapped — structurally blind to exactly this bug class. The reproduction needed a real page, a real fractional layout viewport, and **headful under Xvfb**, reading the gutter as `offsetHeight - clientHeight`. |
 | `git diff -U0` shows what the task changed | Not for a file the task **created** — an untracked file has no diff, so the check silently measures nothing. Grep the file, not the diff. |
+| an absence claim needs less checking than a presence claim | The reverse. *"An absence claim is exactly as unverified as a presence claim, and more seductive, because it asks you to **add** rather than to skip."* A PM relayed "the baseline row is missing"; it was present. And the orchestrator, told nine criteria were absent, added them — and five of the nine were wrong. |
 | the quote-diff came back clean, so the documents agree | **A diff compares two written things and is blind to what was never written.** Nine criteria and a ruling existed only in agent messages; §9 and §2 diffed 37/37 and 11/11, mutation-controlled, and reported clean throughout — because both sides were equally silent. Quote-diffing catches drift; only reading the *consumer* against the *source* catches absence. Ask "what does this brief rely on that no document contains?" |
 | a grep census is a census | One used repeatedly in this phase finds **9 of 13** rosters where a parse finds 13 of 13, **and does not report the miss**. A 30% blind spot reporting clean is the fail-open shape again, this time in the phase's own tooling. Where the compiler can be the instrument, make it the instrument. |
 | "I diffed it and it is clean" | Clean **on which axis?** A document declared clean by one PM was re-run on all axes by the next and yielded a quote containing a clause that exists nowhere, an altered "verbatim" quote with an inserted clause, a spliced first-person quote the record does not support, a dropped load-bearing opening sentence, and a deliverable routed to a later cluster in as many words and never delivered. A clean verdict that names no axis is a partial check wearing a complete one's clothes. |
