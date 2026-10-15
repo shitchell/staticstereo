@@ -40,7 +40,7 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P2** player | **merged** | 60 files / 1333; zero files under `src/` |
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
-| **P3a** shell, additive half | **in progress** | cluster C 3/16; 70 files / 1462 |
+| **P3a** shell, additive half | **in progress** | cluster C **8/16**, all registries done; **74 files / 1684** |
 | **P3b** store, shell, teardown | not started | depends on P3a |
 | **P1** `.stst` · **P7** perception | **not started, unblocked** | both depend only on P0 |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
@@ -96,6 +96,15 @@ Each of these cost a round trip. A successor that reopens one is spending it twi
 - Five `AssertNever` pairs over `Layer`, not four: `draw` is a variant.
 - A phase may ship a criterion unmet **only with a sensor**, never with a note.
 - `svelte-check` replaces `tsc` behind `npm run typecheck`, so §6's gate keeps its meaning.
+- **A criterion already satisfied by an earlier phase is labelled, not re-witnessed.**
+  Criterion 5 (by P0) and `FIT_MODES` (by P2's own tests, including the converse plant)
+  both qualify. Duplicating an existing witness yields a test that cannot fail for a new
+  reason.
+- `DEPTH_SOURCES` stays where it shipped. Its recorded rationale said "orthogonal to both"
+  and the measured relation is *orthogonal to `SHADINGS`, subordinate to `VIEWS`* — the
+  conclusion holds, the sentence does not. Never re-cite the sentence.
+- **Guard at compile time always; throw at runtime only where a wrong answer ruins the
+  artifact.** See plan §1.2k.
 
 ---
 
@@ -116,6 +125,7 @@ orchestrator.
 | 8 | Claimed perfect-fit and whole-device-pixels contend; they never do | the fix worker measured |
 | 9 | Hypothesised the fractional-viewport bug was in the fit arithmetic; it was in the measurement, one layer up | the fix worker refuted both my hypothesis and the bug report |
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
+| 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 
 **The pattern is uniform and matches what every PM reported about itself: each was a claim
 a single command would have settled, skipped because it felt too small.** §1.2e is as

@@ -312,6 +312,43 @@ caught by an agent below rather than by the orchestrator, and **every one was a 
 single command would have settled, skipped because it felt too small.** That is §1.2e,
 unchanged, applying to the tier that wrote it.
 
+### 1.2j Provenance errors are a distinct class from fabrications, and they are harder to see
+
+PM-SHELL-4 reported three errors and called them *"one error in three costumes"*: it
+paraphrased a mechanism two documents already specified and invented a stricter third; it
+relayed a worker's count as fact **inside the very sentence telling workers not to trust
+counts**; and it added a correct, measured row to a table headed *"verbatim from the
+execution plan"*, which cost a worker a `git log -S` across every branch to discover the
+plan never contained it.
+
+> "Every one was right in content and wrong about where it came from."
+
+That is a different failure from §1.2c. A fabrication is false and a measurement refutes
+it. A **provenance error is true**, so no measurement refutes it — what it corrupts is
+the reader's ability to tell what is settled from what is proposed, and the cost lands on
+whoever tries to trace it. §1.2h says mark relayed reasoning as relayed; this is the
+inverse and equally binding: **never present your own reasoning as someone else's
+authority.** A table headed "verbatim" contains only verbatim.
+
+Both PMs who hit this were the ones enforcing §1.2h on everyone else.
+
+### 1.2k Risk-proportionate guards: throw where a wrong answer ruins the artifact
+
+A fourth `SMOOTH_MODES` member was planted: **typecheck 0**, one membership test red, and
+the test named *"is total"* **passed and could not fail** — a declared return type plus a
+fall-through chain cannot distinguish "has a policy" from "fell through". Third vacuous
+assertion of the phase and the first in a merged file.
+
+The accepted fix is a compile-time `AssertNever` `default:` arm that **returns the
+existing fallback policy rather than throwing** — zero runtime change, reddens nothing.
+The reasoning generalises:
+
+> A wrong layout ruins the artifact; a wrong resampling hint costs a soft frame.
+
+So guard *everything* at compile time, and reserve runtime throwing for the registries
+where a wrong answer destroys output. A registry whose worst case is cosmetic should fail
+loudly to the compiler and quietly to the user.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
@@ -857,6 +894,8 @@ Each already cost a correction. Hand this table to every worker.
 | a stale comment is a stale comment | Two kinds, and the cheaper one is not worth a third edit. A **pointer** (a path, a file name) goes stale when the target moves: the comment is wrong, a `grep` finds the truth, and nothing silently passes. An **assertion** (a test title, a measured value, a claimed mechanism) goes stale when the subject changes: the comment is now **false**, and a reader who trusts it is misled. Fix false assertions; let stale pointers wait for the file to reopen. |
 | the arithmetic is wrong, because the output is wrong | Look **upstream of the computation** before auditing it. A fractional-viewport scrollbar was reported as "the canvas width rounds up"; nothing in the fit rounds up, and `renderFit`'s contract already said so in writing. The defect was `clientWidth`/`clientHeight`, which return an integer **rounded to nearest** — the fit was perfectly correct about a box that did not exist. Both the report and the orchestrator's hypothesis named the wrong layer. |
 | headless reproduces what headful does | Not in the sub-pixel regime. Headless Chromium and Firefox have **zero-width scrollbars**, and `scrollWidth` / max-`scrollLeft` are integer-snapped — structurally blind to exactly this bug class. The reproduction needed a real page, a real fractional layout viewport, and **headful under Xvfb**, reading the gutter as `offsetHeight - clientHeight`. |
+| a cross-phase note will be read when it matters | Make the note **be** the test. P3a deliberately left `site/views.test.ts` depending on `site/index.html`, so P3b's teardown turns it red *by design* with a message naming the teardown. Its author's framing: *"the HTML dependency is not a cost I tolerated — it is the deliverable; §9 says a note is not a sensor, so the note **is** the test."* |
+| a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 
 ---
