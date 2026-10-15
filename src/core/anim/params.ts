@@ -18,6 +18,8 @@
  * `Transform.rotate` is radians, and `Track.start`/`duration` are seconds —
  * three different quantities wearing two words.
  */
+import { CUBIC_BEZIER_SYNTAX } from './easing.js'
+import type { AssertNever, NamedEasing } from '../types.js'
 import type { PresetCtx, PresetKind } from './presets.js'
 
 /**
@@ -54,6 +56,23 @@ import type { PresetCtx, PresetKind } from './presets.js'
  * them should read `overrides()`, which is the single place all four are
  * applied, and should extend the vocabulary above rather than inventing tags
  * at the call site.
+ *
+ * **They are surfaced now, in {@link UNIVERSAL_PARAMS} at the foot of this
+ * file, and the two paragraphs above stand unchanged except for their last
+ * clause.** `PRESET_PARAMS` still describes none of them and still should
+ * not: a sibling table is what "they are universal" means, and a pseudo-key
+ * here would redden the registry tie `params.test.ts` holds over this one.
+ * What is no longer true is only that a consumer finds nothing — it finds the
+ * sibling.
+ *
+ * The reason given above for `ease` and `repeat` having no tag — that neither
+ * is a physical quantity — turned out not to be a reason this vocabulary
+ * cannot hold them, because `enum` was already here for exactly that and
+ * `rotate.axis` and `flip.axis` are already described by it. What did need
+ * extending was narrower and is recorded where it happened: `ease`'s accepted
+ * values are not a closed list (`EnumParam.open`), and `start`/`duration` are
+ * substituted a stage later than any existing default case could say
+ * (`EvalDefault`, `RemainderDefault`).
  */
 export const PARAM_UNITS = [
   'scenePx',
@@ -83,7 +102,13 @@ export type ParamShape = 'scalar' | 'pair'
  * reads the numbers back out of the `PresetFn` bodies — the reverse-
  * engineering this whole table exists to stop.
  *
- * Three cases, and the distinction between them is the content:
+ * The cases split across one line and the split is the content.
+ * `value`, `ctx` and `none` are what the **compiler** does, and they are the
+ * only ones a `PRESET_PARAMS` descriptor may use — `params.test.ts` pins that
+ * list, so a verb parameter reaching for either of the others is a failure
+ * that names itself. `eval` and `remainder` are what the **evaluator** does,
+ * and they exist because the parameters every verb honours straddle that
+ * line:
  *
  * - `value` — a literal the preset substitutes when the parameter is absent.
  * - `ctx` — a value taken from the compile context, named by key. `push.to`
@@ -98,6 +123,10 @@ export type ParamShape = 'scalar' | 'pair'
  *   `60` in its `num()` call is an unreachable fallback, not a default.
  *   Recording `60` would be a lie, and `params.test.ts` catches it by
  *   compiling the preset both ways.
+ * - `eval` — a literal, but one the *evaluator* substitutes; the compiled
+ *   track does not carry it. See {@link EvalDefault}.
+ * - `remainder` — the rest of the scene, which no literal expresses. See
+ *   {@link RemainderDefault}.
  */
 export interface ValueDefault<V> {
   readonly from: 'value'
@@ -115,10 +144,50 @@ export interface NoDefault {
   readonly from: 'none'
 }
 
+/**
+ * A literal substituted **when the track is evaluated**, not when the preset
+ * is compiled — see `ParamDefault`'s `eval` and `remainder` cases.
+ *
+ * `start` is the only one. No verb writes a `start` onto the `Track` it
+ * returns, so `compilePreset({kind: 'move'})` and
+ * `compilePreset({kind: 'move', start: 0})` are *different tracks*; the
+ * second carries a field the first does not. `localTime` then reads
+ * `tr.start ?? 0` and the two behave identically from there on. Recording
+ * this as a `value` default would claim the preset substitutes it and would
+ * be false against the very check `params.test.ts` makes of every other
+ * default; recording it as `none` would claim omission selects different
+ * behaviour, and it does not.
+ */
+export interface EvalDefault {
+  readonly from: 'eval'
+  readonly value: number
+}
+
+/**
+ * The rest of the scene: a default that **no number expresses**.
+ *
+ * `duration` only. `localTime` falls back to
+ * `Math.max(sceneDuration - start, 1e-9)`, and `sceneDuration` is not a key
+ * of `PresetCtx` — the compile context carries seven measurements of the
+ * stage, the layer and the margins, and the scene's length is not among them,
+ * because a preset compiles once and is evaluated against whatever scene
+ * holds it. So this is not `CtxDefault` (there is no key to name), not
+ * `ValueDefault` (any literal is wrong for every scene but one), and not
+ * `NoDefault` (omission *is* equivalent to a value — the exact inverse of
+ * `move.speed`). A consumer rendering a control shows the field empty and
+ * means "to the end", which is a thing it can say only because this case
+ * exists to be switched on.
+ */
+export interface RemainderDefault {
+  readonly from: 'remainder'
+}
+
 export type NumericDefault =
   | ValueDefault<number | readonly [number, number]>
   | CtxDefault
   | NoDefault
+  | EvalDefault
+  | RemainderDefault
 
 /**
  * An enum's default is always one of its own `values` — there is no context-
@@ -155,10 +224,29 @@ export interface NumericParam {
 export interface EnumParam {
   readonly name: string
   readonly unit: 'enum'
-  /** Every value the preset's own reader accepts, pinned by `params.test.ts`. */
+  /** Every *named* value the reader accepts, pinned against its own refusal. */
   readonly values: readonly string[]
   /** One of `values`, pinned by `params.test.ts`. */
   readonly default: EnumDefault
+  /**
+   * Present when `values` is **not the whole of what the reader accepts**,
+   * and carrying the other form's syntax as the reader itself phrases it.
+   *
+   * `ease` is why. `Easing` is five named curves *or* `cubic-bezier(a,b,c,d)`,
+   * and `CUBIC_BEZIER_SYNTAX` exists in `easing.ts` precisely because "a list
+   * of five curve names has stopped describing what is accepted". A closed
+   * `values` is still the right thing to record — the five are enumerable and
+   * a picker over them is the floor a generated control needs — but a
+   * descriptor that stopped there would tell a consumer that a valid easing
+   * is invalid, which is the exact error `overrides()`' message was rewritten
+   * to stop giving authors.
+   *
+   * Absent on a genuinely closed enum, and that absence is checked: `repeat`
+   * is three names and nothing else, and an `open` on it would be a free-text
+   * field with no reader behind it. Same string the reader's error offers, so
+   * that a control's hint and the refusal an author sees cannot drift.
+   */
+  readonly open?: string
 }
 
 /**
@@ -261,4 +349,207 @@ export const PRESET_PARAMS: Record<PresetKind, readonly ParamDescriptor[]> = {
     // and is why `CtxDefault` exists.
     DEPTH('to', { from: 'ctx', key: 'layerDepth' }),
   ],
+}
+
+/* ------------------------------ the parameters every verb honours */
+
+/**
+ * The named curves, written out rather than spread from `EASINGS`.
+ *
+ * Writing it out is the point, and it is the same bargain `CONTROL_UNITS`
+ * strikes in `site/controlspec.ts`: the tuple and the union are independent,
+ * so a curve added to `NamedEasing` is a compile error here rather than one
+ * the `ease` descriptor can never name. A spread would make the pair
+ * a tautology — it would prove only that the derivation ran twice.
+ */
+const NAMED_EASINGS = ['linear', 'easeIn', 'easeOut', 'easeInOut', 'easeOutBounce'] as const
+type _NoNamedEasingMissing = AssertNever<Exclude<NamedEasing, typeof NAMED_EASINGS[number]>>
+type _NoNamedEasingExtra = AssertNever<Exclude<typeof NAMED_EASINGS[number], NamedEasing>>
+
+/**
+ * The parameters every verb honours, described once.
+ *
+ * **A sibling of `PRESET_PARAMS`, not an extra key in it.** `PRESET_PARAMS` is
+ * `Record<PresetKind, …>` and `params.test.ts` pins its keys against the
+ * registry's, so a pseudo-key meaning "all of them" reddens that tie — which
+ * is the tie working, because "every verb" is not a verb. The site layer
+ * would have taken the pseudo-key (`ControlRosters.preset` is keyed by
+ * `string`), and that permissiveness is not a second opinion.
+ *
+ * `overrides()` in `presets.ts` is the single place they are all applied and
+ * is therefore the thing this table is answerable to. It is not read from
+ * here — a table cannot import a module-private function — but
+ * `universals.test.ts` derives the set by *running* every verb against a
+ * recording proxy and intersecting what each one reads, so a parameter added
+ * to `overrides()`, or one of these removed from it, reddens with the name in
+ * the message. A hand-written list of "the parameters every verb
+ * takes" would go stale in silence; this one goes stale loudly.
+ *
+ * ## The set straddles the compile/evaluate line, and that is the content
+ *
+ * `ease` and `repeat` are written onto the `Track` by every verb, so their
+ * defaults are ordinary `value` defaults and are checked the ordinary way:
+ * compile bare, compile with the default spelled out, demand equality.
+ *
+ * `start` and `duration` are not written by anything. They stay absent on the
+ * compiled track and `localTime` supplies them, which is why they carry
+ * `eval` and `remainder` rather than `value` — and why their check runs
+ * through `evalTrack` instead. Getting this wrong in the convenient direction
+ * (calling `start` a `value` default of 0) would be caught, because the
+ * compiled tracks differ; getting it wrong in the lazy direction (`none`)
+ * would not have been, which is why the test asserts the equivalence at
+ * evaluation rather than trusting the tag.
+ *
+ * ## Units, and `start` is the collision design §9.1 names
+ *
+ * `start` here is **seconds**. `shape.start`/`end` on a layer are **degrees**,
+ * and `Transform.rotate` is radians while `rotate`'s own parameter is
+ * degrees: three quantities wearing two words, which is the collision §9.1
+ * cites as the reason provenance cannot be recovered from a union. The tag is
+ * the whole of what stands between a consumer and a degrees spinner for a
+ * start time, so it is recorded here and asserted there rather than being
+ * left for a reader to infer from the field's name.
+ */
+export const UNIVERSAL_PARAMS: readonly ParamDescriptor[] = [
+  {
+    name: 'start',
+    unit: 'seconds',
+    shape: 'scalar',
+    default: { from: 'eval', value: 0 },
+  },
+  {
+    name: 'duration',
+    unit: 'seconds',
+    shape: 'scalar',
+    default: { from: 'remainder' },
+  },
+  {
+    name: 'ease',
+    unit: 'enum',
+    values: NAMED_EASINGS,
+    default: value('linear'),
+    // Not the whole of what `isEasing` accepts — see `EnumParam.open`.
+    open: CUBIC_BEZIER_SYNTAX,
+  },
+  {
+    name: 'repeat',
+    unit: 'enum',
+    // Written out for the same reason `rotate`'s axes are, and checked the
+    // same way: `universals.test.ts` matches this list against `overrides()`'
+    // own refusal message, so it cannot be too small or too large. Spreading
+    // `presets.ts`' private `REPEATS` would make that check compare a
+    // constant with itself.
+    values: ['once', 'loop', 'pingpong'],
+    default: value('once'),
+  },
+]
+
+/**
+ * Per-verb departures from a universal default, keyed by verb then by
+ * parameter name.
+ *
+ * **Partial on purpose, and the partiality is why the test is the tie.** A
+ * total `Record<PresetKind, …>` would demand an entry per verb saying "no
+ * departure", which is a row of noise per verb and another the day one is
+ * registered. What makes a missing departure visible is not this type: it is
+ * that the recorded default is compiled against the verb and must produce the
+ * same track the bare verb produces.
+ */
+export type VerbDefaults =
+  Readonly<Partial<Record<PresetKind, Readonly<Record<string, ParamDefault>>>>>
+
+/**
+ * The one verb that disagrees, and the reason is recorded where it happens.
+ *
+ * `push` compiles `ease: 'easeOut'` where the other four compile `'linear'`.
+ * `presets.ts` argues it at length and the short form is that design §4.2
+ * wants unopinionated primitives while §4.2b requires `push` to reproduce
+ * what `emerge` did *precisely*, and `emerge` eased out. The exact-
+ * reproduction requirement is the stronger of the two, so `push` carries an
+ * opinionated default by inheritance rather than by choice.
+ *
+ * A descriptor scheme with nowhere to put that would have to pick: one `ease`
+ * default for all five, wrong for one of them, with nothing in the table
+ * saying so. That is the same silent-provenance failure the per-verb tables
+ * above exist to prevent, one level up.
+ */
+export const VERB_DEFAULTS: VerbDefaults = {
+  push: { ease: value('easeOut') },
+}
+
+/**
+ * The universal descriptors as they apply to one verb.
+ *
+ * A function over the departure table rather than a constant, for the reason
+ * `deriveControls` is: a consumer that cannot be handed a different table
+ * cannot be tested for what it does with one, and "the override mechanism
+ * works" would then rest entirely on the single entry that ships.
+ *
+ * Unknown parameter names throw rather than being ignored. A departure naming
+ * a parameter that is not universal is a typo or a stale edit, and the
+ * failure mode of ignoring it is a verb that silently keeps the common
+ * default — the mistake being made, invisibly, by the mechanism built to
+ * prevent it.
+ */
+export function universalParams(
+  kind: PresetKind,
+  verbDefaults: VerbDefaults = VERB_DEFAULTS,
+): readonly ParamDescriptor[] {
+  const departures = verbDefaults[kind]
+  if (departures === undefined) return UNIVERSAL_PARAMS
+
+  // `Object.hasOwn` throughout, never `in`: these are plain object literals,
+  // so `in` answers true for the dozen keys on `Object.prototype` and a
+  // departure named `constructor` would reach the switch below as a function.
+  for (const name of Object.keys(departures)) {
+    if (!UNIVERSAL_PARAMS.some(d => d.name === name)) {
+      throw new Error(
+        `preset "${kind}": "${name}" is not a universal parameter, so its default ` +
+        `cannot be overridden here — they are ` +
+        `${UNIVERSAL_PARAMS.map(d => d.name).join(', ')}`,
+      )
+    }
+  }
+
+  return UNIVERSAL_PARAMS.map(d => {
+    if (!Object.hasOwn(departures, d.name)) return d
+    const od = departures[d.name]
+    if (od === undefined) return d
+    if (d.unit === 'enum') {
+      if (od.from !== 'value' || typeof od.value !== 'string') {
+        throw new Error(
+          `preset "${kind}": "${d.name}" is chosen from a list, so its default must be ` +
+          'one of that list and not a derived or absent one',
+        )
+      }
+      if (!d.values.includes(od.value)) {
+        throw new Error(
+          `preset "${kind}": "${d.name}" defaults to ${JSON.stringify(od.value)}, which is ` +
+          `not one of ${d.values.join(', ')}`,
+        )
+      }
+      return { ...d, default: { from: 'value', value: od.value } }
+    }
+    switch (od.from) {
+      case 'value':
+        if (typeof od.value === 'string') {
+          throw new Error(
+            `preset "${kind}": "${d.name}" is measured in ${d.unit}, so its default ` +
+            'must not be a name',
+          )
+        }
+        return { ...d, default: { from: 'value', value: od.value } }
+      case 'ctx':
+      case 'none':
+      case 'eval':
+      case 'remainder':
+        return { ...d, default: od }
+      default: {
+        // A `ParamDefault` case this switch does not name is a compile error
+        // here rather than a departure the function drops on the floor.
+        const unhandled: never = od
+        throw new Error(`preset "${kind}": unhandled default ${JSON.stringify(unhandled)}`)
+      }
+    }
+  })
 }
