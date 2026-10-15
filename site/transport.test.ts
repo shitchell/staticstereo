@@ -389,15 +389,49 @@ describe('the transport state machine', () => {
     expect(timeAt(t, 999_999, ANIM)).toBe(timeOfFrame(ANIM, 12))
   })
 
-  it('wraps a seek out of range into the scene rather than clamping or throwing', () => {
+  /**
+   * **This test asserted the opposite until the ruling below, and the change is
+   * a decision and not a bug fix.**
+   *
+   * It read *"wraps a seek out of range into the scene rather than clamping or
+   * throwing"*, with `2.5 → frame 6`, `-0.5 → frame 18` and `4 → frame 0`, and
+   * it was correct about the behaviour P2 shipped. What P2 did not have was the
+   * decision its own `seek` declaration records as open and assigns to P3. That
+   * decision, from the handover's standing rulings:
+   *
+   * > **∀t, `seek` and `snapTime` select the same frame.** Both clamp, because
+   * > an editor scrubber dragged past the end parks at the end; a playhead that
+   * > teleports to zero is a bug in every timeline tool anyone has used.
+   *
+   * Out-of-range and inside-the-final-gap were never two rules: `seek` reached
+   * both through one circular fold, so agreement with `snapTime` for *every* t
+   * settles the out-of-range case as a consequence rather than as a second
+   * choice. There is no reading of the invariant under which this test's old
+   * rows survive — `2.5` would have to be frame 6 and the last frame at once.
+   *
+   * Kept and re-pointed rather than deleted, because the thing it guards is
+   * still worth guarding and because the rows are the clearest statement of
+   * what changed. The non-finite rows are **unchanged**: frame 0 is
+   * `frameIndexAt`'s own older rule for a value from a slider or a URL, it is
+   * not "clamped to the end", and it keeps the two functions agreeing.
+   */
+  it('clamps a seek out of range the way snapTime does, rather than wrapping', () => {
     const cases: ReadonlyArray<readonly [number, number]> = [
-      [2.5, 6], [-0.5, 18], [-2, 0], [4, 0], [Number.NaN, 0], [Number.POSITIVE_INFINITY, 0],
+      [2.5, 23], [-0.5, 0], [-2, 0], [4, 23], [Number.NaN, 0], [Number.POSITIVE_INFINITY, 0],
     ]
     for (const [sought, frame] of cases) {
       const t = seek(initialTransport(ANIM), sought, 0, ANIM)
       expect(timeAt(t, 0, ANIM), String(sought)).toBe(timeOfFrame(ANIM, frame))
+      // ...and `snapTime` answers the same, which is the invariant rather than
+      // the row. Without this half the rows are a value pin again.
+      expect(frameIndexAt(ANIM, snapTime(ANIM, sought)), String(sought)).toBe(frame)
     }
     expect(cases).toHaveLength(6)
+    // The rows that moved really did move: the superseded rule, spelled out,
+    // still gives its old answers, so this test is discriminating between the
+    // two rules and not merely true of both.
+    expect(frameIndexAt(ANIM, snapLoopTime(ANIM, 2.5))).toBe(6)
+    expect(frameIndexAt(ANIM, snapLoopTime(ANIM, 4))).toBe(0)
   })
 
   it('always returns a time the renderer is defined at', () => {
@@ -507,5 +541,202 @@ describe('the transport state machine', () => {
     expect(SOURCE).toContain('export function timeAt')
     expect(SOURCE).toContain('export function seek')
     expect(SOURCE.length).toBeGreaterThan(2_000)
+  })
+})
+
+/**
+ * `seek` and `snapTime` are the project's two answers to "which frame is at
+ * time *t*", and they used to give different ones.
+ *
+ * The decision, from the handover's standing rulings (`69abca9`), quoted
+ * because a ruling's authority is the decision behind it and this one replaced
+ * an inference that had been sitting in the same section wearing an
+ * inheritance's clothes:
+ *
+ * > Two functions that both answer "which frame is at time *t*" must not
+ * > disagree for any *t* — that, not the endpoint convention, is the invariant
+ * > worth pinning, and it is assert-on-structure rather than a value pin:
+ * > **∀t, `seek` and `snapTime` select the same frame.** Both clamp, because an
+ * > editor scrubber dragged past the end parks at the end; a playhead that
+ * > teleports to zero is a bug in every timeline tool anyone has used.
+ * > **Playback wrap remains a separate operation** — looping is `repeat`, which
+ * > acts on advance, not on frame selection.
+ *
+ * `seek`'s own declaration recorded this as the open question P3 owned, and
+ * that record is kept there rather than rewritten.
+ *
+ * ## Why this is a generated sweep and not a table of times
+ *
+ * A table samples where its author looked. The two rules agree at every frame
+ * boundary and at most of the interior — they part only inside the **final
+ * inter-frame gap**, between the last frame's sample time and `loopDuration`,
+ * and P2 measured that they are back in agreement a third of the way into it
+ * (2 s 12 fps: apart at 1.99, together at 1.95). A hand-written table that
+ * happened to pick 1.95 would have reported the invariant held. So the inputs
+ * are generated from each grid's own geometry — every frame time, quarter-frame
+ * offsets after each of them, a dense fan across the final gap out to its far
+ * edge, values past `loopDuration`, and values below zero — and the grids vary
+ * both fps and duration, because the gap's width is `1/fps` and its position
+ * depends on the frame count.
+ */
+describe('seek and snapTime select the same frame, and both clamp', () => {
+  /**
+   * Six grids, each a different shape of the thing under test.
+   *
+   * `ragged` is the case where `duration × fps` is not a whole number, so
+   * `loopDuration` and `scene.duration` differ and the gap is not where
+   * `duration` says it is; `1 fps` makes the gap a full second wide, which is
+   * the width at which a wrap would be unmissable in a real scrubber; the still
+   * is here for totality, and it is degenerate — one grid point, and no gap at
+   * all, since its single sample sits at the scene midpoint rather than at 0.
+   */
+  const GRIDS: readonly (readonly [string, Scene])[] = [
+    ['12fps/2s — P2 measured the disagreement on this one', ANIM],
+    ['6fps/1s', { ...ANIM, fps: 6, duration: 1 }],
+    ['25fps/0.55s — ragged, 14 frames spanning 0.56s', { ...ANIM, fps: 25, duration: 0.55 }],
+    ['60fps/0.5s', { ...ANIM, fps: 60, duration: 0.5 }],
+    ['1fps/3s — a one-second gap', { ...ANIM, fps: 1, duration: 3 }],
+    ['a still — one grid point, no gap', STILL],
+  ]
+
+  /** Every grid but the still has a final gap to sample; the still has none. */
+  const WITH_GAP = GRIDS.filter(([, s]) => lastFrameTime(s) < loopDuration(s))
+
+  /**
+   * The swept inputs for one grid, derived from that grid rather than typed.
+   *
+   * The fractions inside the final gap run to 0.99999 rather than stopping at
+   * 0.9 because the gap is where the two rules part and the far edge of it is
+   * where they part hardest — the old circular rule flips to frame 0 once the
+   * distance forward is shorter than the distance back, which is the gap's
+   * second half.
+   */
+  const sweptTimes = (scene: Scene): number[] => {
+    const step = 1 / sceneFps(scene)
+    const last = lastFrameTime(scene)
+    const span = loopDuration(scene)
+    const out: number[] = [0, last, span]
+    for (const t of frameTimesOf(scene)) {
+      for (const f of [0, 0.25, 0.5, 0.75]) out.push(t + f * step)
+    }
+    for (const f of [0.01, 0.1, 0.25, 0.4, 0.5, 0.6, 0.75, 0.9, 0.99, 0.999, 0.99999]) {
+      out.push(last + f * (span - last))
+    }
+    for (const k of [1e-9, 1e-6, 0.001, 0.1, 0.5, 1, 2, 7.25]) out.push(span + k)
+    for (const k of [1e-9, 1e-6, 0.001, step / 4, step / 2, step, 1, 2.5, 100]) out.push(-k)
+    out.push(Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY)
+    return out
+  }
+
+  it('agrees with snapTime at every swept t, on every grid', () => {
+    for (const [label, scene] of GRIDS) {
+      for (const t of sweptTimes(scene)) {
+        const anchored = seek(initialTransport(scene), t, 0, scene).anchorTime
+        expect(frameIndexAt(scene, anchored), `${label} @ t=${t}`)
+          .toBe(frameIndexAt(scene, snapTime(scene, t)))
+        // The anchor is a point of the grid, which is what `TransportState`
+        // promises and what makes index equality the same claim as value
+        // equality.
+        expect(frameTimesOf(scene), `${label} @ t=${t}`).toContain(anchored)
+      }
+    }
+  })
+
+  /**
+   * The clamp, stated against the **grid** and not against either function.
+   *
+   * This is the arm that can still fail once `seek` is defined in terms of
+   * `snapTime`: the agreement test above becomes a tautology the moment one
+   * calls the other — it would then prove only that the composition ran twice —
+   * so the floor moves here, where each function is compared to an index
+   * computed from `frameTimesOf(scene).length` rather than to its twin.
+   *
+   * Finite `t` only. A non-finite input is frame 0 by `frameIndexAt`'s own
+   * older rule, for a value that arrived from a slider or a URL, and it is not
+   * "past the end": `+Infinity` parks at the first frame, not the last. That
+   * rule predates this ruling, keeps the two functions agreeing — which is the
+   * invariant that was actually decided — and no scrubber can produce one.
+   */
+  it('parks past the end on the last frame and below zero on the first, never wrapping', () => {
+    for (const [label, scene] of GRIDS) {
+      const count = frameTimesOf(scene).length
+      const last = lastFrameTime(scene)
+      for (const t of sweptTimes(scene).filter(Number.isFinite)) {
+        const viaSeek = frameIndexAt(scene, seek(initialTransport(scene), t, 0, scene).anchorTime)
+        const viaSnap = frameIndexAt(scene, snapTime(scene, t))
+        if (t > last) {
+          expect(viaSeek, `${label} @ t=${t}: seek did not park on the last frame`)
+            .toBe(count - 1)
+          expect(viaSnap, `${label} @ t=${t}: snapTime did not park on the last frame`)
+            .toBe(count - 1)
+        }
+        if (t < 0) {
+          expect(viaSeek, `${label} @ t=${t}: seek did not park on the first frame`).toBe(0)
+          expect(viaSnap, `${label} @ t=${t}: snapTime did not park on the first frame`).toBe(0)
+        }
+      }
+    }
+  })
+
+  /**
+   * The sweep can see the bug.
+   *
+   * Three separate ways for a sweep like this to report a green lie, each
+   * closed by one block below: sampling only where the rules already agree;
+   * running over an empty or degenerate input set; and comparing a function
+   * with itself over inputs that never reach the discriminating region.
+   */
+  it('samples the region where the two rules actually part', () => {
+    for (const [label, scene] of WITH_GAP) {
+      const times = sweptTimes(scene)
+      const last = lastFrameTime(scene)
+      const span = loopDuration(scene)
+      // Inside the final gap, and specifically in its **far half**, which is
+      // the only place the circular rule ever answered frame 0.
+      expect(times.filter((t) => t > last && t < span).length, `${label}: no sample in the gap`)
+        .toBeGreaterThan(3)
+      expect(
+        times.some((t) => t > (last + span) / 2 && t < span),
+        `${label}: no sample in the far half of the gap`,
+      ).toBe(true)
+      expect(times.some((t) => t > span), `${label}: no sample past the end`).toBe(true)
+      expect(times.some((t) => t < 0), `${label}: no sample below zero`).toBe(true)
+    }
+    // The grids are distinct in both axes that move the gap, so six entries are
+    // six shapes and not one shape written six times.
+    expect(new Set(GRIDS.map(([, s]) => `${sceneFps(s)}/${frameTimesOf(s).length}`)).size)
+      .toBe(GRIDS.length)
+    expect(WITH_GAP, 'only the still should be gapless').toHaveLength(GRIDS.length - 1)
+
+    // The positive control: the rule `seek` applied before this ruling, spelled
+    // out, really does give a different answer — and really does agree at 1.95,
+    // which is the fact that would have let a hand-written table miss it. This
+    // is P2's measurement, re-run here rather than quoted.
+    expect(frameIndexAt(ANIM, snapLoopTime(ANIM, 1.99))).toBe(0)
+    expect(frameIndexAt(ANIM, snapTime(ANIM, 1.99))).toBe(23)
+    expect(frameIndexAt(ANIM, snapLoopTime(ANIM, 1.95)))
+      .toBe(frameIndexAt(ANIM, snapTime(ANIM, 1.95)))
+    // ...and the swept inputs land in that window, so the control is a control
+    // over this sweep and not over some other one.
+    expect(sweptTimes(ANIM).some((t) => t > 1.95 && t < 2)).toBe(true)
+  })
+
+  /**
+   * Criterion 3: the clamp is about frame **selection**; looping is about
+   * **advance**, and the ruling keeps them separate operations.
+   *
+   * The two existing playback tests in this file cover the wrap on its own, so
+   * this one covers only the join the change creates — a seek that now parks on
+   * the last frame instead of jumping to frame 0 must still wrap on the very
+   * next tick, rather than sticking at the end for a frame or stopping there.
+   */
+  it('still loops after a seek into the final gap', () => {
+    const t = seek(play(initialTransport(ANIM), 0), 1.99, 0, ANIM)
+    expect(t.playing).toBe(true)
+    expect(timeAt(t, 0, ANIM), 'the seek should park on the end').toBe(timeOfFrame(ANIM, 23))
+    for (let k = 1; k <= 2 * 24; k++) {
+      expect(timeAt(t, k * MS_PER_FRAME, ANIM), `tick ${k}`)
+        .toBe(timeOfFrame(ANIM, (k - 1) % 24))
+    }
   })
 })
