@@ -817,6 +817,23 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
    compressed image data** — baked masks and original sources are PNG/GIF, where deflate
    buys ~0%; only `scene.json` and the manifest are compressible and both are small.
 
+   **MEASURED 2026-10-15, and the reasoning above was wrong in the direction that matters.**
+   "A `.stst` is overwhelmingly already-compressed image data, where deflate buys ~0%" is
+   **right about photos and wrong about masks.** On a photo PNG deflate buys *less than
+   zero* — 2,234,956 stored against 2,235,641 deflated, stored-block framing being overhead
+   on incompressible input. But `scene.json`, `manifest.json` and **the baked masks** still
+   deflate **18–65%**, cross-checked across five PNG encoders. Design §6.1 makes silhouette
+   masks **the primary import path**, so the compressible files are the common case, not the
+   exotic one — **the cost is concentrated exactly where I argued it would not be.**
+
+   Measured against a threshold **stated before measuring** (material = ≥5% relative): the
+   representative fixture (4 text/shape layers + photo + logo + 3-frame GIF + baked masks,
+   2.44 MB) is **+4,777 B, +0.195% — not material.** But **case E, eight flat-graphic PNGs
+   and no photo: 107,724 → 137,279, +29,555 B, +27.4%.** Absolute cost across the whole
+   sweep is bounded at +478 B to +8,892 B except there. **Escalated to Shaun**, because the
+   threshold was pre-registered and crossed, and moving a threshold after seeing the number
+   is the failure this project spends its time policing.
+
    **This is conditional on measurement, not on the above reasoning being right.** A worker
    measures the stored-versus-deflated size of a representative multi-layer scene with a
    real imported PNG. If the delta is material, that is an escalation **to Shaun** carrying
