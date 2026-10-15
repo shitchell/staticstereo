@@ -40,6 +40,9 @@
  *
  * Regenerate with:
  *   UPDATE_PRESET_GOLDEN=1 npx vitest run src/core/anim/presets.golden.test.ts
+ *
+ * **That run rewrites the fixture and then fails on purpose.** Repeat it
+ * without the variable to verify. See `REGENERATING` below for why.
  */
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
@@ -175,9 +178,42 @@ interface Golden {
   cases: Case[]
 }
 
+/**
+ * Regeneration is a **write mode, not a pass mode**: a run with this set
+ * rewrites the fixture and then fails, and the message says to repeat the run
+ * without it.
+ *
+ * Measured before this was enforced: corrupting one recorded number
+ * (`flip/bare`'s `rotateY`) made the suite red, and the identical corrupt
+ * fixture with `UPDATE_PRESET_GOLDEN=1` reported "5 passed", exit 0 — the test
+ * rewrote the expectation it was about to compare against. That green was
+ * manufactured by an environment variable and witnessed nothing.
+ *
+ * Nobody sets this and it is project-prefixed, so the exposure is small. It is
+ * fenced anyway because of what this particular file is: the one sanctioned
+ * exception to "assert on structure, not on values" (see the header), which
+ * makes it the single fixture in the tree that must not be able to agree with
+ * itself. The regeneration workflow is the point of the flag and survives
+ * intact — only its ability to produce a green run is removed.
+ */
+const REGENERATING = Boolean(process.env['UPDATE_PRESET_GOLDEN'])
+
+/**
+ * The fixture as it stood *before* this process touched it.
+ *
+ * Captured ahead of the write, and every comparison below reads it rather than
+ * the file, so a regenerating run diffs the corpus against the fixture it is
+ * replacing instead of against a copy of itself. Without this the regenerating
+ * run is still red — `REGENERATING` sees to that — but the four comparison
+ * tests inside it would be vacuously green, and a reader scanning "4 passed"
+ * would take them for evidence.
+ */
+const PRIOR: string | undefined =
+  existsSync(GOLDEN) ? readFileSync(GOLDEN, 'utf8') : undefined
+
 const actual: Golden = { ctx: GOLDEN_CTX, cases: buildCases() }
 
-if (process.env['UPDATE_PRESET_GOLDEN']) {
+if (REGENERATING) {
   // Generated, never hand-edited: a hand-maintained table holding several
   // tracks for every registered verb would drift from the code it is supposed
   // to witness.
@@ -190,19 +226,31 @@ if (process.env['UPDATE_PRESET_GOLDEN']) {
  * rather than a `Cannot read properties of null` from somewhere downstream.
  */
 function requireGolden(): Golden {
-  if (!existsSync(GOLDEN)) {
+  if (PRIOR === undefined) {
     throw new Error(`golden fixture missing: ${GOLDEN}\nregenerate with: ${REGEN}`)
   }
   try {
-    return JSON.parse(readFileSync(GOLDEN, 'utf8')) as Golden
+    return JSON.parse(PRIOR) as Golden
   } catch (e) {
     throw new Error(`golden fixture is not valid JSON: ${GOLDEN}\nregenerate with: ${REGEN}\n${e}`)
   }
 }
 
 describe('preset golden corpus', () => {
+  it('was not asked to regenerate its own expectation', () => {
+    expect(
+      REGENERATING,
+      `UPDATE_PRESET_GOLDEN was set, so ${GOLDEN} has just been REWRITTEN from ` +
+      'the current code and cannot be evidence of anything in this run. Review ' +
+      'the diff, then repeat the run WITHOUT the variable to verify. This ' +
+      'failure is the regeneration working, not a defect.',
+    ).toBe(false)
+  })
+
   it('has a committed fixture', () => {
-    expect(existsSync(GOLDEN), `missing ${GOLDEN} — regenerate with: ${REGEN}`).toBe(true)
+    // `PRIOR`, not `existsSync`: in a regenerating run the file exists because
+    // this process just created it, which is not the same as it being committed.
+    expect(PRIOR !== undefined, `missing ${GOLDEN} — regenerate with: ${REGEN}`).toBe(true)
   })
 
   it('has a params entry for every registered kind, and no stale ones', () => {
