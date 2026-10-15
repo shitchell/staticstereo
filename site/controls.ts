@@ -1,6 +1,17 @@
 import { resolveStereo } from '../src/core/index.js'
-import { frameIndexAt, frameTimesOf, lastFrameTime, snapTime, timeOfFrame } from './transport.js'
+import {
+  frameIndexAt,
+  frameTimesOf,
+  initialTransport,
+  lastFrameTime,
+  pause as pauseTransport,
+  play as playTransport,
+  seek as seekTransport,
+  timeAt,
+  timeOfFrame,
+} from './transport.js'
 import { validateScene } from './scene.js'
+import type { TransportState } from './transport.js'
 import type { Anim, Layer, Scene, StereoOpts } from '../src/core/types.js'
 
 /**
@@ -24,15 +35,45 @@ import type { Anim, Layer, Scene, StereoOpts } from '../src/core/types.js'
  * handler. {@link sceneError} is the separate question the page asks before it
  * renders; until the combination is valid again the last good frame stays on
  * screen with the message underneath it.
+ *
+ * ## The transport lives here, as `transport.ts`'s machine and not a copy
+ *
+ * Plan §3 breaks the P4↔P6 cycle by putting scene time and the transport
+ * primitive in the editor's store, and `transportdriver.ts` names the seam:
+ * *"That module is a pure state machine over values and nothing else, which is
+ * the property that lets P3 lift it into the editor store wholesale; this one
+ * owns a loop and a pending handle, and a store wants the machine without the
+ * loop."* So the machine is in {@link UiState} and the loop is not: every
+ * transport action carries its own `nowMs`, nothing in this module's import
+ * closure reads a clock, and a whole playback session is a sequence of numbers
+ * a test writes down.
+ *
+ * **One scene time, under two names.** `UiState.time` is the scrub position
+ * and `TransportState.anchorTime` is the playhead's anchor, and they are
+ * always the same number — every arm below sets `time` from the transport it
+ * just computed, never from arithmetic of its own. A-1 declined to hold both
+ * in the store while they could still disagree (*"a store quietly holding both
+ * is where that disagreement would have become permanent"*); they agree now
+ * because the reconciliation landed first, and the equality is asserted over
+ * the whole `Action` vocabulary rather than left as an intention.
  */
 
 export type DepthView = 'composited' | 'encoded'
 
 export interface UiState {
   scene: Scene
-  /** Always an element of `frameTimes(scene)`. */
+  /**
+   * Always an element of `frameTimes(scene)`, and always
+   * `transport.anchorTime`. The scrubber reads this one; {@link currentTime}
+   * is the live answer while playing.
+   */
   time: number
   depthView: DepthView
+  /**
+   * Where the playhead is and whether it is moving — `transport.ts`'s own
+   * value, held and never rebuilt here.
+   */
+  transport: TransportState
 }
 
 export type Action =
@@ -47,6 +88,23 @@ export type Action =
   | { type: 'depthView'; value: DepthView }
   | { type: 'layerAnim'; index: number; anim: Anim | undefined }
   | { type: 'layerText'; index: number; patch: TextPatch }
+  /**
+   * The transport primitive. **`nowMs` is the wall clock in milliseconds and
+   * it is an argument**, on `transportdriver.ts`'s precedent, because a
+   * reducer that read a clock would make every state it produces depend on
+   * when the test ran rather than on what it was handed.
+   *
+   * Three actions and not four: `toggle` is `transport.ts`'s and stays there,
+   * since a caller holding the store can already read
+   * `state.transport.playing` and pick. An action that only dispatches one of
+   * two other actions is a UI affordance, and putting it in the vocabulary
+   * would oblige every consumer of the union — the hash projector's sweep,
+   * the store's, a future history layer's — to carry a case that can never
+   * reach `reduce` in a shape the other two do not already cover.
+   */
+  | { type: 'play'; nowMs: number }
+  | { type: 'pause'; nowMs: number }
+  | { type: 'seek'; seconds: number; nowMs: number }
 
 /**
  * A typography edit to one `text` layer.
@@ -173,23 +231,15 @@ export function presetNote(kind: string, layerCount: number): string {
  */
 export { frameIndexAt, frameTimesOf, lastFrameTime, timeOfFrame }
 
-/**
- * Snap a time onto the scene's frame grid — `transport.ts`'s `snapTime`, under
- * the short name the three call sites below already use.
- *
- * This was `timeOfFrame(scene, frameIndexAt(scene, seconds))`, spelled out
- * here, which is **byte-identical** to `snapTime`'s body. The re-export above
- * says a second copy is the thing to avoid and `snapTime`'s own docblock claims
- * it is "composed from the two moved functions rather than restating their
- * arithmetic, so there is still exactly one definition of 'nearest frame' in
- * the project" — true of `frameIndexAt`, and not of the composition, which
- * survived the move that existed to remove it. Nothing asserted the two agreed.
- *
- * An alias and not a re-export: `snapTime` is not in the player's four-name
- * list above, so exporting it from here would widen this module's surface for
- * no caller.
+/*
+ * There was a `const snap = snapTime` alias here, the last remnant of a
+ * private copy of `timeOfFrame(scene, frameIndexAt(scene, seconds))` that was
+ * byte-identical to `snapTime`'s body and that nothing asserted agreed with
+ * it. Every call site it served now reaches the grid through
+ * {@link seekTransport} instead, so the alias had no readers left; the record
+ * of why the copy was wrong lives on `snapTime`'s own docblock, which is the
+ * file a reader of this one would go to next.
  */
-const snap = snapTime
 
 /**
  * Materialise the stereo settings into the scene.
@@ -200,11 +250,35 @@ const snap = snapTime
  */
 export function initialState(scene: Scene): UiState {
   const withStereo: Scene = { ...scene, stereo: { ...resolveStereo(scene) } }
-  return { scene: withStereo, time: snap(withStereo, 0), depthView: 'composited' }
+  // `time` is read off the transport rather than computed as `snapTime(scene, 0)`
+  // beside it. The two give the same answer today, which is exactly why one
+  // of them has to be the other's source: an initialiser that happened to
+  // agree is the agreeing duplicate this module's guards exist to refuse.
+  const transport = initialTransport(withStereo)
+  return { scene: withStereo, time: transport.anchorTime, depthView: 'composited', transport }
 }
 
 export function currentFrame(state: UiState): number {
   return frameIndexAt(state.scene, state.time)
+}
+
+/**
+ * The scene time to show at wall-clock `nowMs`, in seconds, on the grid.
+ *
+ * `transport.ts`'s {@link timeAt} under the editor's name for it — the
+ * `currentTime` plan §3 says belongs to the store. While paused it is
+ * `state.time` for every `nowMs`, which is what makes the scrubber's number
+ * and the playhead's number one number; while playing it advances, and the
+ * advance is where the loop wraps.
+ *
+ * **A function and not a field, which is the whole reason the store needs no
+ * clock.** A stored `currentTime` would have to be refreshed by something, and
+ * that something is a timer; derived, the caller that already has a clock —
+ * the render loop, a test — supplies it at the point of use and this layer
+ * stays expressible as values.
+ */
+export function currentTime(state: UiState, nowMs: number): number {
+  return timeAt(state.transport, nowMs, state.scene)
 }
 
 /**
@@ -222,9 +296,44 @@ export function sceneError(scene: Scene): string | undefined {
   }
 }
 
-/** Replace the scene and re-snap the scrub time onto its grid. */
+/**
+ * Commit a transport, and take the scrub time from it.
+ *
+ * **The single write site for scene time.** Every arm that moves the playhead
+ * goes through here, so `time` can only ever be a number `transport.ts`
+ * produced; there is no arm in which it is computed beside the transport and
+ * could come out different. That is the structural form of the invariant the
+ * sequencing of this work was arranged around, rather than a convention each
+ * arm has to remember.
+ */
+function withTransport(state: UiState, scene: Scene, transport: TransportState): UiState {
+  return { ...state, scene, transport, time: transport.anchorTime }
+}
+
+/**
+ * Replace the scene and re-anchor the playhead onto its grid.
+ *
+ * **`anchorTime` is documented as "always a point of `frameTimes(scene)`"**,
+ * and an `fps` or `duration` edit moves the grid out from under it — so a
+ * scene swap that only re-snapped `time` would leave the transport anchored
+ * between two frames of a grid it had never seen. Re-snapping is
+ * {@link seekTransport}, which is the same call the scrubber makes, so the two
+ * cannot drift apart.
+ *
+ * **The wall clock is the one already stored.** A scene edit carries no
+ * `nowMs` — `fps`, `duration`, `size` and the layer edits are issued by
+ * controls that know nothing about time — so the anchor pair keeps the origin
+ * it had and only its scene-time half moves. Paused, `anchorMs` is meaningless
+ * and this is exact. Playing, it means the edit does not re-time the playhead,
+ * which is the conservative of the two readings and the only one available
+ * without inventing a clock read in a pure reducer.
+ */
 function withScene(state: UiState, scene: Scene): UiState {
-  return { ...state, scene, time: snap(scene, state.time) }
+  return withTransport(
+    state,
+    scene,
+    seekTransport(state.transport, state.time, state.transport.anchorMs, scene),
+  )
 }
 
 /**
@@ -322,14 +431,52 @@ export function reduce(state: UiState, action: Action): UiState {
       return withScene(state, scene)
     }
 
+    // The two clock-free scrub arms. Both move the playhead and so both are
+    // seeks: before the transport lived here they wrote `time` directly, and
+    // a scrubber that set one number while the playhead kept another is
+    // precisely the two-representations defect this arm's rewrite removes.
+    // They carry no `nowMs`, so they re-anchor the scene-time half of the pair
+    // and leave the wall-clock half alone — see {@link withScene}. A caller
+    // that is scrubbing *during playback* should dispatch `seek`, which
+    // carries the clock and so re-times the playhead as well.
     case 'time':
-      return { ...state, time: snap(state.scene, action.seconds) }
+      return withTransport(
+        state,
+        state.scene,
+        seekTransport(state.transport, action.seconds, state.transport.anchorMs, state.scene),
+      )
 
     case 'frame':
-      return { ...state, time: timeOfFrame(state.scene, action.index) }
+      return withTransport(
+        state,
+        state.scene,
+        seekTransport(
+          state.transport,
+          timeOfFrame(state.scene, action.index),
+          state.transport.anchorMs,
+          state.scene,
+        ),
+      )
 
     case 'depthView':
       return { ...state, depthView: action.value }
+
+    case 'play':
+      return withTransport(state, state.scene, playTransport(state.transport, action.nowMs))
+
+    case 'pause':
+      return withTransport(
+        state,
+        state.scene,
+        pauseTransport(state.transport, action.nowMs, state.scene),
+      )
+
+    case 'seek':
+      return withTransport(
+        state,
+        state.scene,
+        seekTransport(state.transport, action.seconds, action.nowMs, state.scene),
+      )
 
     case 'layerAnim': {
       const { index, anim } = action

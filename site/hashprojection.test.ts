@@ -153,6 +153,13 @@ const SAMPLES: { readonly [K in Action['type']]: readonly Extract<Action, { type
   time: [{ type: 'time', seconds: 1.3 }, { type: 'time', seconds: 0 }],
   frame: [{ type: 'frame', index: 7 }],
   depthView: [{ type: 'depthView', value: 'encoded' }, { type: 'depthView', value: 'composited' }],
+  // The transport: in the store, out of the hash, for the reason
+  // `UNPROJECTED_FIELDS` records. These three rows are what the mapped type
+  // above promised — criterion 9 added the variants and the compiler named
+  // each one here rather than letting the sweep quietly cover eleven.
+  play: [{ type: 'play', nowMs: 1_000 }],
+  pause: [{ type: 'pause', nowMs: 1_500 }],
+  seek: [{ type: 'seek', seconds: 1.3, nowMs: 2_000 }],
   layerAnim: [
     { type: 'layerAnim', index: 0, anim: { kind: 'push', to: 0.2 } },
     // Out of range: `reduce` throws, `dispatch` rethrows, and no subscriber
@@ -285,11 +292,12 @@ describe('the partition between what a link carries and what it does not', () =>
    * The paired control gate §6.5a requires, both halves in one test and
    * through one instrument.
    *
-   * `UiState` has three fields and the hash carries one. The excluded two are
-   * not an accident of today's encoder: `controls.ts` snaps `time` onto the
-   * frame grid as a scrub position, and `depthView` chooses which of two
-   * pictures the canvas shows. Neither is the scene, and a shared link carries
-   * the scene.
+   * The hash carries one field of `UiState` and leaves the rest. The excluded
+   * ones are not an accident of today's encoder: `controls.ts` snaps `time`
+   * onto the frame grid as a scrub position, `depthView` chooses which of two
+   * pictures the canvas shows, and `transport` is that same scrub position
+   * paired with a reading of this machine's wall clock. None of them is the
+   * scene, and a shared link carries the scene.
    *
    * **The precondition is stated rather than assumed**, and it was measured:
    * the target starts holding the projection, which is what a page opened on

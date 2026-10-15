@@ -49,12 +49,24 @@ import type { Action, UiState } from './controls.js'
  *    would almost never fire anyway, and a subscriber that wants one can hold
  *    the last value it saw.
  *
- * **Scene time is `UiState.time` and nothing else.** `controls.ts` snaps it
- * with `snapTime` and this module adds no second rule; `TransportState` and
- * its `anchorTime` are not held here. Reconciling the two representations is
- * its own task with its own invariant (`seek` and `snapTime` must select the
- * same frame for every t), and a store that quietly held both would be the
- * place the disagreement became permanent.
+ * **Scene time, and where the transport went.** This paragraph used to say
+ * that `TransportState` and its `anchorTime` were not held here, because
+ * *"reconciling the two representations is its own task with its own
+ * invariant (`seek` and `snapTime` must select the same frame for every t),
+ * and a store that quietly held both would be the place the disagreement
+ * became permanent."* That task has since landed, and so has this one: the
+ * transport **is** in the state now, as `UiState.transport`, and `time` is
+ * its `anchorTime` rather than a second number kept alongside it. The
+ * sentence above is preserved rather than deleted because it is also the
+ * reason the order was right — the reconciliation went first, and the
+ * disagreement it removed was load-bearing, not hypothetical.
+ *
+ * None of that is this module's doing. `controls.ts` holds the shape and
+ * `transport.ts` holds the rules; what is enforced *here* is that neither
+ * leaks into the store as a special case, which is what the delegation guard
+ * in `store.test.ts` reads off this file's source. The transport actions are
+ * three more `Action` variants and reach the state the same way every other
+ * one does.
  *
  * **The depth selection is `UiState`'s `DepthView` by force, not by
  * preference.** `views.ts` declares the identical union as `DepthSource` and

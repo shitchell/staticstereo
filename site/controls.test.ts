@@ -1,9 +1,13 @@
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import * as ts from 'typescript'
 import {
   CUSTOM_TRACK,
   coerceInt,
   coerceNumber,
   currentFrame,
+  currentTime,
   frameIndexAt,
   frameTimesOf,
   initialState,
@@ -13,6 +17,7 @@ import {
   sceneError,
   timeOfFrame,
 } from './controls.js'
+import { initialTransport, pause, play, seek } from './transport.js'
 import { CHANNELS, PRESETS, compilePreset, stillTime } from '../src/core/index.js'
 import { CTX } from '../src/core/testing/ctx.fixture.js'
 import type { Preset, Scene, Track } from '../src/core/types.js'
@@ -379,5 +384,147 @@ describe('sceneError', () => {
     // event handler. The page asks this instead and shows the message.
     const s = reduce(initialState(ANIM), { type: 'stereo', patch: { sepNear: 200 } })
     expect(sceneError(s.scene)).toMatch(/depth budget/)
+  })
+})
+
+/* ------------------------------- criterion 9: the transport, consumed not copied */
+
+/**
+ * Object literals in `text` that are a {@link TransportState} by their own key
+ * set — the sensor for a transport re-implemented here instead of called.
+ *
+ * **The key set is derived, never written out.** §9: *"a hand-written list of
+ * 'the places that do X' goes stale silently"*, and a transport that grew a
+ * fourth field would walk straight past a list of three. `initialTransport`
+ * is the only constructor `transport.ts` exports, so its answer's own keys are
+ * the vocabulary, and a field added there tightens this guard without anyone
+ * editing it.
+ *
+ * **Parsed and not grepped**, for the reason `store.test.ts` records at
+ * length: `controls.ts` discusses the transport in prose, and
+ * `TransportState`'s field names appear in this file's own docblocks, so a
+ * text search is red on a module that is behaving.
+ *
+ * **Throws rather than returning `[]`** where it cannot see — plan §1.2k
+ * applied to an instrument. A `controls.ts` that had stopped importing
+ * `transport.js` altogether is precisely the state this guard exists to catch,
+ * and reporting "no transport literals found" over it would be the fail-open
+ * answer.
+ */
+function transportLiteralsIn(path: string, text: string, keys: readonly string[]): readonly string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true)
+  if (keys.length === 0) throw new Error('no TransportState keys were supplied; this guard is blind')
+
+  let importsTransport = false
+  const hits: string[] = []
+  const walk = (node: ts.Node): void => {
+    if (
+      ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text === './transport.js'
+    ) {
+      importsTransport = true
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      const names = node.properties.flatMap(property =>
+        property.name && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
+          ? [property.name.text]
+          : [])
+      if (keys.every(key => names.includes(key))) {
+        const line = file.getLineAndCharacterOfPosition(node.getStart()).line + 1
+        hits.push(`${path}:${line} {${names.join(', ')}}`)
+      }
+    }
+    ts.forEachChild(node, walk)
+  }
+  walk(file)
+
+  if (!importsTransport) {
+    throw new Error(`${path} no longer imports './transport.js', so this guard is checking nothing`)
+  }
+  return hits
+}
+
+describe('the transport is consumed, not re-implemented', () => {
+  const SOURCE = readFileSync(fileURLToPath(new URL('./controls.ts', import.meta.url)), 'utf8')
+  const KEYS = Object.keys(initialTransport(ANIM))
+
+  it('builds no transport state of its own, read off its own source', () => {
+    /**
+     * Criterion 2's duplication half, and it is the half that ships green.
+     * A-4 measured that an *agreeing* duplicate reducer arm left the entire
+     * repository unmoved — suite, typecheck, both builds — so the behavioural
+     * sweep below can only sense divergence and something has to sense the
+     * copy. This repo's signature defect is the shape: the animatable-channel
+     * list is guarded in `track.ts`, duplicated unguarded in two validators,
+     * and both duplicates agreed on the day they were written.
+     */
+    expect(KEYS.length, 'TransportState has no keys, so the guard matches everything').toBeGreaterThan(0)
+    expect(
+      transportLiteralsIn('site/controls.ts', SOURCE, KEYS),
+      'controls.ts constructed a TransportState instead of calling transport.ts for it. ' +
+      'play/pause/seek are a state machine with one definition; a second one here would ' +
+      'agree on the day it was written and drift afterwards.',
+    ).toEqual([])
+  })
+
+  it('would see a hand-rolled transport, and does not fire on prose, which is the control', () => {
+    // §6.5a's paired half. Both plants are written the way the mistake would
+    // actually be made — a literal inside a reducer arm — and the second pair
+    // is what makes the parse worth its cost over a grep.
+    const plant = (body: string): string =>
+      `import { snapTime } from './transport.js'\n${body}\n`
+    const of = (body: string): readonly string[] =>
+      transportLiteralsIn('/plant/controls.ts', plant(body), KEYS)
+
+    expect(of('export const t = { playing: true, anchorTime: 0, anchorMs: 0 }').length).toBe(1)
+    // Key order is not the signal, and nor is an extra field: a copy that
+    // carried one more key is still a copy.
+    expect(of('export const t = { anchorMs: 0, extra: 1, anchorTime: 0, playing: false }').length)
+      .toBe(1)
+    // A subset is not a transport — `{playing}` alone is a UI flag, and
+    // flagging it would push the next author into spelling the copy some other
+    // way rather than into calling `transport.ts`.
+    expect(of('export const t = { playing: true }')).toEqual([])
+    // Prose naming every key, which is what this module is full of.
+    expect(of('// playing, anchorTime and anchorMs all live in transport.ts\nexport const t = 1'))
+      .toEqual([])
+    // And it refuses rather than reporting clean when the import is gone.
+    expect(() => transportLiteralsIn('/plant/controls.ts', 'export const t = 1\n', KEYS))
+      .toThrow(/no longer imports/)
+  })
+
+  it('computes every transport transition with transport.ts itself', () => {
+    // The divergence half, paired with the duplication half above because the
+    // two fail on different things: this one would stay green over a copy that
+    // agreed, and that one would stay green over a call that passed the wrong
+    // arguments.
+    const s0 = initialState(ANIM)
+    expect(reduce(s0, { type: 'play', nowMs: 1_000 }).transport)
+      .toEqual(play(s0.transport, 1_000))
+
+    const playing = reduce(s0, { type: 'play', nowMs: 1_000 })
+    expect(reduce(playing, { type: 'pause', nowMs: 1_500 }).transport)
+      .toEqual(pause(playing.transport, 1_500, playing.scene))
+
+    expect(reduce(s0, { type: 'seek', seconds: 1.3, nowMs: 2_000 }).transport)
+      .toEqual(seek(s0.transport, 1.3, 2_000, s0.scene))
+
+    // The clock-free scrub arms reach the same function, which is what makes
+    // the scrubber and the playhead one playhead rather than two.
+    expect(reduce(s0, { type: 'time', seconds: 1.3 }).transport)
+      .toEqual(seek(s0.transport, 1.3, s0.transport.anchorMs, s0.scene))
+    expect(reduce(s0, { type: 'frame', index: 7 }).transport)
+      .toEqual(seek(s0.transport, timeOfFrame(s0.scene, 7), s0.transport.anchorMs, s0.scene))
+  })
+
+  it('reports the paused time without any clock, for any clock', () => {
+    // `currentTime` is the editor's `currentTime`, and while paused it is a
+    // function of the state alone. Asserted over wildly separated clocks
+    // rather than one, because a stray `nowMs - anchorMs` term while paused
+    // would be invisible at a single sample.
+    const s = reduce(initialState(ANIM), { type: 'time', seconds: 1.3 })
+    for (const nowMs of [0, 1, 1_000, -5_000, 86_400_000]) {
+      expect(currentTime(s, nowMs), `nowMs=${nowMs}`).toBe(s.time)
+    }
   })
 })

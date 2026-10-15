@@ -82,17 +82,31 @@ import type { AssertNever } from '../src/core/index.js'
  * The fields of `UiState` a link carries — today, `scene` and nothing else.
  *
  * **The partition is data, so that growing `UiState` forces a decision.** The
- * two fields left out are not an oversight and not a property of the encoder:
+ * fields left out are not an oversight and not a property of the encoder:
  * `time` is a scrub position snapped onto the frame grid, `depthView` chooses
  * which of two pictures the canvas shows, and a shared link carries the scene.
- * Written down and made total by the `AssertNever` pairs below, a fourth
+ * Written down and made total by the `AssertNever` pairs below, a further
  * field cannot be added to the state without someone saying which side it
- * falls on — which is the thing a comment could not have made happen.
+ * falls on — which is the thing a comment could not have made happen. It has
+ * already happened once, which is the evidence that it works: `transport`
+ * arrived with criterion 9 and reddened the compiler here until it was
+ * classified.
  */
 export const PROJECTED_FIELDS = ['scene'] as const
 
-/** The rest of `UiState`. See {@link PROJECTED_FIELDS} for why the split is data. */
-export const UNPROJECTED_FIELDS = ['time', 'depthView'] as const
+/**
+ * The rest of `UiState`. See {@link PROJECTED_FIELDS} for why the split is data.
+ *
+ * **`transport` is unprojected, and not only because `time` is.** Half of it
+ * is `anchorMs`, a reading of *this* machine's wall clock, which means
+ * nothing on the machine that opens the link; and `playing` would make a
+ * shared scene start moving on arrival, which is a decision about how a link
+ * behaves rather than about which scene it names. The scene-time half is
+ * `anchorTime`, and that is `time` — the same number under its other name —
+ * so projecting `transport` would also put the excluded scrub position into
+ * the link by the side door.
+ */
+export const UNPROJECTED_FIELDS = ['time', 'depthView', 'transport'] as const
 
 type ProjectedField = typeof PROJECTED_FIELDS[number]
 type UnprojectedField = typeof UNPROJECTED_FIELDS[number]

@@ -4,8 +4,17 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
 import { createSceneStore } from './store.js'
-import { initialState, reduce } from './controls.js'
+import { currentTime, initialState, reduce } from './controls.js'
 import type { Action, UiState } from './controls.js'
+import {
+  frameIndexAt,
+  frameTimesOf,
+  initialTransport,
+  lastFrameTime,
+  loopDuration,
+  snapTime,
+  timeOfFrame,
+} from './transport.js'
 import { importSpecifiers } from '../src/core/testing/imports.js'
 import type { Scene } from '../src/core/types.js'
 
@@ -52,6 +61,19 @@ const SAMPLES: { readonly [K in Action['type']]: readonly Extract<Action, { type
   time: [{ type: 'time', seconds: 1.3 }, { type: 'time', seconds: -5 }],
   frame: [{ type: 'frame', index: 7 }, { type: 'frame', index: 0 }],
   depthView: [{ type: 'depthView', value: 'encoded' }, { type: 'depthView', value: 'composited' }],
+  // The transport primitive. Each carries its own `nowMs` because nothing in
+  // this layer may read a clock; the wall clock is an argument exactly as it
+  // is in `transportdriver.ts`, which is what makes a playback session a
+  // sequence of values a test can write down.
+  play: [{ type: 'play', nowMs: 1_000 }],
+  pause: [{ type: 'pause', nowMs: 1_500 }],
+  seek: [
+    { type: 'seek', seconds: 1.3, nowMs: 2_000 },
+    // Out of range in both directions: `seek` clamps, and the clamp is the
+    // half of C-1's invariant that is not a tautology — see the sweep below.
+    { type: 'seek', seconds: 99, nowMs: 2_000 },
+    { type: 'seek', seconds: -99, nowMs: 2_000 },
+  ],
   layerAnim: [
     { type: 'layerAnim', index: 0, anim: { kind: 'push', to: 0.2 } },
     { type: 'layerAnim', index: 0, anim: undefined },
@@ -352,7 +374,40 @@ function resolveModule(files: Files, from: string, specifier: string): string | 
 const BROWSER_GLOBALS = ['document', 'window', 'location', 'history', 'navigator', 'localStorage']
 
 /**
- * References to {@link BROWSER_GLOBALS} in `text`, parsed and not grepped.
+ * The ways this layer could make its own tick instead of being handed one.
+ *
+ * Kept apart from {@link BROWSER_GLOBALS} and reported separately, because the
+ * two fail for different reasons and a merged failure could not tell "it
+ * reached the DOM" from "it welded in a clock" — the same separation
+ * `hashprojection.test.ts` records for its own pair.
+ *
+ * This is criterion 3's sensor. `transportdriver.ts` states the property being
+ * protected: *"Both the clock and the scheduler are arguments. Nothing here
+ * reads a clock or creates a timer, so a whole playback session … is
+ * expressible as a sequence of values in a test, in plain node, with no DOM and
+ * no fake-timer plugin."* The transport actions carry `nowMs`, so the moment
+ * any module in this closure could read the time for itself, that sentence
+ * stops being true of the store and nothing else in the suite would say so.
+ *
+ * `Date` and `performance` are the clocks; the four schedulers are here because
+ * a module that can defer can also sample the clock by differencing its own
+ * callbacks. `process` is neither, and is here because `process.hrtime` is the
+ * node-shaped way to do the first one and `src/core` is shared with the CLI.
+ */
+const CLOCKS = [
+  'Date',
+  'performance',
+  'setTimeout',
+  'setInterval',
+  'clearTimeout',
+  'clearInterval',
+  'requestAnimationFrame',
+  'queueMicrotask',
+  'process',
+]
+
+/**
+ * References to `names` in `text`, parsed and not grepped.
  *
  * A grep cannot do this job here and that is measured, not assumed: a
  * word-boundary search over this exact closure returns six hits, and **all six
@@ -372,7 +427,7 @@ const BROWSER_GLOBALS = ['document', 'window', 'location', 'history', 'navigator
  * the two no module shadows, and why the control below plants a file that
  * declares `location` and still gets caught on `document`.
  */
-function browserGlobalsIn(path: string, text: string): readonly string[] {
+function globalsIn(path: string, text: string, names: readonly string[]): readonly string[] {
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true)
   const declared = new Set<string>()
   const hits: string[] = []
@@ -386,7 +441,7 @@ function browserGlobalsIn(path: string, text: string): readonly string[] {
     ) {
       declared.add(node.name.text)
     }
-    if (ts.isIdentifier(node) && BROWSER_GLOBALS.includes(node.text)) {
+    if (ts.isIdentifier(node) && names.includes(node.text)) {
       const parent = node.parent
       // `a.window` is a property named `window`, not the global.
       const isMemberName =
@@ -413,6 +468,8 @@ interface Closure {
   readonly files: readonly string[]
   /** Every browser-global reference in them, `path:line name`. */
   readonly globals: readonly string[]
+  /** Every {@link CLOCKS} reference in them, `path:line name`. */
+  readonly clocks: readonly string[]
   /** Every Svelte specifier in them. */
   readonly svelte: readonly string[]
 }
@@ -435,6 +492,7 @@ interface Closure {
 function closureFrom(entry: string, files: Files = REAL_FILES): Closure {
   const seen = new Set<string>()
   const globals: string[] = []
+  const clocks: string[] = []
   const svelte: string[] = []
   const pending = [entry]
   while (pending.length > 0) {
@@ -443,7 +501,8 @@ function closureFrom(entry: string, files: Files = REAL_FILES): Closure {
     const text = files.read(path)
     if (text === undefined) continue
     seen.add(path)
-    globals.push(...browserGlobalsIn(path, text))
+    globals.push(...globalsIn(path, text, BROWSER_GLOBALS))
+    clocks.push(...globalsIn(path, text, CLOCKS))
     for (const specifier of importSpecifiers(text, ts.ScriptKind.TS)) {
       if (specifier === 'svelte' || specifier.startsWith('svelte/') || specifier.endsWith('.svelte')) {
         svelte.push(`${path} imports ${specifier}`)
@@ -452,7 +511,12 @@ function closureFrom(entry: string, files: Files = REAL_FILES): Closure {
       if (next !== undefined) pending.push(next)
     }
   }
-  return { files: [...seen].sort(), globals: globals.sort(), svelte: svelte.sort() }
+  return {
+    files: [...seen].sort(),
+    globals: globals.sort(),
+    clocks: clocks.sort(),
+    svelte: svelte.sort(),
+  }
 }
 
 /* ------------------------------------------------------------------ tests */
@@ -773,6 +837,257 @@ describe('the store runs in plain node', () => {
     // closure membership that the globals check uses.
     graph['/plant/b.ts'] = `import Panel from './Panel.svelte'\nexport const b = Panel\n`
     expect(closureFrom('/plant/entry.ts', files).svelte).toEqual(['/plant/b.ts imports ./Panel.svelte'])
+  })
+
+  it('reaches no clock and no timer either, which is what keeps nowMs an argument', () => {
+    // Criterion 3. The transport actions carry `nowMs`, and that is only worth
+    // anything if no module behind the store can quietly read the time
+    // instead: a single `Date.now()` in `controls.ts` would make a playback
+    // session untestable as values while every other test in this file stayed
+    // green, because they all supply the clock and would never notice one
+    // being ignored.
+    expect(closureFrom(STORE).clocks, 'a clock or a timer is reachable from the store').toEqual([])
+  })
+
+  it('would see a clock planted two modules deep, which is the control', () => {
+    // §6.5a's paired half for the null above, and §9's rule that the control
+    // must see *this* change: the plant is a clock rather than a DOM
+    // reference, two modules down, because the globals walk above already
+    // covers the shallow DOM case and would pass over a clock in silence.
+    const graph: Record<string, string> = {
+      '/plant/entry.ts': `import { b } from './b.js'\nexport const a = b\n`,
+      '/plant/b.ts': `export const b = Date.now()\n`,
+    }
+    const files: Files = { read: path => graph[path] }
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual(['/plant/b.ts:1 Date'])
+    // The two sensors stay separable: a clock is not reported as a DOM
+    // reference, so a reader of either failure knows which rule was broken.
+    expect(closureFrom('/plant/entry.ts', files).globals).toEqual([])
+
+    // A scheduler, which is the other half of what `transportdriver.ts` keeps
+    // injected — a module that can defer can difference its own callbacks.
+    graph['/plant/b.ts'] = `export const b = (f: () => void) => setTimeout(f, 1)\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual(['/plant/b.ts:1 setTimeout'])
+
+    // The negative half: with the clock removed and nothing else changed, the
+    // same walk over the same graph reports clean.
+    graph['/plant/b.ts'] = `export const b = 0\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual([])
+  })
+})
+
+/* --------------------------------------- criterion 9: the transport primitive */
+
+/**
+ * Grids whose final inter-frame gap differs in kind, swept by the invariant
+ * below rather than one scene standing in for all of them.
+ *
+ * C-1 pinned `seek` ≡ `snapTime` over six configurations in `transport.ts`'s
+ * own tests; re-establishing it *through the store* is a different statement
+ * and needs its own sweep, because the store's path to a frame now runs
+ * `dispatch` → `reduce` → `seek` → `snapTime` and any one of those links could
+ * add a rule. A still is in the list because it is the degenerate grid — one
+ * point, every time snapping to it — and it is where an off-by-one in a clamp
+ * derived from `frameTimesOf(scene).length` would show.
+ */
+const GRIDS: readonly Scene[] = [
+  { ...ANIM },
+  { ...ANIM, fps: 8 },
+  { ...ANIM, fps: 25 },
+  { ...ANIM, duration: 0.55, fps: 12 },
+  { ...ANIM, duration: 3, fps: 30 },
+  { size: [64, 32], layers: [{ type: 'text', text: 'A' }] },
+]
+
+/**
+ * Times to seek to, built per scene rather than written down.
+ *
+ * The final inter-frame gap is the only place `snapTime` and the circular
+ * `snapLoopTime` ever disagreed, so it is the only sample that can hold the
+ * answer — P2's own instruction, kept. The rest of the sweep is there so that
+ * "they agree" is a claim about the line and not about one point on it.
+ */
+function sweepOf(scene: Scene): readonly number[] {
+  const times = frameTimesOf(scene)
+  const last = times[times.length - 1]!
+  const span = loopDuration(scene)
+  const gap = span - last
+  const out: number[] = [-span, -0.001, 0, last, span, span + 1]
+  for (let i = 0; i <= 40; i++) out.push((i / 40) * span)
+  // Dense inside the gap, where the two rules used to part company.
+  for (let i = 1; i < 8; i++) out.push(last + (i / 8) * gap)
+  return out
+}
+
+describe('scene time and the transport primitive, through the store', () => {
+  it('plays, pauses and seeks, with the wall clock supplied per action', () => {
+    // Criterion 1 as a predicate, and criterion 3's behavioural half: every
+    // line below is a number this test wrote down. No clock, no timer, no DOM,
+    // no fake-timer plugin — a whole playback session as values, which is the
+    // property `transportdriver.ts` records and the reason the loop stayed in
+    // that module rather than coming into this one.
+    const store = createSceneStore(initialState(ANIM))
+
+    // Paused, the reported time does not depend on the clock at all.
+    expect(currentTime(store.state(), 0)).toBe(timeOfFrame(ANIM, 0))
+    expect(currentTime(store.state(), 9_999_999)).toBe(timeOfFrame(ANIM, 0))
+
+    store.dispatch({ type: 'play', nowMs: 1_000 })
+    expect(store.state().transport.playing).toBe(true)
+    // One second of scene time per second of wall time, half a second in.
+    expect(currentTime(store.state(), 1_000)).toBe(timeOfFrame(ANIM, 0))
+    expect(currentTime(store.state(), 1_500)).toBe(timeOfFrame(ANIM, 6))
+
+    store.dispatch({ type: 'pause', nowMs: 1_500 })
+    expect(store.state().transport.playing).toBe(false)
+    // Paused means paused: the time no longer moves with the clock, and the
+    // interval spent paused is structurally uncountable on resume.
+    expect(currentTime(store.state(), 9_999_999)).toBe(timeOfFrame(ANIM, 6))
+    store.dispatch({ type: 'play', nowMs: 50_000 })
+    expect(currentTime(store.state(), 50_500)).toBe(timeOfFrame(ANIM, 12))
+
+    // A scrub during playback stays playing — a jump, not a stop.
+    store.dispatch({ type: 'seek', seconds: 0.25, nowMs: 51_000 })
+    expect(store.state().transport.playing).toBe(true)
+    expect(currentTime(store.state(), 51_000)).toBe(timeOfFrame(ANIM, 3))
+  })
+
+  it('holds one scene time and not two: time is the transport anchor, after every Action', () => {
+    /**
+     * The duplication that this criterion's own sequencing exists to avoid.
+     * A-1 refused to put `TransportState` in the store and said why: *"a store
+     * quietly holding both is where that disagreement would have become
+     * permanent."* It holds both now, so the thing that made that refusal
+     * right has to be replaced by something, and this is it — `UiState.time`
+     * and `transport.anchorTime` are one number with two names, asserted over
+     * the whole vocabulary rather than over the three arms that touch time.
+     *
+     * Swept through `SAMPLES`, which is total by the compiler, so an arm added
+     * later cannot opt out of the invariant by being forgotten here.
+     */
+    let examined = 0
+    for (const kind of Object.keys(SAMPLES)) {
+      for (const action of SAMPLES[kind as Action['type']]) {
+        const store = createSceneStore(initialState(ANIM))
+        try {
+          store.dispatch(action)
+        } catch {
+          // Refused by `reduce`; the state is untouched and still has to hold.
+        }
+        const state = store.state()
+        const label = `${kind}: ${JSON.stringify(action)}`
+        expect(state.time, label).toBe(state.transport.anchorTime)
+        // …and the shared number is on the grid, which is `UiState.time`'s
+        // own documented contract and `anchorTime`'s as well.
+        expect(frameTimesOf(state.scene), label).toContain(state.time)
+        examined++
+      }
+    }
+    // Vacuity floor: a sample table that had lost its arrays would sweep
+    // nothing and pass, exactly as in the delegation sweep above.
+    expect(examined, 'no action was swept').toBeGreaterThan(0)
+  })
+
+  it('names the same frame as snapTime for every t, and clamps at both ends', () => {
+    /**
+     * Criterion 4, re-established through the store rather than cited from
+     * `transport.ts`. "The invariant holds" and "the invariant survives the
+     * store" are different statements and only the second says this layer left
+     * it alone.
+     *
+     * **Where the vacuity floor went, and it had to move.** The agreement half
+     * is a tautology by construction — `reduce` reaches a frame by calling
+     * `seek`, which calls `snapTime` — exactly the shape C-1 measured when an
+     * agreeing plant left its own agreement sweep green. So the floor is the
+     * **clamp** half below, which compares each answer against an index derived
+     * from `frameTimesOf(scene).length` and not against its twin. That one can
+     * fail: a store that wrapped instead of clamping, or re-snapped against the
+     * wrong scene after an `fps` edit, reddens there and nowhere else.
+     *
+     * The clock-free `time` action is swept beside `seek` because it is what
+     * the editor's scrubber dispatches today, and a store in which the two
+     * disagreed about which frame a time names would be the original defect in
+     * a new place.
+     */
+    for (const scene of GRIDS) {
+      const times = frameTimesOf(scene)
+      const label = `${times.length} frames`
+      for (const t of sweepOf(scene)) {
+        const want = frameIndexAt(scene, snapTime(scene, t))
+
+        const viaSeek = createSceneStore(initialState(scene))
+        viaSeek.dispatch({ type: 'seek', seconds: t, nowMs: 7_000 })
+        expect(frameIndexAt(scene, currentTime(viaSeek.state(), 7_000)), `${label} seek ${t}`)
+          .toBe(want)
+
+        const viaScrub = createSceneStore(initialState(scene))
+        viaScrub.dispatch({ type: 'time', seconds: t })
+        expect(frameIndexAt(scene, currentTime(viaScrub.state(), 7_000)), `${label} time ${t}`)
+          .toBe(want)
+      }
+
+      // The clamp, against the grid's own length. Both ends, because a fold
+      // that wrapped would be right about one of them by accident.
+      const past = createSceneStore(initialState(scene))
+      past.dispatch({ type: 'seek', seconds: lastFrameTime(scene) + 10, nowMs: 7_000 })
+      expect(frameIndexAt(scene, currentTime(past.state(), 7_000)), `${label} past the end`)
+        .toBe(times.length - 1)
+
+      const before = createSceneStore(initialState(scene))
+      before.dispatch({ type: 'seek', seconds: -10, nowMs: 7_000 })
+      expect(frameIndexAt(scene, currentTime(before.state(), 7_000)), `${label} below zero`).toBe(0)
+    }
+  })
+
+  it('wraps on advance and clamps on seek, so looping stayed where it was', () => {
+    // The third clause of the ruling: *"Playback wrap remains a separate
+    // operation — looping is `repeat`, which acts on advance, not on frame
+    // selection."* Both halves are asserted against **the same number**, which
+    // is the only way to show they are two rules rather than one: seeking to
+    // `span + 1/12` parks on the last frame, and *advancing* by `span + 1/12`
+    // comes round to frame 1. A store that had folded the two would have to
+    // give one answer for both.
+    const span = loopDuration(ANIM)
+    const over = span + 1 / 12
+
+    const seeking = createSceneStore(initialState(ANIM))
+    seeking.dispatch({ type: 'seek', seconds: over, nowMs: 0 })
+    expect(currentTime(seeking.state(), 0)).toBe(lastFrameTime(ANIM))
+
+    const playing = createSceneStore(initialState(ANIM))
+    playing.dispatch({ type: 'play', nowMs: 0 })
+    expect(currentTime(playing.state(), over * 1000)).toBe(timeOfFrame(ANIM, 1))
+    // …and it is still going round rather than having stopped at the end.
+    expect(currentTime(playing.state(), (2 * span + 2 / 12) * 1000)).toBe(timeOfFrame(ANIM, 2))
+  })
+
+  it('re-anchors the transport onto the new grid when the scene changes under it', () => {
+    // `anchorTime` is documented as *"always a point of `frameTimes(scene)`"*,
+    // and an `fps` edit moves the grid out from under it. This is the arm that
+    // would otherwise leave the store holding a transport anchored off-grid
+    // while `UiState.time` was re-snapped — two representations drifting, in
+    // the one place the sequencing of this task was arranged to prevent.
+    const store = createSceneStore(initialState(ANIM))
+    store.dispatch({ type: 'seek', seconds: 1, nowMs: 0 })
+    store.dispatch({ type: 'fps', value: 25 })
+    const state = store.state()
+    expect(frameTimesOf(state.scene)).toContain(state.transport.anchorTime)
+    expect(state.transport.anchorTime).toBeCloseTo(1, 2)
+    // The moment is preserved, not the index: frame 12 of 24 and frame 25 of
+    // 75 are the same instant and different numbers.
+    expect(currentTime(state, 0)).toBeCloseTo(1, 2)
+  })
+
+  it('keeps two stores on separate playheads, transport included', () => {
+    // `transportdriver.ts`'s reason for its own per-driver `self`, now owed by
+    // the store as well: *"two players on one page must not share a playhead."*
+    const one = createSceneStore(initialState(ANIM))
+    const two = createSceneStore(initialState(ANIM))
+    one.dispatch({ type: 'play', nowMs: 1_000 })
+    expect(one.state().transport.playing).toBe(true)
+    expect(two.state().transport.playing).toBe(false)
+    expect(currentTime(two.state(), 9_999)).toBe(timeOfFrame(ANIM, 0))
+    expect(two.state().transport).toEqual(initialTransport(ANIM))
   })
 })
 
