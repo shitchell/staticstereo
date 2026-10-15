@@ -212,9 +212,24 @@ describe('gifenc module interop', () => {
    * check anyway: that is the artifact `files: ["dist"]` publishes and the
    * `bin` entry point loads.
    */
-  // 20s, not the 5s default: this spawns tsc, which takes ~3.2s alone and
+  // 60s, not the 5s default: this spawns tsc, which takes ~3.2s alone and
   // ~4.7s under a loaded machine, so the default timeout made it fail about
   // one run in three. Measured; the slowness is the compiler, not the code.
+  //
+  // Raised again from 20s, for the same reason and with the same evidence.
+  // 20s was enough for one developer running one suite; it is not enough for
+  // this project's actual operating mode, several agents running `npm test`
+  // concurrently on one box. Measured on 12 cores at load average 9–12,
+  // inside a full `vitest run`: 20064ms — timed out — on one run and 11562ms
+  // on the next. That is a 1.7× spread on the same machine minutes apart, so
+  // 20s was not headroom over the 11.5s figure, it was inside the noise.
+  // CI, which has the runner to itself, ran this whole file — all 35 tests,
+  // this one included — in 5377ms (run 38804539248), so the 60s is for the
+  // contended box, not for the runner.
+  //
+  // The cost is that a tsc or node-resolution slowdown of several times over
+  // would stop showing up here. 11.5s loaded / ~3.2s solo are the reference
+  // figures for telling that apart from a busy machine.
   it.skipIf(!HAVE_TSC)('writes a decodable GIF when loaded by node, not just by vite', async () => {
     // Built *inside* the repo, not in /tmp: node resolves `@napi-rs/canvas`
     // and `gifenc` by walking up from the importing file, so output parked
@@ -244,7 +259,7 @@ describe('gifenc module interop', () => {
     const r = new GifReader(await readFile(p))
     expect(r.numFrames()).toBe(1)
     expect(r.frameInfo(0).palette_size).toBe(2)
-  }, 20_000)
+  }, 60_000)
 })
 
 describe('resolveMp4Encoding', () => {
