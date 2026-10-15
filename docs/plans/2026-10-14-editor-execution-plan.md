@@ -799,13 +799,32 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
 ### P7 — Perception module · PM-SHARED · design §10
 
 1. `src/shared/perception.ts` — `encodableDepths`, `quantisationStep`, `collidingPairs`,
-   `fusionComfort`, `strokeLegibility`, `depthStops`, `cardboarding`.
-2. Each returns quantities **and** a grade; a caller wanting numbers never reads the grade.
+   `fusionComfort`, **`legibilityOf` / `describeLegibility`**, `depthStops`,
+   `cardboarding`. *(Named `strokeLegibility` until 2026-10-15; the moved rule was required
+   to move **unchanged**, so the criterion is renamed to the code and not the reverse.)*
+2. **Graded** functions return quantities **and** a grade; a caller wanting numbers never
+   reads the grade. *Rescoped 2026-10-15:* it read "each returns", which design §10.1's own
+   title contradicts — *"objective, no perception involved"* — and `encodableDepths` is
+   `sepFar − sepNear + 1`, arithmetic over the encoder. **Forcing a grade onto an objective
+   count invents the subjective score R22 obligation 4 forbids.**
 3. **`fusionComfort` keys on the budget, not `sepNear`.** Pinned: fires at
    `sepFar:140, sepNear:78` (budget 62), silent at `100/80` (budget 20).
-4. `encodableDepths` reports stage capacity **and** the `linked` dead strips.
+4. `encodableDepths` reports stage capacity. *Amended 2026-10-15:* it also demanded the
+   `linked` dead strips, and the module declined **on a measurement** — the strips fall
+   entirely inside the plate margins, which `plate.ts` already defines as columns nothing
+   may be composed in. Widening a bare `number` into a shape, breaking a seam P4 will
+   consume, to restate a guarantee that already exists, is machinery. **Closed as
+   satisfied-by-`plate.ts`, conditional on a sensor:** assert the strip width equals the
+   margin width, so the day `marginsFor` changes it reddens.
 5. Today's legibility rule moves in with **no threshold change**. The wrapper shape of
-   criterion 2 is the permitted change; the numbers are not.
+   criterion 2 is the permitted change; the numbers are not. *Clarified 2026-10-15:* a
+   verdict **string** is not a number, so design §10.3's weakening ("lead with quantities")
+   **does** land here. The branch currently ships advice the 2026-10-12 findings call
+   *worse than silence* — it tells the author to widen the budget, which does nothing for
+   legibility and makes fusion harder. `site/legibility.test.ts:228-229` **requires** that
+   wrong advice and will redden; **that is the test doing its job** — update it with the
+   reason recorded. `src/shared/perception.test.ts:163-166`'s comment, which says this
+   phase may not change the verdict text, is superseded and must be amended in place.
 6. No perceptual **threshold** inlined outside this file, against a named list fixed
    before dispatch — including `src/node/canvas.generics.test.ts:107`'s `peak * 0.5`,
    whose own comment at `:99` says it matches `INK_FRACTION`. The fix is to import the
@@ -1105,6 +1124,7 @@ Each already cost a correction. Hand this table to every worker.
 | a label in a brief names something findable | **Not if it only ever lived in two contexts.** A census across 418 commits and every ref found exactly one of nine escalation labels. Worse, an unhyphenated family of the same letters-and-digits *does* exist in the tree from a different phase — a mapping assembled from those hits would have been **internally consistent, nine rows deep, and wrong.** When labels die, **renumber from content and never speak of the old labels again**; a plausible wrong mapping is the hardest kind to catch. |
 | `git log -S'X'` searches for X | It searches for X as a **substring**. `-S'E-7'` returns three commits, two of them from `IEEE-754`. Use `--pickaxe-regex` with `\b`. |
 | a tier-0 cross-reference is a stale pointer, so let it wait | **Not in a document whose section numbers are the dispatch interface.** §9's taxonomy says a stale pointer costs a `grep` and nothing silently passes — true of code, false of a plan that PMs are briefed to read *by section number*. Those get fixed on sight. |
+| my control proves the diff works | **It proves the instrument functions, not that it pointed at *your* change.** A worker nearly shipped 14 inadmissible nulls on that distinction, and it retroactively marks three earlier commits' second-half evidence as true-but-vacuous. A control must be able to see the specific change under test, not merely to see *something*. |
 | a sha in the record resolves | Two on record for a met criterion — `f3b9a1c` and `9c2d84e` — **do not exist in this repository.** A sha is checkable in one command and these were not. |
 | the gate's instrument and the branch's instrument are the same kind of thing | **`git log <ref>` takes a ref; `npm test` takes a working directory.** They look interchangeable and are not. The orchestrator ran P3a's gate in a worktree checked out on `main` and got **60/1358** — the baseline, a figure already in the record. **A wrong answer that matches something already written down is the hardest kind to catch.** |
 | "the sweep found three" means there are three | C-18's own warning, and its scope reached no durable document while its results did. The five axes it swept: `as const` tuple rosters (13 present) · inline literal unions in struct fields (3 found) · **discriminated-union tag rosters, the shape `OPERATIONS` has**, of which it measured exactly one rather than leave the axis unnamed · rosters declared in `src/` that P2 consumes · **`.svelte` files — axis *empty*, not skipped.** Without the scope, the next sweep cannot tell what was covered, and empty-vs-skipped is invisible once the list is gone. |
