@@ -50,15 +50,34 @@
  * {@link DEPTH_SOURCE_PROVENANCE}`.rosters` and keeps the one that survives:
  * `site/controls.ts` is orphaned by the teardown, not deleted.
  *
- * ## Not in this file
+ * ## The registration test, and why the two lists did not get the same one
  *
- * The registration test — *a dummy entry appears without touching another
- * file* — is C-14's, for **both** lists. {@link ViewTable} and
- * {@link DepthSourceTable} being keyed by `string`, and every reader taking a
- * `table` parameter, is what makes it writable.
+ * C-6 reserved this in writing and was right about the hard half and wrong
+ * about one detail, which is worth keeping because the detail is the task:
+ * *"{@link ViewTable} and {@link DepthSourceTable} being keyed by `string`,
+ * and **every reader taking a `table` parameter**, is what makes it writable."*
+ * Eight readers did; `absentView` and `absentDepthSource` did **not**, and a
+ * table a census cannot vary is a row that cannot move. Both now take one.
  *
- * `site/index.html`, `site/controls.ts` and `site/depthmap.ts` are **read** here
- * and not modified.
+ * The larger finding is that the two lists were **not** in the same position,
+ * which is the thing only a task holding both can see. Plan §9: *"a
+ * registration test must assert that the thing a consumer does is now possible
+ * — not that the entry can be found."* So: what does each axis' consumer
+ * **enumerate**?
+ *
+ * - For `VIEWS`, one enumerating question was already answered from a table —
+ *   {@link viewsShowing}, which is how the other two axes ask whether they are
+ *   live. The switcher's own question, *which views are there to offer*, was
+ *   not: the only answer was {@link VIEW_IDS}, a static declaration no
+ *   registration can move.
+ * - For `DEPTH_SOURCES` **nothing** enumerated a table. Every reader was a
+ *   lookup, so a registered source was reachable only by a caller that already
+ *   knew its name — `SHADINGS`' gap exactly, and the whole of it.
+ *
+ * {@link offeredViews} and {@link offeredDepthSources} are that half, each
+ * defined in terms of its own lookup so that a row a picker offers and the
+ * lookup refuses cannot exist. `site/index.html`, `site/controls.ts` and
+ * `site/depthmap.ts` are **read** here and not modified.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -84,11 +103,20 @@ import {
   axisOverlap,
   defaultDepthSourceInfo,
   depthSourceInfo,
+  offeredDepthSources,
+  offeredViews,
   resolveDepthSource,
   viewInfo,
   viewsShowing,
 } from './views.js'
-import type { DepthSourceInfo, DepthSourceTable, ViewInfo, ViewTable } from './views.js'
+import type {
+  AbsentMember,
+  AbsentTable,
+  DepthSourceInfo,
+  DepthSourceTable,
+  ViewInfo,
+  ViewTable,
+} from './views.js'
 
 /** Resolved from `import.meta.url`, so the test names the file it means wherever vitest runs. */
 const from = (relative: string): string => fileURLToPath(new URL(`../${relative}`, import.meta.url))
@@ -783,5 +811,496 @@ describe('R-p, recorded as data rather than as a note', () => {
     for (const roster of DEPTH_SOURCE_PROVENANCE.rosters) {
       expect(roster.what.trim(), roster.file).not.toBe('')
     }
+  })
+})
+
+/* ------------------------------------------------------------------ *
+ * Criterion 3, twice. `views.ts` is read as its own export list below.
+ * ------------------------------------------------------------------ */
+
+/**
+ * This module's own source, read as the independent list of its readers.
+ *
+ * The census below is a list of questions somebody typed, so on its own it
+ * cannot see a question that stops being asked: a label set computed by the
+ * same function on both sides of a diff loses a deleted row from both sides
+ * at once. C-11 measured that, and the answer is a list derived from
+ * something the census does not control — here `views.ts`' own
+ * `export function` lines.
+ */
+const MODULE = from('site/views.ts')
+
+/**
+ * A view nobody has registered, in the form a registration takes.
+ *
+ * **Named so that no real registration can collide with it**, which is not a
+ * stylistic choice: C-13's dummy was `sepia`, its own real-registration plant
+ * registered `sepia` for real, and four tests reddened on the name rather
+ * than on the cost it was measuring. The test below asserts the
+ * non-collision, because a fixture name is exactly the kind of thing a
+ * docblock records and nothing enforces.
+ *
+ * `shows` names a canvas the page really has and `reason` is as long as a
+ * real entry's, because {@link auditViews} demands both — a dummy the audit
+ * rejects would prove the audit works and leave the registration unproven.
+ */
+const DUMMY_VIEW: ViewInfo = {
+  view: 'fixture-view',
+  label: 'A fixture',
+  reason:
+    'A fixture and not a proposal. A registration test needs an entry design §5.2 does not ' +
+    'declare, so that the entry appearing cannot be the shipped registry answering in its ' +
+    'place. Its name is hyphenated and says what it is, so that a view genuinely argued for ' +
+    'in the design can never be spelled the same way and redden these tests for the wrong reason.',
+  shows: ['depth'],
+}
+
+/**
+ * A depth source nobody has registered. {@link DUMMY_VIEW}'s reasoning.
+ *
+ * `stage` is `after`, which is deliberate: a dummy reading a stage no shipped
+ * source reads would make {@link auditDepthSources}' degeneracy complaint
+ * change its answer for a reason that is not the registration.
+ */
+const DUMMY_SOURCE: DepthSourceInfo = {
+  source: 'fixture-source',
+  label: 'A fixture',
+  reason:
+    'A fixture and not a proposal. The `#depth-view` select does not offer it and ' +
+    '`site/controls.ts` does not declare it, which is what makes it register rather than ' +
+    'resolve: an entry drawn from either upstream would be answered for by the shipped table ' +
+    'and every assertion below would be green over a reader that ignored the table it is handed.',
+  stage: 'after',
+}
+
+/** The shipped registry plus one entry, which is the whole of a registration. */
+const REGISTERED_VIEWS: ViewTable = { ...VIEWS, [DUMMY_VIEW.view]: DUMMY_VIEW }
+const REGISTERED_SOURCES: DepthSourceTable = { ...DEPTH_SOURCES, [DUMMY_SOURCE.source]: DUMMY_SOURCE }
+
+/**
+ * The names a consumer can arrive holding, derived rather than listed.
+ *
+ * Every name either upstream states, both fixtures, every name either list has
+ * already decided against, and the inherited names E8 covers — so the census
+ * asks each reader about a name it should answer for, a name it should not,
+ * and a name whose answer lives in the *other* axis' table.
+ */
+const PROBED: readonly string[] = [
+  ...DESIGNED.ids,
+  ...MARKED_UP.sources,
+  DUMMY_VIEW.view,
+  DUMMY_SOURCE.source,
+  ...Object.keys(ABSENT_VIEWS),
+  ...Object.keys(ABSENT_DEPTH_SOURCES),
+  ...INHERITED,
+]
+
+/**
+ * Every table a reader in this module reads, so the census can move any of them.
+ *
+ * **Four, and the two absence tables are here because of C-10's P12**: a row
+ * the census cannot vary is a row that cannot move whatever you do, which
+ * makes "it did not move under a registration" an unchecked declaration
+ * rather than a measurement. That is what `absentView` and `absentDepthSource`
+ * were widened for.
+ */
+interface AxisInputs {
+  readonly views: ViewTable
+  readonly sources: DepthSourceTable
+  readonly absentViews: AbsentTable
+  readonly absentSources: AbsentTable
+}
+
+/** The shipped tree, as the census reads it. */
+const SHIPPED: AxisInputs = {
+  views: VIEWS,
+  sources: DEPTH_SOURCES,
+  absentViews: ABSENT_VIEWS,
+  absentSources: ABSENT_DEPTH_SOURCES,
+}
+
+/** One question and the answer this module gives it. */
+type CensusRow = readonly [label: string, answer: string]
+
+/**
+ * Every question this module answers, with its answer, sorted by question.
+ *
+ * The instrument for the negative half of criterion 3. *"A dummy entry appears
+ * without touching another file"* is a claim that **nothing else moved**, and
+ * §6.5a says a null measurement is worth only what its control is worth, so
+ * the rows are diffed across each registration and the moved ones counted.
+ *
+ * **One census over both axes, which is this file's reason for existing.** The
+ * claim the two lists are two — not two halves of one — predicts that
+ * registering a view moves no answer about a depth source and the reverse, and
+ * that is a prediction only a census spanning both can be wrong about.
+ */
+function censusOfAxes({ views, sources, absentViews, absentSources }: AxisInputs): readonly CensusRow[] {
+  const rows: CensusRow[] = [
+    ['offeredViews', offeredViews(views).map(info => `${info.view}:${info.label}`).join(' ')],
+    ['offeredDepthSources', offeredDepthSources(sources).map(info => `${info.source}:${info.label}`).join(' ')],
+    ['axisOverlap', axisOverlap(views, sources).join(' ') || 'none'],
+    ['auditViews', auditViews(views, DESIGNED.ids, MARKED_UP.canvases).join(' · ') || 'no complaints'],
+    ['auditDepthSources', auditDepthSources(sources, MARKED_UP.sources).join(' · ') || 'no complaints'],
+    ['defaultDepthSourceInfo', defaultDepthSourceInfo(sources)?.source ?? 'nothing'],
+    ['resolveDepthSource(undefined)', resolveDepthSource(undefined, sources)],
+  ]
+
+  for (const canvas of MARKED_UP.canvases) {
+    rows.push([`viewsShowing(${canvas})`, [...viewsShowing(canvas, views)].sort().join(' ') || 'nothing'])
+  }
+
+  for (const name of PROBED) {
+    rows.push([`viewInfo(${name})`, viewInfo(name, views)?.label ?? 'nothing'])
+    rows.push([`depthSourceInfo(${name})`, depthSourceInfo(name, sources)?.label ?? 'nothing'])
+    rows.push([`resolveDepthSource(${name})`, resolveDepthSource(name, sources)])
+    rows.push([`absentView(${name})`, absentView(name, absentViews)?.disposition ?? 'nothing'])
+    rows.push([`absentDepthSource(${name})`, absentDepthSource(name, absentSources)?.disposition ?? 'nothing'])
+  }
+
+  return [...rows].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+}
+
+/**
+ * The questions whose answer differs between two censuses, by label.
+ *
+ * **The label check runs ahead of the diff, and here it earns its place on the
+ * message rather than on the outcome** — C-13's narrowing of C-9's claim, and
+ * it holds for this file too, because every caller below pins the moved labels
+ * by name. Without the check, a row that vanished misaligns the positional
+ * diff and names a long list of rows as moved, none of which did.
+ */
+function movedBetween(before: readonly CensusRow[], after: readonly CensusRow[]): readonly string[] {
+  expect(after.map(row => row[0])).toEqual(before.map(row => row[0]))
+  return after.filter((row, i) => row[1] !== before[i]![1]).map(row => row[0]).sort()
+}
+
+describe('the fixtures collide with nothing, which is a sensor and not a docblock', () => {
+  it('names two fixtures neither list, neither absence table and neither upstream claims', () => {
+    // C-13 lost four tests to a dummy that its own real-registration plant
+    // then registered for real, and left this guard unbuilt deliberately
+    // because it had already paid for it. It is one test, it is derived from
+    // every roster in play rather than from a list, and it is cheaper than
+    // reading four red tests that are not about what they say they are about.
+    const taken = new Set([
+      ...VIEW_IDS,
+      ...DEPTH_SOURCE_IDS,
+      ...CANVAS_KINDS,
+      ...DESIGNED.ids,
+      ...MARKED_UP.sources,
+      ...MARKED_UP.canvases,
+      ...REDUCED.ids,
+      ...Object.keys(ABSENT_VIEWS),
+      ...Object.keys(ABSENT_DEPTH_SOURCES),
+      ...INHERITED,
+    ])
+    expect(taken.size, 'a guard against an empty set is not a guard').toBeGreaterThan(5)
+    expect([...taken]).not.toContain(DUMMY_VIEW.view)
+    expect([...taken]).not.toContain(DUMMY_SOURCE.source)
+    expect(DUMMY_VIEW.view).not.toBe(DUMMY_SOURCE.source)
+  })
+})
+
+describe('registering a view is an edit to the table and to nothing else', () => {
+  it('offers the dummy, which is what a switcher reads and a lookup is not', () => {
+    // Criterion 3's "appears", read as §9 requires: design §5.2's consumer
+    // offers the views, so a view that is registered and not offered has not
+    // appeared — it is merely reachable by a caller who already knows its
+    // name. `VIEW_IDS` is a static declaration no registration can move,
+    // which is the shape `SHADINGS` was caught in.
+    const offered = offeredViews(REGISTERED_VIEWS)
+    expect(offered.map(info => info.view)).toContain(DUMMY_VIEW.view)
+    expect(offered.find(info => info.view === DUMMY_VIEW.view)).toEqual(DUMMY_VIEW)
+  })
+
+  it('reads the table it is handed and not the module, so a table of one offers one', () => {
+    // The control on the assertion above, and the one that fails over a
+    // reader backed by `VIEW_IDS`: that reader is green on `REGISTERED_VIEWS`
+    // only by accident of the spread, and answers three entries here.
+    expect(offeredViews({ [DUMMY_VIEW.view]: DUMMY_VIEW })).toEqual([DUMMY_VIEW])
+  })
+
+  it('hands the dummy to every view reader that takes a table', () => {
+    expect(viewInfo(DUMMY_VIEW.view, REGISTERED_VIEWS)).toEqual(DUMMY_VIEW)
+    expect(viewsShowing('depth', REGISTERED_VIEWS)).toContain(DUMMY_VIEW.view)
+    expect(auditViews(REGISTERED_VIEWS, DESIGNED.ids, MARKED_UP.canvases)).toEqual([])
+  })
+
+  it('offers it to nobody who did not register it, so the fixture is not a shipped name', () => {
+    expect(offeredViews().map(info => info.view)).not.toContain(DUMMY_VIEW.view)
+    expect(viewInfo(DUMMY_VIEW.view)).toBeUndefined()
+    expect(viewsShowing('depth')).not.toContain(DUMMY_VIEW.view)
+    expect([...VIEW_IDS]).not.toContain(DUMMY_VIEW.view)
+  })
+
+  it('registers into a registry that already has entries, counted from the design roster', () => {
+    // The vacuity floor, and it is not a number: §I-1's defect is a check
+    // quantified over an empty set, and "one more than the design declares"
+    // is the one honest way to say how many were there without typing it.
+    expect(DESIGNED.ids.length).toBeGreaterThan(1)
+    expect(offeredViews()).toHaveLength(DESIGNED.ids.length)
+    expect(offeredViews(REGISTERED_VIEWS)).toHaveLength(DESIGNED.ids.length + 1)
+    expect(offeredViews({})).toEqual([])
+  })
+
+  it('moves exactly the answers that name the dummy, and no answer about the other axis', () => {
+    // `VIEWS` has no design §11 row and therefore no budget column, so there
+    // is no document to check this against — which makes the census the
+    // statement of the budget rather than a check on one. What it says: a
+    // registration moves what the switcher offers, the lookup for that one
+    // name, and the canvas question for the canvas the entry shows. Nothing
+    // on the depth-source axis moves at all, which is the two-axis claim
+    // stated as a measurement instead of as prose.
+    const moved = movedBetween(censusOfAxes(SHIPPED), censusOfAxes({ ...SHIPPED, views: REGISTERED_VIEWS }))
+    expect(moved).toEqual([
+      'offeredViews',
+      `viewInfo(${DUMMY_VIEW.view})`,
+      'viewsShowing(depth)',
+    ].sort())
+  })
+
+  it('sees the absent-views table move, so the rows that held still were measured', () => {
+    // C-10's P12. The census claims the absence table did not move under a
+    // registration; a row that cannot move whatever you do is an unchecked
+    // declaration. Moving it from the other side is the proof that its
+    // stillness above meant something — and it is only possible because
+    // `absentView` was widened to take the table.
+    const argued: AbsentMember = {
+      name: DUMMY_VIEW.view,
+      disposition: 'refused',
+      reason: DUMMY_VIEW.reason,
+    }
+    const moved = movedBetween(
+      censusOfAxes(SHIPPED),
+      censusOfAxes({ ...SHIPPED, absentViews: { ...ABSENT_VIEWS, [argued.name]: argued } }),
+    )
+    expect(moved).toEqual([`absentView(${DUMMY_VIEW.view})`])
+  })
+})
+
+describe('registering a depth source is an edit to the table and to nothing else', () => {
+  it('offers the dummy, which is the question nothing in this module answered', () => {
+    // The half `DEPTH_SOURCES` was missing outright, where `VIEWS` was missing
+    // only part of it: every shipped depth-source reader was a lookup, so a
+    // registered source was invisible to the one question the `#depth-view`
+    // select asks — what is on the menu.
+    const offered = offeredDepthSources(REGISTERED_SOURCES)
+    expect(offered.map(info => info.source)).toContain(DUMMY_SOURCE.source)
+    expect(offered.find(info => info.source === DUMMY_SOURCE.source)).toEqual(DUMMY_SOURCE)
+  })
+
+  it('reads the table it is handed and not the module, so a table of one offers one', () => {
+    expect(offeredDepthSources({ [DUMMY_SOURCE.source]: DUMMY_SOURCE })).toEqual([DUMMY_SOURCE])
+  })
+
+  it('hands the dummy to every depth-source reader that takes a table', () => {
+    expect(depthSourceInfo(DUMMY_SOURCE.source, REGISTERED_SOURCES)).toEqual(DUMMY_SOURCE)
+    expect(resolveDepthSource(DUMMY_SOURCE.source, REGISTERED_SOURCES)).toBe(DUMMY_SOURCE.source)
+    expect(auditDepthSources(REGISTERED_SOURCES, MARKED_UP.sources)).toEqual([])
+  })
+
+  it('offers it to nobody who did not register it, so the fixture is not a shipped name', () => {
+    expect(offeredDepthSources().map(info => info.source)).not.toContain(DUMMY_SOURCE.source)
+    expect(depthSourceInfo(DUMMY_SOURCE.source)).toBeUndefined()
+    expect(resolveDepthSource(DUMMY_SOURCE.source)).toBe(DEFAULT_DEPTH_SOURCE)
+    expect([...DEPTH_SOURCE_IDS]).not.toContain(DUMMY_SOURCE.source)
+  })
+
+  it('registers into a registry that already has entries, counted from the page roster', () => {
+    // The floor derived from this axis' own upstream rather than from the
+    // design sentence: `DEPTH_SOURCES` is derived from what the page offers,
+    // and a floor read from the other list's upstream would be a number in
+    // disguise.
+    expect(MARKED_UP.sources.length).toBeGreaterThan(1)
+    expect(offeredDepthSources()).toHaveLength(MARKED_UP.sources.length)
+    expect(offeredDepthSources(REGISTERED_SOURCES)).toHaveLength(MARKED_UP.sources.length + 1)
+    expect(offeredDepthSources({})).toEqual([])
+  })
+
+  it('moves exactly the answers that name the dummy, and no answer about the other axis', () => {
+    const moved = movedBetween(censusOfAxes(SHIPPED), censusOfAxes({ ...SHIPPED, sources: REGISTERED_SOURCES }))
+    expect(moved).toEqual([
+      'offeredDepthSources',
+      `depthSourceInfo(${DUMMY_SOURCE.source})`,
+      `resolveDepthSource(${DUMMY_SOURCE.source})`,
+    ].sort())
+  })
+
+  it('sees the absent-sources table move, so the rows that held still were measured', () => {
+    const argued: AbsentMember = {
+      name: DUMMY_SOURCE.source,
+      disposition: 'refused',
+      reason: DUMMY_SOURCE.reason,
+    }
+    const moved = movedBetween(
+      censusOfAxes(SHIPPED),
+      censusOfAxes({ ...SHIPPED, absentSources: { ...ABSENT_DEPTH_SOURCES, [argued.name]: argued } }),
+    )
+    expect(moved).toEqual([`absentDepthSource(${DUMMY_SOURCE.source})`])
+  })
+
+  it('does not become a view by being registered, which is the collapse this file watches for', () => {
+    // The one cross-axis answer that *should* move, and the control on the two
+    // "no answer about the other axis" assertions above: those are green over
+    // a census blind to the other table, and this is not.
+    const clash: DepthSourceTable = { ...DEPTH_SOURCES, depth: { ...DEPTH_SOURCES.encoded, source: 'depth' } }
+    const moved = movedBetween(censusOfAxes(SHIPPED), censusOfAxes({ ...SHIPPED, sources: clash }))
+    expect(moved).toContain('axisOverlap')
+    expect(axisOverlap(VIEWS, clash)).toEqual(['depth'])
+  })
+})
+
+describe('the census asks every question this module answers', () => {
+  it('covers every reader views.ts exports, read from the source rather than from itself', () => {
+    // The census cannot notice a question it stopped asking, because the label
+    // set is computed by the same function on both sides of the diff. C-11's
+    // answer: an independent list. `views.ts`' own export list is it — delete
+    // a row from the census above and this is what says so.
+    const exported = [...readFileSync(MODULE, 'utf8').matchAll(/^export function (\w+)/gm)]
+      .map(match => match[1]!)
+    expect(exported.length, 'a module with no readers is not what this is parsing')
+      .toBeGreaterThan(1)
+
+    const labels = censusOfAxes(SHIPPED).map(row => row[0])
+    for (const reader of exported) {
+      expect(labels.some(label => label === reader || label.startsWith(`${reader}(`)), reader).toBe(true)
+    }
+  })
+})
+
+describe('what each picker offers is what its own lookup resolves', () => {
+  /**
+   * E8 / R-l in the form an **enumerating** reader meets it, which is not the
+   * form the lookups meet.
+   *
+   * `Object.prototype`'s members are non-enumerable, so they never reach a
+   * picker by themselves and the lookups' hazard does not transfer. What does
+   * reach one is a table that inherits from another table: `Object.create`'s
+   * inherited entries are surfaced by `for…in` and refused by
+   * `Object.hasOwn`, so a picker written the obvious way would put rows in the
+   * menu that select nothing. Defining each picker in terms of its own lookup
+   * is what makes that unrepresentable rather than merely tested.
+   *
+   * Built with `Object.create` rather than the `__proto__:` literal because
+   * the two spellings are not interchangeable: C-8 measured that the literal
+   * sets the prototype while the computed key declares an own property, and
+   * both halves are wanted here.
+   */
+  const chainedViews: ViewTable = Object.assign(
+    Object.create(VIEWS) as Record<string, ViewInfo>,
+    { [DUMMY_VIEW.view]: DUMMY_VIEW },
+  )
+  const chainedSources: DepthSourceTable = Object.assign(
+    Object.create(DEPTH_SOURCES) as Record<string, DepthSourceInfo>,
+    { [DUMMY_SOURCE.source]: DUMMY_SOURCE },
+  )
+
+  /**
+   * Tables that genuinely declare prototype member names as their own keys.
+   *
+   * **Written as a spread of an annotated value, and that is load-bearing
+   * rather than terse.** C-10 and C-11 measured that an object literal keyed
+   * by one of the `Object` interface's seven declared members widens the
+   * value's fields, and that it bites only where the field's type is narrower
+   * than its widened literal — `DepthSourceInfo.stage` is exactly such a
+   * field. Measured here on these two types: a *fresh* literal under
+   * `['constructor']` is `Type 'string' is not assignable to type
+   * 'DepthStage'`; the same value **spread from an annotated const is clean**,
+   * because the field's type then comes from the annotation and not from
+   * literal inference. That is a cure neither of those two
+   * measurements names, alongside `satisfies` and `as const`, and the reason rewriting these two fixtures as plain literals
+   * would be a typecheck error `npm test` cannot see.
+   */
+  const oddlyKeyedViews: ViewTable = {
+    ['__proto__']: { ...DUMMY_VIEW, view: '__proto__', label: 'Oddly named' },
+    ['constructor']: { ...DUMMY_VIEW, view: 'constructor', label: 'Also oddly named' },
+  }
+  const oddlyKeyedSources: DepthSourceTable = {
+    ['__proto__']: { ...DUMMY_SOURCE, source: '__proto__', label: 'Oddly named' },
+    ['constructor']: { ...DUMMY_SOURCE, source: 'constructor', label: 'Also oddly named' },
+  }
+
+  it('offers only what a table owns, not what it inherits', () => {
+    expect(offeredViews(chainedViews).map(info => info.view)).toEqual([DUMMY_VIEW.view])
+    expect(offeredDepthSources(chainedSources).map(info => info.source)).toEqual([DUMMY_SOURCE.source])
+    for (const id of VIEW_IDS) expect(viewInfo(id, chainedViews), id).toBeUndefined()
+    for (const id of DEPTH_SOURCE_IDS) expect(depthSourceInfo(id, chainedSources), id).toBeUndefined()
+  })
+
+  it('does not let an inherited entry reach the canvas question either', () => {
+    // `viewsShowing` is the module's other enumerating reader, and it was the
+    // one already answering from a table before this task. It is defined in
+    // terms of the same picker, so it inherits the property rather than
+    // restating it — and this is the sensor for that.
+    expect(viewsShowing('depth', chainedViews)).toEqual([DUMMY_VIEW.view])
+  })
+
+  it('offers entries genuinely keyed by a prototype member name', () => {
+    // The other direction, and the one that proves each reader is `hasOwn`
+    // rather than a blocklist of names: a table is free to key an entry by a
+    // name the prototype also has, and that entry is a member like any other.
+    expect(offeredViews(oddlyKeyedViews).map(info => info.view).sort())
+      .toEqual(['__proto__', 'constructor'])
+    expect(offeredDepthSources(oddlyKeyedSources).map(info => info.source).sort())
+      .toEqual(['__proto__', 'constructor'])
+  })
+
+  it('offers exactly the entries the lookup resolves, over every shape of table', () => {
+    // The property that makes picker and lookup one decision rather than two:
+    // a row the picker offers and the lookup refuses is a menu entry that
+    // selects nothing, and a row the lookup resolves and the picker omits is
+    // the registration failing to appear.
+    const viewShapes: readonly (readonly [string, ViewTable])[] = [
+      ['shipped', VIEWS],
+      ['registered', REGISTERED_VIEWS],
+      ['inheriting', chainedViews],
+      ['oddly keyed', oddlyKeyedViews],
+      ['empty', {}],
+    ]
+    for (const [name, table] of viewShapes) {
+      const offered = offeredViews(table)
+      for (const info of offered) {
+        expect(viewInfo(info.view, table), `${name}/${info.view}`).toEqual(info)
+      }
+      expect(offered.map(info => info.view).sort(), name).toEqual(Object.keys(table).sort())
+    }
+
+    const sourceShapes: readonly (readonly [string, DepthSourceTable])[] = [
+      ['shipped', DEPTH_SOURCES],
+      ['registered', REGISTERED_SOURCES],
+      ['inheriting', chainedSources],
+      ['oddly keyed', oddlyKeyedSources],
+      ['empty', {}],
+    ]
+    for (const [name, table] of sourceShapes) {
+      const offered = offeredDepthSources(table)
+      for (const info of offered) {
+        expect(depthSourceInfo(info.source, table), `${name}/${info.source}`).toEqual(info)
+      }
+      expect(offered.map(info => info.source).sort(), name).toEqual(Object.keys(table).sort())
+    }
+  })
+
+  it('keeps the order each table declares, which is an argument somebody made', () => {
+    // A picker that sorted its answer would discard an ordering somebody
+    // argued for, and a registration appends rather than reorders.
+    //
+    // **The two lists do not take their order from the same place, and that
+    // is a finding rather than an inconsistency.** `VIEW_IDS` copies design
+    // §5.2's order deliberately, and the table is written in the same order,
+    // so the picker and the id list agree. `DEPTH_SOURCE_IDS` deliberately
+    // does *not* — C-5's convention puts the default away from index 0 — while
+    // the **table** is written in the page's order, which is the order the
+    // `#depth-view` select offers and therefore the only order a picker may
+    // use. So the depth-source picker is pinned against the page's roster and
+    // not against `DEPTH_SOURCE_IDS`, and the two orders disagreeing is
+    // asserted rather than left for a reader to trip over.
+    expect(offeredViews().map(info => info.view)).toEqual([...VIEW_IDS])
+    expect(offeredViews(REGISTERED_VIEWS).map(info => info.view)).toEqual([...VIEW_IDS, DUMMY_VIEW.view])
+
+    expect(offeredDepthSources().map(info => info.source)).toEqual([...MARKED_UP.sources])
+    expect(offeredDepthSources(REGISTERED_SOURCES).map(info => info.source))
+      .toEqual([...MARKED_UP.sources, DUMMY_SOURCE.source])
+    expect([...DEPTH_SOURCE_IDS]).not.toEqual([...MARKED_UP.sources])
   })
 })

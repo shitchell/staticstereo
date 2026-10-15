@@ -72,6 +72,21 @@
  * `Object.hasOwn` at every reader is genuinely load-bearing (E8 / R-l) rather
  * than belt-and-braces.
  *
+ * ## Each axis has a picker, and it was not always true
+ *
+ * Plan §9: *"a registration test must assert that the thing a consumer does
+ * is now possible — not that the entry can be found."* Both lists failed that
+ * at first, and **not equally**, which is the one thing a file holding two
+ * registries can measure that eight files holding one cannot. `VIEWS` had
+ * {@link viewsShowing} — an enumerating reader, but of a different question
+ * than the switcher's. `DEPTH_SOURCES` had **no enumerating reader at all**:
+ * every one of its readers was a lookup, so a source registered into a table
+ * copy was reachable only by a caller that already knew its name, and the
+ * `#depth-view` select's only question — what is on the menu — had no answer
+ * but {@link DEPTH_SOURCE_IDS}, a static declaration no registration can
+ * move. {@link offeredViews} and {@link offeredDepthSources} are that answer,
+ * each written in terms of its own lookup.
+ *
  * ## No barrel, and no view with a default
  *
  * No barrel, for the reason `panels.ts`, `controlspec.ts`, `operations.ts` and
@@ -496,6 +511,62 @@ export function defaultDepthSourceInfo(
 }
 
 /**
+ * The views a switcher offers, in the order the table declares them.
+ *
+ * **This is the question design §5.2's consumer actually asks, and until it
+ * existed nothing answered it from a table.** A view switcher needs the
+ * roster *and* each entry's label; {@link VIEW_IDS} is a static declaration
+ * no registration can move, and {@link viewsShowing} answers a different
+ * question — which views put a given canvas on screen — and answers it with
+ * bare names. So a view registered into a table copy was reachable only by a
+ * caller that already knew its name, which plan §9 is explicit is *not* what
+ * "the entry appears" means.
+ *
+ * **Defined in terms of {@link viewInfo}, which is the point and not a
+ * flourish.** A row a picker offers and the lookup refuses is a menu entry
+ * that selects nothing; a row the lookup resolves and the picker omits is a
+ * registration that did not appear. Going through the lookup makes both
+ * unrepresentable rather than merely tested — and the hazard is real for an
+ * enumerating reader in a way it is not for a lookup: `Object.prototype`'s
+ * members are non-enumerable and never reach a picker by themselves, but
+ * `Object.create(VIEWS)`'s inherited entries *are* surfaced by `for…in` while
+ * `Object.hasOwn` refuses them.
+ */
+export function offeredViews(table: ViewTable = VIEWS): readonly ViewInfo[] {
+  const offered: ViewInfo[] = []
+  for (const name of Object.keys(table)) {
+    const info = viewInfo(name, table)
+    if (info !== undefined) offered.push(info)
+  }
+  return offered
+}
+
+/**
+ * The depth sources a switcher offers, in the order the table declares them.
+ *
+ * {@link offeredViews}' reason, and this axis needed it more: **every shipped
+ * reader of {@link DEPTH_SOURCES} was a lookup**, so there was no enumerating
+ * consumer at all — not even the partial one {@link viewsShowing} gives the
+ * other axis. The `#depth-view` select is the consumer and "what is on the
+ * menu" is its only question.
+ *
+ * The table's order and {@link DEPTH_SOURCE_IDS}' order deliberately differ —
+ * the ids avoid putting the default at index 0, the table is written in the
+ * page's own order — so a picker must read the table and not the id list.
+ * `views.test.ts` pins this answer against `index.html`'s option order.
+ */
+export function offeredDepthSources(
+  table: DepthSourceTable = DEPTH_SOURCES,
+): readonly DepthSourceInfo[] {
+  const offered: DepthSourceInfo[] = []
+  for (const name of Object.keys(table)) {
+    const info = depthSourceInfo(name, table)
+    if (info !== undefined) offered.push(info)
+  }
+  return offered
+}
+
+/**
  * The views that put a given canvas on screen.
  *
  * The question the other two axes ask of this one: `SHADINGS` and
@@ -503,9 +574,16 @@ export function defaultDepthSourceInfo(
  * live is "does the current view show `depth`". Answering it from the registry
  * rather than from a `=== 'depth' || === 'both'` in the shell is what keeps a
  * fourth view from silently losing its depth controls.
+ *
+ * Reads each entry through {@link viewInfo} rather than indexing the table,
+ * so this module has **one** decision about what a table contains instead of
+ * two that can drift, and the `table[view]!` the previous form needed is
+ * gone. It still answers with the **keys** and not with
+ * {@link ViewInfo.view}: a table whose mirror disagrees with its key is
+ * `auditViews`' complaint to make, not this reader's to paper over.
  */
 export function viewsShowing(canvas: string, table: ViewTable = VIEWS): readonly string[] {
-  return Object.keys(table).filter(view => table[view]!.shows.includes(canvas))
+  return Object.keys(table).filter(view => viewInfo(view, table)?.shows.includes(canvas) === true)
 }
 
 /**
@@ -664,6 +742,18 @@ export interface AbsentMember {
 }
 
 /**
+ * A table of absent members, keyed by name.
+ *
+ * Keyed by `string` for {@link ViewTable}'s reasons, and a parameter on both
+ * absence readers for one more: a census that cannot vary a table has a row
+ * that cannot move whatever it does, which makes *"the absence table did not
+ * move under a registration"* an unchecked declaration rather than a
+ * measurement. C-10's finding, and the reason these two readers now take the
+ * table their eight neighbours already took.
+ */
+export type AbsentTable = Readonly<Record<string, AbsentMember>>
+
+/**
  * Views that are understood, will be asked for, and are not registered.
  *
  * A registry records decisions by **listing**, and several of this axis'
@@ -768,13 +858,16 @@ export const ABSENT_DEPTH_SOURCES: Record<string, AbsentMember> = {
  * `refusedPanel`, `refusedPlacement`, `refusedLayerVariant`, `absentOperation`
  * and `absentShading` make.
  */
-export function absentView(name: string): AbsentMember | undefined {
-  if (!Object.hasOwn(ABSENT_VIEWS, name)) return undefined
-  return ABSENT_VIEWS[name]
+export function absentView(name: string, table: AbsentTable = ABSENT_VIEWS): AbsentMember | undefined {
+  if (!Object.hasOwn(table, name)) return undefined
+  return table[name]
 }
 
 /** Why this depth source is not registered, if it is one we have considered. See {@link absentView}. */
-export function absentDepthSource(name: string): AbsentMember | undefined {
-  if (!Object.hasOwn(ABSENT_DEPTH_SOURCES, name)) return undefined
-  return ABSENT_DEPTH_SOURCES[name]
+export function absentDepthSource(
+  name: string,
+  table: AbsentTable = ABSENT_DEPTH_SOURCES,
+): AbsentMember | undefined {
+  if (!Object.hasOwn(table, name)) return undefined
+  return table[name]
 }
