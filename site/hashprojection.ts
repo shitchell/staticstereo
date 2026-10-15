@@ -21,12 +21,12 @@ import type { AssertNever } from '../src/core/index.js'
  * does not know it exists. That is the difference between a convention and a
  * projection, and it is the whole of this module's content.
  *
- * **`read` and `write` are arguments.** `transportdriver.ts` makes the same
- * choice for the clock and the scheduler and gives the reason this module
- * inherits: with the ambient thing injected, a whole editing session is
+ * **`read`, `write` and the tick are arguments.** `transportdriver.ts` makes
+ * the same choice for the clock and the scheduler and gives the reason this
+ * module inherits: with the ambient thing injected, a whole editing session is
  * expressible as a sequence of values in a test, in plain node, with no DOM.
- * Neither `location` nor `history` is named anywhere below, and
- * `hashprojection.test.ts` asserts that by parsing this file — so the
+ * Neither `location` nor `history` nor any timer is named anywhere below, and
+ * `hashprojection.test.ts` asserts both by parsing this file — so the
  * paragraphs here are free to discuss them, which they must, since what this
  * module refuses to touch is most of its rationale.
  *
@@ -46,15 +46,24 @@ import type { AssertNever } from '../src/core/index.js'
  * {@link projectedHash} of the current state — derived, so it cannot go stale
  * — instead of to a record of what was last written.
  *
+ * **The coalescing is here and not in the store** (design §3.4, criterion 15).
+ * A slider drag fires dozens of `input` events and each one is a `dispatch`;
+ * uncoalesced that is dozens of `replaceState` calls a second, which is the
+ * cost `main.ts` already names one level up as its reason for `replaceState`
+ * over `pushState`. The store stays synchronous — "what is on screen" must
+ * never depend on a timer, and undo and this module would otherwise have to
+ * share one batching policy neither of them chose — so the batching lives on
+ * the write side, which is the only side that wants it.
+ *
  * **What is deliberately NOT here.**
  *
- *  - *No coalescing and no scheduler.* Design §3.4 wants the write on a
- *    microtask so a slider drag collapses into one, and it belongs on this
- *    side rather than in the store, which must stay synchronous so that "what
- *    is on screen" never depends on a timer. It is a third member of
- *    {@link HashTarget}'s shape away and is deliberately not taken here: one
- *    mutation, one write, so that the coalescing commit has an uncoalesced
- *    baseline to be measured against.
+ *  - *No timer, and no opinion about which queue.* {@link Schedule} is an
+ *    argument with no default, exactly as `transportdriver.ts` takes `now`,
+ *    `schedule` and `cancel` with none — "that choice now lives at the
+ *    composition root rather than being welded in here". A default would make
+ *    the coalescing policy of every editor on the page a property of this
+ *    file, and would let a caller inherit a tick it never asked for; required,
+ *    the compiler names every site that has to decide.
  *  - *No loading.* Fragment → scene is the inverse projection, it needs the
  *    validator and somewhere to put an error message, and it runs once at boot
  *    rather than on every mutation. Nothing is shared but the codec.
@@ -124,6 +133,29 @@ export interface HashTarget {
 }
 
 /**
+ * Arrange for `flush` at the end of the current tick.
+ *
+ * `queueMicrotask` is the intended argument and what design §3.4 asks for:
+ * the write lands before the task that caused it yields to the event loop, so
+ * a copied link is never a tick behind the picture, and a whole gesture —
+ * every `input` event of a slider drag is one task — still collapses into one
+ * write. A caller wanting a frame-paced or idle-paced URL passes something
+ * else; a test passes a queue it cranks by hand.
+ *
+ * **It is deliberately not {@link HashTarget}'s third member.** That
+ * interface answers *where* the fragment is and its browser adapter is very
+ * nearly the identity; this answers *when*, which is a policy and the only
+ * thing a caller is likely to want to vary on its own.
+ *
+ * **And it hands back nothing to cancel with.** A microtask cannot be
+ * un-queued, so unlike `transportdriver.ts` — which takes a `cancel` because
+ * a timeout genuinely can be cleared — detachment here is a flag the flush
+ * reads. Asking for a handle this module could not use on the one scheduler
+ * it is built for would be a cost paid by every caller for nothing.
+ */
+export type Schedule = (flush: () => void) => void
+
+/**
  * Project `store` onto `target` for as long as the returned function is
  * uncalled.
  *
@@ -149,10 +181,48 @@ export interface HashTarget {
  * harm: a reader who arrives on a *broken* link gets an error naming it, and
  * an attach-time write would replace the evidence with the default scene
  * before they could read it.
+ *
+ * ## Coalescing
+ *
+ * A notification does not write; it asks `schedule` for a flush, and only if
+ * one is not already pending. So N mutations in one tick are one flush and at
+ * most one write — criterion 15 — and the gesture's *final* state is what
+ * reaches the link, because the flush projects {@link SceneStore.state} as it
+ * stands when it runs rather than the state it was notified with. That is
+ * `store.ts`'s own re-entrancy rule applied one level out: it reads the state
+ * at call time so that no subscriber is ever handed a value disagreeing with
+ * `state()`, and a projector that wrote a captured state would be the
+ * subscriber that reinstated the disagreement.
+ *
+ * **"One write" is "at most one write", and the difference is the guard.** A
+ * tick whose mutations cancel out — a slider dragged away and back, an undo
+ * inside one gesture — leaves the projection where it was, and the unchanged
+ * fragment is skipped exactly as it is outside a tick. The rule the tests
+ * pin is therefore *a write happens exactly when the projection moved across
+ * the tick*, which is the per-mutation rule with "the tick" substituted for
+ * "the mutation" and nothing else changed.
  */
-export function attachHashProjection(store: SceneStore, target: HashTarget): Unsubscribe {
-  return store.subscribe(state => {
-    const fragment = `#${projectedHash(state)}`
+export function attachHashProjection(
+  store: SceneStore,
+  target: HashTarget,
+  schedule: Schedule,
+): Unsubscribe {
+  // Per-attachment and never module-level, for the reason `store.ts` gives for
+  // its own `self`: two editors on one page, and two tests in one file, must
+  // not share a pending flush — sharing one drops every write but the first.
+  const self = { pending: false, detached: false }
+
+  const flush = (): void => {
+    // Cleared first, so a mutation made *during* the write — a `hashchange`
+    // handler, a panel reacting to the URL — schedules a further flush
+    // instead of seeing one still pending and being dropped. Clearing it
+    // afterwards looks equally correct and loses that mutation permanently.
+    self.pending = false
+    // A queued microtask cannot be withdrawn, so the detach is honoured here.
+    // Without this a panel unmounting mid-gesture still gets one last word on
+    // the URL, from a projector that no longer exists.
+    if (self.detached) return
+    const fragment = `#${projectedHash(store.state())}`
     // Skipped rather than written: `replaceState` with an unchanged fragment
     // is not free — it is a history-entry edit per slider tick — and the
     // editor's own reason for `replaceState` over `pushState` ("a slider drag
@@ -160,5 +230,18 @@ export function attachHashProjection(store: SceneStore, target: HashTarget): Uns
     // cost one level up.
     if (target.read() === fragment) return
     target.write(fragment)
+  }
+
+  // The notification carries the state and this ignores it, deliberately: see
+  // the note above on why the flush re-reads the store.
+  const unsubscribe = store.subscribe(() => {
+    if (self.pending) return
+    self.pending = true
+    schedule(flush)
   })
+
+  return () => {
+    self.detached = true
+    unsubscribe()
+  }
 }

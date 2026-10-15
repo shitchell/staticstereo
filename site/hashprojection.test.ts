@@ -7,7 +7,7 @@ import {
   attachHashProjection,
   projectedHash,
 } from './hashprojection.js'
-import type { HashTarget } from './hashprojection.js'
+import type { HashTarget, Schedule } from './hashprojection.js'
 import { HASH_VERSION, encodeSceneHash, parseSceneHash } from './hash.js'
 import { createSceneStore } from './store.js'
 import { initialState } from './controls.js'
@@ -61,6 +61,66 @@ function recordingTarget(initial = ''): Recorder {
   }
 }
 
+/* ---------------------------------------------------------- the schedulers */
+
+/**
+ * Run the flush at once.
+ *
+ * The uncoalesced configuration, and what every test outside the coalescing
+ * block uses. Those tests are about *what* is written and against which
+ * fragment; a scheduler that deferred would make each of them assert across a
+ * tick boundary that is not their subject, so their claims stay claims about
+ * one notification, exactly as written. The coalescing block re-establishes
+ * the load-bearing ones through a deferred scheduler as well, because "the
+ * exclusion survives batching" is a different statement from "the exclusion
+ * holds" and only the first is evidence that coalescing left them alone.
+ */
+const immediately: Schedule = flush => flush()
+
+/**
+ * A hand-cranked queue: nothing runs until {@link TickQueue.run}, and a flush
+ * that schedules another lands in the *next* crank rather than extending this
+ * one. That is what makes a crank a tick boundary rather than a drain, and it
+ * is the whole reason the fake exists — "N mutations in one tick" has no
+ * meaning against a scheduler with no ticks.
+ */
+interface TickQueue {
+  readonly schedule: Schedule
+  /** Run everything queued when the crank started; answers how many ran. */
+  run(): number
+  /** How many flushes are waiting. */
+  depth(): number
+}
+
+function tickQueue(): TickQueue {
+  // Closure state, never module scope, for the reason `recordingTarget` gives.
+  const waiting: (() => void)[] = []
+  return {
+    schedule: flush => {
+      waiting.push(flush)
+    },
+    run: () => {
+      const due = waiting.splice(0)
+      for (const flush of due) flush()
+      return due.length
+    },
+    depth: () => waiting.length,
+  }
+}
+
+/**
+ * One turn of the **real** microtask queue.
+ *
+ * `await` on a settled promise enqueues its continuation behind whatever is
+ * already queued, so a flush that `queueMicrotask` queued before this call has
+ * run by the time it returns. Used wherever the question is *which* queue the
+ * projector landed on: a fake scheduler is indistinguishable between
+ * `queueMicrotask` and `setTimeout`, so a fake-only suite cannot see that
+ * mistake, and the microtask/macrotask difference is the whole of design
+ * §3.4's "on a microtask".
+ */
+const microtask = (): Promise<void> => Promise.resolve()
+
 /* -------------------------------------------------- the Action vocabulary */
 
 /**
@@ -113,6 +173,28 @@ const EVERY_SAMPLE: readonly Action[] = Object.values(SAMPLES).flat()
 const BROWSER_GLOBALS = ['location', 'history', 'window', 'document', 'globalThis'] as const
 
 /**
+ * The ways a module could make its own tick instead of being handed one.
+ *
+ * Kept apart from {@link BROWSER_GLOBALS} rather than folded in, because the
+ * two sensors fail for different reasons and a reader of a merged failure
+ * could not tell "it touched the DOM" from "it welded in a scheduler" —
+ * §6.5a's rule that a harness unable to say *which* failure happened has told
+ * you almost nothing. `Promise` is on the list because
+ * `Promise.resolve().then(flush)` is a microtask scheduler spelled without a
+ * scheduler's name.
+ */
+const TIMER_GLOBALS = [
+  'queueMicrotask',
+  'setTimeout',
+  'setInterval',
+  'setImmediate',
+  'requestAnimationFrame',
+  'requestIdleCallback',
+  'Promise',
+  'process',
+] as const
+
+/**
  * Which browser globals `text` **names as code**.
  *
  * Parsed, not grepped, and the difference is the whole point: this module's
@@ -126,12 +208,17 @@ const BROWSER_GLOBALS = ['location', 'history', 'window', 'document', 'globalThi
  * Deliberately conservative: a *property* named `history` would be reported
  * too. A false positive costs one comment; a false negative is a DOM
  * dependency nobody notices.
+ *
+ * `names` is defaulted rather than fixed so {@link TIMER_GLOBALS} reuses the
+ * walk without a second copy of it — the alternative is two parsers drifting
+ * apart, and P3a's carried finding 4 already ruled that a defaulted table
+ * parameter wins over a hard-wired one.
  */
-function globalsNamedIn(text: string): string[] {
+function globalsNamedIn(text: string, names: readonly string[] = BROWSER_GLOBALS): string[] {
   const file = ts.createSourceFile('x.ts', text, ts.ScriptTarget.ES2022, true)
   const found = new Set<string>()
   const walk = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && (BROWSER_GLOBALS as readonly string[]).includes(node.text)) {
+    if (ts.isIdentifier(node) && names.includes(node.text)) {
       found.add(node.text)
     }
     ts.forEachChild(node, walk)
@@ -215,7 +302,7 @@ describe('the partition between what a link carries and what it does not', () =>
   it('writes for a scene mutation and not for a depthView one', () => {
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget(`#${projectedHash(store.state())}`)
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
 
     store.dispatch({ type: 'depthView', value: 'encoded' })
     expect(target.writes, 'depthView is a view concern and must not reach the link').toEqual([])
@@ -230,7 +317,7 @@ describe('the partition between what a link carries and what it does not', () =>
   it('writes for a scene mutation and not for a time one', () => {
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget(`#${projectedHash(store.state())}`)
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
 
     store.dispatch({ type: 'time', seconds: 1.3 })
     expect(target.writes, 'the scrub position is not the scene').toEqual([])
@@ -258,7 +345,7 @@ describe('the partition between what a link carries and what it does not', () =>
      */
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
 
     store.dispatch({ type: 'depthView', value: 'encoded' })
     expect(target.read()).toBe(`#${projectedHash(store.state())}`)
@@ -324,7 +411,7 @@ describe('location and history are the caller’s', () => {
   it('is driven to completion by a plain {read, write} pair in node', () => {
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
     store.dispatch({ type: 'scene', scene: OTHER })
     expect(target.writes).toEqual([`#${projectedHash(store.state())}`])
   })
@@ -337,14 +424,14 @@ describe('the store and the fragment cannot disagree', () => {
     // mutation, one write" false at the one moment nothing was mutated.
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
     expect(target.writes).toEqual([])
   })
 
   it('leaves the fragment equal to the projection after every Action variant', () => {
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
 
     let wrote = 0
     let skipped = 0
@@ -377,7 +464,7 @@ describe('the store and the fragment cannot disagree', () => {
   it('agrees after an arbitrary interleaving of included, excluded and refused edits', () => {
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
 
     const sequence: readonly Action[] = [
       { type: 'depthView', value: 'encoded' },
@@ -405,7 +492,7 @@ describe('the store and the fragment cannot disagree', () => {
   it('writes nothing for a dispatch reduce refuses', () => {
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
     store.dispatch({ type: 'stereo', patch: { seed: 4 } })
     const after = [...target.writes]
 
@@ -426,7 +513,7 @@ describe('the store and the fragment cannot disagree', () => {
      */
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    attachHashProjection(store, target)
+    attachHashProjection(store, target, immediately)
 
     store.dispatch({ type: 'stereo', patch: { seed: 5 } })
     const projected = target.read()
@@ -448,7 +535,7 @@ describe('the store and the fragment cannot disagree', () => {
     // calls are.
     const store = createSceneStore(initialState(ANIM))
     const target = recordingTarget()
-    const detach = attachHashProjection(store, target)
+    const detach = attachHashProjection(store, target, immediately)
 
     store.dispatch({ type: 'stereo', patch: { seed: 6 } })
     expect(target.writes.length).toBe(1)
@@ -469,12 +556,439 @@ describe('the store and the fragment cannot disagree', () => {
     const b = createSceneStore(initialState(ANIM))
     const ta = recordingTarget()
     const tb = recordingTarget()
-    attachHashProjection(a, ta)
-    attachHashProjection(b, tb)
+    attachHashProjection(a, ta, immediately)
+    attachHashProjection(b, tb, immediately)
 
     a.dispatch({ type: 'scene', scene: OTHER })
     expect(ta.writes.length).toBe(1)
     expect(tb.writes).toEqual([])
     expect(ta.read()).not.toBe(tb.read())
+  })
+})
+
+/* ============================================================== coalescing */
+
+describe('the write is deferred to a tick boundary, so a gesture is one write', () => {
+  it('writes once for N mutations in one tick — and N times across N ticks', () => {
+    /**
+     * Criterion 15, with the control §6.5a requires in the same test and
+     * through the same instrument.
+     *
+     * The control is not decoration here. "One write for three mutations" is
+     * satisfied just as well by a projector that has stopped writing, and a
+     * coalescing commit is exactly the change that could stop it: the two
+     * halves below differ only in **when the queue is cranked**, so a silent
+     * projector fails the second and a non-coalescing one fails the first.
+     * Nothing else about the two halves differs — same store, same target,
+     * same queue, same kind of mutation.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    store.dispatch({ type: 'stereo', patch: { seed: 1 } })
+    const first = `#${projectedHash(store.state())}`
+    store.dispatch({ type: 'stereo', patch: { seed: 2 } })
+    const middle = `#${projectedHash(store.state())}`
+    store.dispatch({ type: 'scene', scene: OTHER })
+    const last = `#${projectedHash(store.state())}`
+
+    // Stated rather than assumed: if two of the three projections coincided,
+    // "it wrote the final one" would be satisfiable by writing an earlier one
+    // and the value half of this test would prove nothing.
+    expect(new Set([first, middle, last]).size, 'the three states must differ').toBe(3)
+    expect(target.writes, 'nothing is written before the tick turns').toEqual([])
+
+    expect(queue.run(), 'three mutations scheduled one flush').toBe(1)
+    expect(target.writes.length, 'three mutations, one write').toBe(1)
+    expect(target.writes[0], 'the write carries the final state, not an intermediate').toBe(last)
+
+    // The control. The same three kinds of mutation, one per tick.
+    const before = target.writes.length
+    for (const seed of [3, 4, 5]) {
+      store.dispatch({ type: 'stereo', patch: { seed } })
+      expect(queue.run(), 'one mutation scheduled one flush').toBe(1)
+    }
+    expect(target.writes.length - before, 'three ticks, three writes').toBe(3)
+    // Three *distinct* writes, so this is three projections and not one value
+    // written three times by a projector that has lost the state.
+    expect(new Set(target.writes.slice(before)).size).toBe(3)
+    expect(target.writes.at(-1)).toBe(`#${projectedHash(store.state())}`)
+  })
+
+  it('coalesces on the real microtask queue — not synchronously, not on a timer', async () => {
+    /**
+     * Which queue, measured. The fake above is identical for `queueMicrotask`
+     * and `setTimeout`, so it cannot see a projector that landed on the wrong
+     * one, and "on a microtask" is design §3.4's actual words: the write must
+     * be in before the task that caused it yields to the event loop.
+     *
+     * The two assertions bracket the queue from both sides. Nothing written
+     * before the first `await` rules out a synchronous flush; everything
+     * written after it rules out any macrotask scheduler, none of which has
+     * run by the first microtask checkpoint.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    attachHashProjection(store, target, queueMicrotask)
+
+    store.dispatch({ type: 'stereo', patch: { seed: 1 } })
+    store.dispatch({ type: 'stereo', patch: { seed: 2 } })
+    store.dispatch({ type: 'scene', scene: OTHER })
+    expect(target.writes, 'the flush is not synchronous').toEqual([])
+
+    await microtask()
+    expect(target.writes, 'one write, of the final state, by the first microtask').toEqual([
+      `#${projectedHash(store.state())}`,
+    ])
+
+    // The control, on the real queue: separate ticks are separate writes.
+    const before = target.writes.length
+    for (const seed of [3, 4, 5]) {
+      store.dispatch({ type: 'stereo', patch: { seed } })
+      await microtask()
+    }
+    expect(target.writes.length - before, 'three microtask turns, three writes').toBe(3)
+    expect(new Set(target.writes.slice(before)).size).toBe(3)
+  })
+
+  it('queues nothing further from inside the flush, so the microtask queue drains', async () => {
+    /**
+     * The starvation question, which is the only way a microtask projector
+     * could harm a page: a microtask that unconditionally queues another one
+     * never lets the event loop run again. It cannot happen here because the
+     * flush neither dispatches nor schedules — but "cannot happen" is a claim
+     * about today's body, so it gets a sensor.
+     *
+     * This is also the measurable half of S-1's open item 8, the interaction
+     * with `site/main.ts:604-623`'s render chain. That chain is promise-based
+     * and so shares this queue; an undraining projector would starve it. A
+     * draining one cannot, whatever the interleaving.
+     *
+     * **It counts `schedule` calls and not writes, and the difference was
+     * measured.** An earlier version of this test watched `writes`, and a
+     * planted flush that re-queued itself once passed it: the follow-up flush
+     * found the fragment unchanged and wrote nothing, so a projector queuing
+     * microtasks forever was invisible to the only test asking whether it
+     * did. The queue is the subject; the writes are a proxy that cannot see
+     * it.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    let scheduled = 0
+    attachHashProjection(store, target, flush => {
+      scheduled++
+      queueMicrotask(flush)
+    })
+
+    store.dispatch({ type: 'scene', scene: OTHER })
+    await microtask()
+    expect(scheduled, 'one mutation, one microtask').toBe(1)
+    expect(target.writes.length).toBe(1)
+
+    await microtask()
+    await microtask()
+    await microtask()
+    expect(scheduled, 'the flush queued another microtask').toBe(1)
+    expect(target.writes.length).toBe(1)
+
+    // Control, same counter and same loop: it does see a microtask queued on
+    // a later turn, so the null above is a fact about the flush and not a
+    // checkpoint that stopped looking.
+    store.dispatch({ type: 'stereo', patch: { seed: 11 } })
+    await microtask()
+    expect(scheduled).toBe(2)
+    expect(target.writes.length).toBe(2)
+  })
+
+  it('writes exactly when the projection moved across the tick, not per mutation', () => {
+    /**
+     * The rule the sweep above the coalescing block derives per *mutation*,
+     * restated per *tick* — which is the honest form of criterion 15 once
+     * coalescing exists. "N mutations ⇒ one write" is false when the tick's
+     * net effect on the projection is nil: the guard that skips an unchanged
+     * fragment does not stop applying because several mutations were batched,
+     * and a projector that wrote anyway would reinstate exactly the cost
+     * `main.ts:683-684` gives for preferring `replaceState` over `pushState`.
+     *
+     * So: **at most one write per tick, and exactly one when the projection
+     * moved.** Both arms are exercised below, in that order.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    store.dispatch({ type: 'stereo', patch: { seed: 1 } })
+    queue.run()
+    const settled = `#${projectedHash(store.state())}`
+    expect(target.writes).toEqual([settled])
+
+    // A tick that goes away and comes back.
+    store.dispatch({ type: 'stereo', patch: { seed: 2 } })
+    expect(`#${projectedHash(store.state())}`, 'the excursion must be visible').not.toBe(settled)
+    store.dispatch({ type: 'stereo', patch: { seed: 1 } })
+    expect(`#${projectedHash(store.state())}`, 'and must come back').toBe(settled)
+    expect(queue.run(), 'the excursion did schedule a flush').toBe(1)
+    expect(target.writes, 'a round trip within one tick writes nothing').toEqual([settled])
+
+    // The control: the same two mutations in one tick, not returning.
+    store.dispatch({ type: 'stereo', patch: { seed: 2 } })
+    store.dispatch({ type: 'stereo', patch: { seed: 3 } })
+    expect(queue.run()).toBe(1)
+    expect(target.writes.length, 'a tick that moved the projection writes once').toBe(2)
+    expect(target.writes.at(-1)).toBe(`#${projectedHash(store.state())}`)
+  })
+
+  it('collapses the whole Action vocabulary in one tick into a single write', () => {
+    /**
+     * Criterion 15 over every `Action` variant rather than over a chosen
+     * three, refusals included. The sweep is total by the compiler for the
+     * reason {@link SAMPLES} records, so a twelfth variant joins this test
+     * without anyone remembering to add it.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    let refused = 0
+    for (const action of EVERY_SAMPLE) {
+      try {
+        store.dispatch(action)
+      } catch {
+        refused++
+      }
+    }
+    // Vacuity floor: a sweep in which everything was refused would reach the
+    // assertions below with nothing having been dispatched at all.
+    expect(refused, 'every sample was refused, so nothing was swept').toBeLessThan(
+      EVERY_SAMPLE.length,
+    )
+    expect(target.writes, 'the whole gesture is still in flight').toEqual([])
+
+    expect(queue.run(), `${EVERY_SAMPLE.length} mutations scheduled one flush`).toBe(1)
+    expect(target.writes.length).toBe(1)
+    expect(target.writes[0]).toBe(`#${projectedHash(store.state())}`)
+    expect(target.read()).toBe(`#${projectedHash(store.state())}`)
+
+    // The control: the same vocabulary one mutation per tick writes once per
+    // step that moved the projection, derived rather than counted, which is
+    // how the sweep above the coalescing block states the same rule.
+    const fresh = createSceneStore(initialState(ANIM))
+    const freshTarget = recordingTarget()
+    const freshQueue = tickQueue()
+    attachHashProjection(fresh, freshTarget, freshQueue.schedule)
+    let moved = 0
+    for (const action of EVERY_SAMPLE) {
+      const before = freshTarget.read()
+      try {
+        fresh.dispatch(action)
+      } catch {
+        /* refused; the store and the fragment are both unchanged */
+      }
+      freshQueue.run()
+      if (`#${projectedHash(fresh.state())}` !== before) moved++
+    }
+    expect(moved, 'no step moved the projection').toBeGreaterThan(1)
+    expect(freshTarget.writes.length, 'one write per tick that moved it').toBe(moved)
+  })
+
+  it('schedules nothing on attach, and nothing for a dispatch reduce refuses', () => {
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    expect(queue.depth(), 'attaching is not a mutation').toBe(0)
+    expect(() => store.dispatch({ type: 'layerAnim', index: 9, anim: undefined })).toThrow()
+    expect(queue.depth(), 'a refused edit is not a mutation either').toBe(0)
+
+    // Control: the same queue is filled by a mutation the store accepts, so
+    // the two zeroes above are facts about the store and not a dead scheduler.
+    store.dispatch({ type: 'stereo', patch: { seed: 2 } })
+    expect(queue.depth()).toBe(1)
+  })
+
+  it('cancels a queued write when it is detached before the tick turns', () => {
+    /**
+     * Criterion 5, and the reason the projector holds a `detached` flag rather
+     * than a handle: a microtask cannot be un-queued, so the only place a
+     * cancellation can live is inside the flush. `transportdriver.ts` takes a
+     * `cancel` alongside its `schedule` because a timeout *can* be cleared;
+     * the asymmetry is the queue's and not a difference of taste.
+     *
+     * Without the flag, a panel that unmounts mid-gesture leaves one last
+     * write in flight and the fragment is set by a projector that no longer
+     * exists.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    const detach = attachHashProjection(store, target, queue.schedule)
+
+    store.dispatch({ type: 'stereo', patch: { seed: 7 } })
+    expect(queue.depth(), 'a flush is in flight').toBe(1)
+    detach()
+    queue.run()
+    expect(target.writes, 'a write survived the detach').toEqual([])
+
+    // Control, same queue and same target: an attached projector writes
+    // through it, so the null above is the detach and not a dead crank.
+    attachHashProjection(store, target, queue.schedule)
+    store.dispatch({ type: 'stereo', patch: { seed: 8 } })
+    queue.run()
+    expect(target.writes.length).toBe(1)
+  })
+
+  it('gives each projector its own pending flush, sharing one queue', () => {
+    /**
+     * The behavioural half of "no module-level mutable state". A `pending`
+     * flag hoisted to module scope passes every test above — one projector
+     * at a time never notices — and silently drops one of the two writes
+     * here. The source-text half is in *"holds no module-level mutable
+     * state"*; the two fail on different things, which is why both exist.
+     */
+    const a = createSceneStore(initialState(ANIM))
+    const b = createSceneStore(initialState(ANIM))
+    const ta = recordingTarget()
+    const tb = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(a, ta, queue.schedule)
+    attachHashProjection(b, tb, queue.schedule)
+
+    a.dispatch({ type: 'scene', scene: OTHER })
+    b.dispatch({ type: 'stereo', patch: { seed: 4 } })
+    expect(queue.depth(), 'two projectors, two pending flushes').toBe(2)
+
+    expect(queue.run()).toBe(2)
+    expect(ta.writes.length).toBe(1)
+    expect(tb.writes.length).toBe(1)
+    expect(ta.read()).toBe(`#${projectedHash(a.state())}`)
+    expect(tb.read()).toBe(`#${projectedHash(b.state())}`)
+    expect(ta.read()).not.toBe(tb.read())
+  })
+
+  it('schedules a further flush for a mutation made during a flush', () => {
+    /**
+     * Where the pending flag is cleared decides whether this case works, and
+     * both placements look right. Cleared at the *end* of the flush, a
+     * dispatch that happens while the write is being applied sees a flush
+     * still pending, schedules nothing, and is never projected — the store and
+     * the fragment part company permanently, which is the defect class this
+     * module exists to remove. Cleared at the *top*, it schedules another.
+     *
+     * Reachable rather than theoretical: a `hashchange` handler, an analytics
+     * hook or a panel reacting to the URL all run inside `write`.
+     */
+    const store = createSceneStore(initialState(ANIM))
+    const base = recordingTarget()
+    const queue = tickQueue()
+    let reentered = false
+    const target: HashTarget = {
+      read: () => base.read(),
+      write: fragment => {
+        base.write(fragment)
+        if (reentered) return
+        reentered = true
+        store.dispatch({ type: 'scene', scene: OTHER })
+      },
+    }
+    attachHashProjection(store, target, queue.schedule)
+
+    store.dispatch({ type: 'stereo', patch: { seed: 1 } })
+    expect(queue.run()).toBe(1)
+    expect(base.writes.length).toBe(1)
+    expect(reentered, 'the re-entrant dispatch did not happen').toBe(true)
+
+    expect(queue.run(), 'the mutation made during the flush scheduled another').toBe(1)
+    expect(base.writes.length).toBe(2)
+    expect(base.writes.at(-1)).toBe(`#${projectedHash(store.state())}`)
+    expect(target.read()).toBe(`#${projectedHash(store.state())}`)
+  })
+})
+
+describe('what coalescing did not change', () => {
+  /**
+   * Criterion 4. A-2 measured that "an excluded field never writes" and "the
+   * fragment always equals the projection" are jointly unsatisfiable from an
+   * empty fragment, and resolved it: the exclusion holds *once the fragment
+   * already agrees*, and the projector converges on the first mutation while
+   * it does not. Both halves are pinned above, through a synchronous
+   * scheduler.
+   *
+   * They are re-established here through a deferred one, because a batched
+   * write is a different occasion from an immediate one and A-2's tests
+   * cannot speak about it. Nothing below is a new claim; each is one of
+   * A-2's, asked again across a tick boundary.
+   */
+  it('still excludes a field the fragment already agrees about, coalesced', () => {
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget(`#${projectedHash(store.state())}`)
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    store.dispatch({ type: 'depthView', value: 'encoded' })
+    store.dispatch({ type: 'time', seconds: 1.3 })
+    expect(queue.run(), 'the excluded mutations did schedule a flush').toBe(1)
+    expect(target.writes, 'neither view field reaches the link').toEqual([])
+
+    // The same instrument, on an included field: it writes, so the null is
+    // the partition and not a flush that never ran.
+    store.dispatch({ type: 'stereo', patch: { seed: 9 } })
+    expect(queue.run()).toBe(1)
+    expect(target.writes.length).toBe(1)
+  })
+
+  it('still converges on a disagreeing fragment, coalesced', () => {
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    // An excluded field, from a fragment that does not agree: the gap closes
+    // on the next flush whatever caused it, and the payload still carries no
+    // `depthView`.
+    store.dispatch({ type: 'depthView', value: 'encoded' })
+    queue.run()
+    expect(target.read()).toBe(`#${projectedHash(store.state())}`)
+    expect(parseSceneHash(target.read())).toEqual(store.state().scene)
+    expect(JSON.stringify(parseSceneHash(target.read()))).not.toContain('depthView')
+  })
+
+  it('still holds no remembered value, coalesced', () => {
+    const store = createSceneStore(initialState(ANIM))
+    const target = recordingTarget()
+    const queue = tickQueue()
+    attachHashProjection(store, target, queue.schedule)
+
+    store.dispatch({ type: 'stereo', patch: { seed: 5 } })
+    queue.run()
+    const projected = target.read()
+
+    target.clobber('#v1.something-else-entirely')
+    store.dispatch({ type: 'scene', scene: store.state().scene })
+    queue.run()
+    expect(target.read(), 'the guard read a remembered value, not the fragment').toBe(projected)
+  })
+})
+
+describe('the tick is the caller’s', () => {
+  it('names no timer or scheduler global anywhere in the module', () => {
+    // Criterion 3's structural content, and the pair of the browser-global
+    // scan above: a module that reached for `queueMicrotask` itself would
+    // satisfy every behavioural test here while welding the editor's batching
+    // policy into a file the composition root cannot override.
+    expect(globalsNamedIn(SOURCE, TIMER_GLOBALS)).toEqual([])
+  })
+
+  it('…and the scan can see one, in code but not in prose', () => {
+    expect(globalsNamedIn('queueMicrotask(flush)\nsetTimeout(flush, 0)\n', TIMER_GLOBALS)).toEqual([
+      'queueMicrotask',
+      'setTimeout',
+    ])
+    expect(globalsNamedIn("// queueMicrotask, or setTimeout\nconst s = 'Promise'\n", TIMER_GLOBALS))
+      .toEqual([])
   })
 })
