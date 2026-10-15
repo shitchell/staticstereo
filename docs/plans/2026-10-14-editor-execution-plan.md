@@ -293,6 +293,25 @@ is unverified.
 Worker pushback across P3 stands at **nine for nine** — and four of those were workers
 correcting *each other*, not their PM. That is the mechanism this rule feeds.
 
+### 1.2i The orchestrator is subject to the same shift change, and this plan forgot to say so
+
+§1.2a mandated a ledger and a clean hand-off for tier 1 and said nothing about tier 0 —
+an omission the repo owner caught, not the orchestrator. The role that holds every
+standing ruling, every open escalation and every cross-phase decision is the one with no
+succession document.
+
+So: **`docs/plans/2026-10-14-orchestrator-handover.md` is the orchestrator's ledger**, it
+is committed rather than scratchpad-resident (§1.2a's own rule — the scratchpad does not
+survive the session), and it is updated at every state change. It carries the phase state
+with evidence, the live agents, the standing rulings a successor would otherwise
+re-litigate, the practice that has accreted beyond §1.3, and **the orchestrator's own
+list of errors**, in the same convention imposed on every PM.
+
+That last section is not ceremony. Ten orchestrator errors are recorded there, every one
+caught by an agent below rather than by the orchestrator, and **every one was a claim a
+single command would have settled, skipped because it felt too small.** That is §1.2e,
+unchanged, applying to the tier that wrote it.
+
 ### 1.3 Orchestrator rules
 
 - Do not read source to answer "is X done?" — ask the PM.
