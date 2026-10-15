@@ -133,9 +133,15 @@ const UTF8 = new TextEncoder()
  * every zip and PNG implementation uses it. The table is built once on first
  * use rather than written out as 256 literals, so there is nothing to mistype
  * and nothing for a reader to have to trust.
+ *
+ * Exported for `zipRead.ts`, which verifies the checksum this computes. A
+ * second implementation over there would be a second thing to get wrong, and
+ * the round-trip test would then be unable to tell a writer bug from a
+ * matching reader bug. Nothing about the archive's bytes changes by making
+ * this visible.
  */
 let crcTable: Uint32Array | undefined
-function crc32(bytes: Uint8Array): number {
+export function crc32(bytes: Uint8Array): number {
   if (crcTable === undefined) {
     crcTable = new Uint32Array(256)
     for (let n = 0; n < 256; n++) {
