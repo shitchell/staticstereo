@@ -182,6 +182,54 @@ re-confirmed once `pages` is green again.
 
 ---
 
+## 2a. THE SESSION IS OUT OF SUBAGENTS — read this first
+
+**The 2026-10-15 session exhausted its subagent pool at 200/200**, which is the built-in
+default (no `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` in the environment or in
+`~/.claude/settings.json`). **Both live PMs can dispatch nothing further.** A fresh session,
+or that variable raised, resumes everything.
+
+**Nothing is lost and nothing is half-done.** Both PMs stood down at clean boundaries with
+clean working trees, and the session's scratchpad artefacts — which would have died with it
+— are committed under **`docs/plans/handover/`**, with a README explaining that they are
+**frozen snapshots, outranked by this document and by commit messages.**
+
+**The next three actions, in order:**
+1. **P1/P7: dispatch verifier clusters V-2 and V-4.** Briefs are written and ready as
+   `docs/plans/handover/BRIEF-V2.md` and `BRIEF-V4.md`, with
+   `VERIFIER-COMMON-BRIEF.md` as the shared preamble — all three already carry the two
+   completed verifiers' cross-cluster findings as binding addenda. Then the five findings
+   below, a reviewer at two rounds, a gate runner, and a push with a green `ci` run.
+2. **P3b: continue cluster H.** Task definitions are `git show 62696ae` (authoritative;
+   the copy in `handover/` is not). Verification is still owed on A-4, C-1 and C-2.
+3. **Shaun owes a ruling on case E** (+27.4% stored on flat-graphic projects). The
+   container format is frozen until then.
+
+**P1/P7's five verifier findings that are work, not notes:**
+- **`cardboarding` is declared `graded` in the roster and "Objective and ungraded" in the
+  module**, with a *passing* test titled `reports quantities and no grade`. If the roster is
+  right, **P7 criterion 2 is violated.**
+- **The `GRADING` ratchet is blind in the objective direction** — flipping either
+  `cardboarding` or `fusionComfort` to `objective` reddens nothing. **That is how the above
+  ships green.**
+- **`src/shared/purity.test.ts:505-507` is false.** A mis-pathed `rootDir` and a moved
+  `outDir` both leave it 15/15 green, and 23/23 with the freshness file it delegates to.
+  **Both guards certify a `dist/` that `tsc` no longer writes.**
+- **Criterion 7's guard tests the fixture, not the construction.** Content-dependent method
+  selection in `writeStst` leaves 421 tests green — the exact class the criterion exists to
+  remove. Met by code today, unprotected against rot.
+- **The third purity hop is live next door.** `src/core/purity.test.ts` has no closure
+  assertion, so `shared → core → core/testing → typescript` is green on an unbuilt tree.
+  Criterion 8 is scoped to `src/shared/` and **is MET**; **ruled: the neighbour is in
+  scope** — it is the same defect one file over, removed for `src/shared` by this phase and
+  left standing, and *"a conclusion propagates; the thing that spent it does not."*
+
+**And a new instrument failure worth a §9 row:** a shell glob **silently no-opped a
+mutation and both arms reported green** — a false null that would have confirmed a commit
+for the wrong reason. **Apply mutations from patch files, never from a glob.**
+
+---
+
 ## 3. Live agents
 
 **Both slots are full, launched 2026-10-15 from `c4f4b7f`.** The cap is two.
