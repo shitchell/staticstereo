@@ -817,6 +817,23 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
    compressed image data** — baked masks and original sources are PNG/GIF, where deflate
    buys ~0%; only `scene.json` and the manifest are compressible and both are small.
 
+   **MEASURED 2026-10-15, and the reasoning above was wrong in the direction that matters.**
+   "A `.stst` is overwhelmingly already-compressed image data, where deflate buys ~0%" is
+   **right about photos and wrong about masks.** On a photo PNG deflate buys *less than
+   zero* — 2,234,956 stored against 2,235,641 deflated, stored-block framing being overhead
+   on incompressible input. But `scene.json`, `manifest.json` and **the baked masks** still
+   deflate **18–65%**, cross-checked across five PNG encoders. Design §6.1 makes silhouette
+   masks **the primary import path**, so the compressible files are the common case, not the
+   exotic one — **the cost is concentrated exactly where I argued it would not be.**
+
+   Measured against a threshold **stated before measuring** (material = ≥5% relative): the
+   representative fixture (4 text/shape layers + photo + logo + 3-frame GIF + baked masks,
+   2.44 MB) is **+4,777 B, +0.195% — not material.** But **case E, eight flat-graphic PNGs
+   and no photo: 107,724 → 137,279, +29,555 B, +27.4%.** Absolute cost across the whole
+   sweep is bounded at +478 B to +8,892 B except there. **Escalated to Shaun**, because the
+   threshold was pre-registered and crossed, and moving a threshold after seeing the number
+   is the failure this project spends its time policing.
+
    **This is conditional on measurement, not on the above reasoning being right.** A worker
    measures the stored-versus-deflated size of a representative multi-layer scene with a
    real imported PNG. If the delta is material, that is an escalation **to Shaun** carrying
@@ -1200,6 +1217,43 @@ browser adapter it becomes editor-only, and the list lives in three places, one 
 That is the second confirmed instance of the rot D-1 exists to fix; SPIKE-1 observed a third,
 where six modules became editor-only under a real consumer and `toHaveLength(7)` **stayed
 green and silent.**
+
+### P3b, shift 2 — criterion 23, and a sensor that made the right architecture detectable
+
+**Criterion 9 is DONE** (`bf5eb1a`, `760f353`), joining 8 and 15. Two escalations ratified:
+C-1's rewrite of a merged P2 test, which the `seek` ruling forces — if out-of-range and
+in-the-final-gap are one `snapLoopTime` fold then `seek(…, 2.5)` must be frame 6 *and* frame
+23, which is a contradiction and not a choice of convention — and C-2's minimal
+`hashprojection.test.ts` edit. **Zero test removals across the entire phase**; C-1 went 7 →
+15 assertions and preserved the superseded rows beside the new ones, which is better than
+§6.4 requires.
+
+> **Criterion 23: the playhead does not drift when playback resumes.** `{type:'time'}` and
+> `{type:'frame'}` carry no `nowMs`, so **during playback** the playhead resumes advanced by
+> the elapsed interval and a drag compounds it. **Paused — the scrubber's real case — it is
+> exact, and asserted across five clocks.** The fix gives those arms a `nowMs`, which is a
+> `main.ts` edit and therefore **cluster F/G's.**
+
+*(Added 2026-10-15. It was carried as a note and owned by no criterion, and a recorded note
+is not a sensor — §9's last row, applied to the phase that keeps citing it.)*
+
+**The shift's most transferable finding, and it is an argument for front-loading sensors.**
+C-2 chose to put `TransportState` *inside* `UiState` rather than beside it, and its first
+reason is stronger than its conclusion: a second field written by `store.ts` would sit
+**outside the expression `state()` returns**, so **A-4's duplication guard would have been
+silent over exactly the code that task added.** A guard built two tasks earlier is what made
+the right architecture the *detectable* one. A sensor that only fires on code written after
+it is still worth building before the code exists — the ordering is the whole value.
+
+**Also measured:** one of C-2's plants showed **A-4's guard fires on action tags it was never
+told about**, which is the difference between a guard that generalises and one that happens
+to work. That distinction is worth asking of every guard this phase ships.
+
+**Known weakness shipped knowingly:** the clock sensor's name list is hand-written
+(`Date`, `performance`, four schedulers, `process`). Paired control, zero hits across the
+21-file closure — **but a novel clock spelling passes it**, and C-2 could not derive the list
+from anything. It is the hand-written-list shape §9 warns about, accepted because no
+derivation exists, and recorded so nobody reads the green as total.
 
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 

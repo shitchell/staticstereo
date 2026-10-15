@@ -202,8 +202,17 @@ re-confirmed once `pages` is green again.
   out of `src/shared/`, `src/node/canvas.generics.test.ts`, `src/cli/` and
   `site/legibility.test.ts`. **Critical path: P4, P5 and P6 all wait on it**, and its
   cluster F is the first thing that renders.
-  Scope is now **ten**, after criterion 21 (store as single source of truth) and criterion
-  22 (every control *writable*, not merely reachable — ESC-7). Unblocked and ready: B-1,
+  **Shift 2 (PM-SHELL-P3b-2) also stood down cleanly**, at `760f353` — **criterion 9 DONE**,
+  82 files / 1948 passed / 0 skipped, four exit codes 0, **local only; CI has never seen this
+  branch.** Verification is owed on **A-4, C-1 and C-2** (V-A covered only A-1/A-2/A-3) and
+  must not drop. **Seven proposed tasks — `D-0, T-1, H-1, H-2, F-0a, F-0b, G-5` — exist in
+  no document**; the PM has been asked to write them into its ledger *and a commit message*
+  rather than have the orchestrator reconstruct them, which is how error 16 deleted a
+  criterion. Two stale facts for any inherited brief: `controls.ts` no longer aliases
+  `snap = snapTime`, and the survey's `transport.ts` line count (274) is wrong — it is 318.
+  Scope is now **eleven**, after criterion 21 (store as single source of truth), criterion
+  22 (every control *writable*, not merely reachable — ESC-7) and criterion 23 (no playhead
+  drift on resume). Unblocked and ready: B-1,
   B-2, C-1, C-2, D-1, E-1, E-2. All seven of its open escalations are **ruled** in plan §7's
   "P3b rulings" block.
 - **PM-SHARED-3** — branch `feat/p1p7-shared`, worktree `…/staticstereo-p1p7`. Third PM on
@@ -312,6 +321,8 @@ orchestrator.
 | 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
 | 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
 | 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
+| 26 | Told three workers that `site/legibility.test.ts:228`'s `toMatch(/sepNear/)` "**requires** the wrong advice and will redden — that is the test doing its job". **It could never have seen the change**: the verdict line prints `(sepFar 110 − sepNear 92)`, so the regex matches the *quantities*, not the advice. Half the sensor I promised three briefs was inert | the implementer measured the regex against the real string |
+| 25 | **Corrected the findings document's §2 and not its §5** — leaving the identical reversed mechanism standing in **the bullet design §10.3 and criterion 5 actually cite.** A partial fix that reads as a complete one, which is the §9 row on partial checks, committed inside the correction for it. Also asserted "deflate buys ~0% on already-compressed image data": true of photos, **false of the baked masks, which deflate 18–65% and are the primary import path** | the implementer read §5 rather than trusting that §2's fix was the whole of it |
 | 24 | **Merged P3a on a green *local* gate and never looked at CI**, then pushed eight docs commits onto a red `main` over nine hours without once checking. §6's own practice says "spot-check before merging… plus an independent gate run", and I read "independent" as *a second run by me* rather than *a different machine*. The owner found it, not the orchestrator — the same way §1.2a's missing tier-0 ledger was found | the owner asked what was wrong with the deploy pipeline |
 | 20 | **Applied four ruling edits with string replacements carrying no assertion; two silently no-opped — then asserted all four were landed in a commit message.** §1.2o committed by the tier that wrote it: an edit instrument used without a control, and the false claim put into the durable record | the PM read the file rather than the commit |
 | 19 | Ran P3a's verification gate **against the wrong worktree** and got the baseline back — `git log <branch>` names a ref, `npm test` runs whatever is checked out. It returned 60/1358, a *plausible* number already in the record | caught on re-reading my own output before reporting it |

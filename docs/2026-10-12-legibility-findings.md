@@ -172,7 +172,19 @@ gets completed from memory, inflating apparent legibility.
   which errs toward warning;
 - report the **budget separately** as a fusion-comfort note, with the cliff at ~32px (i.e.
   `sepNear` below ~78) as the thing actually worth warning about;
-- stop implying that widening the budget helps legibility.
+- **stop trading `sepNear` for legibility at all.** *(Corrected 2026-10-15 — this read
+  "stop implying that **widening** the budget helps legibility", the same reversed mechanism
+  corrected in §2, and **this is the bullet design §10.3 and criterion 5 actually cite.**
+  Fixing §2 and not this one left the wrong half standing in the half that gets read. The
+  shipped string says raise `sepNear` to **shrink** the budget, which makes fusion *easier*;
+  the defect is that it buys nothing for legibility while costing depth range.)*
+
+**Open, and refuted verbatim by §1 above: "will not fuse however long you stare".** A 16px
+stroke at an 18px budget **was read exactly**, so the claim is false as stated and it
+survives in **six** places. It is a *threshold* claim, §5 declines to replace the number,
+and P7's criterion 5 is scoped to wrapper shape and verdict string — so a worker correctly
+refused to fix one file while six disagree. **It needs its own task and its own measuring
+round**, not a drive-by edit.
 
 Not yet changed. The evidence is enough to show the current rule is wrong in direction; it
 is one observer, one stroke level across budgets, and the warm-up confound is
