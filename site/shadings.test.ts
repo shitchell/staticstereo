@@ -23,12 +23,35 @@
  * the inherited names, on the registry, on a spread copy of it, and on a
  * table that genuinely declares one as an own property.
  *
- * ## Not in this file
+ * ## The registration test, and the half of it that needed a reader
  *
- * The registration test — *a dummy entry appears without touching another
- * file* — is C-13's and belongs to criterion 3. {@link ShadingTable} being
- * keyed by `string` and every reader taking a `table` parameter is what makes
- * it writable.
+ * Criterion 3 — *a dummy entry appears without touching another file* — is
+ * discharged at the foot of this file. C-5 left it writable and it was:
+ * {@link ShadingTable} is keyed by `string`, and `shadingInfo`,
+ * `resolveShading`, `defaultShadingInfo` and `auditShadings` all take a
+ * `table`, so a dummy registered into a copy is **found** by every one of
+ * them with no production edit at all.
+ *
+ * **Found is not offered, and that is the whole of what was missing.** Plan
+ * §9: *"a registration test must assert that the thing a consumer does is now
+ * possible — not that the entry can be found."* What design §5.2's consumer
+ * does is *offer* the shadings — the depth view "carries a shading", and
+ * {@link ShadingInfo.label} exists to be "a menu entry, a radio label, a
+ * legend heading". No reader answered that question: its answer was
+ * {@link SHADING_IDS}, a static declaration no table can move, so a
+ * registered shading was reachable only by a caller who already knew its
+ * name. {@link offeredShadings} answers it from the table, and
+ * {@link absentShading} gained the `table` parameter its four neighbours
+ * already had so that the census below can move its rows from the other side.
+ *
+ * **What a real registration costs, measured rather than argued.** Planted as
+ * a shipped member — the union, the roster and the entry, which the
+ * `AssertNever` pair makes one indivisible edit — and it is `shadings.ts`
+ * alone, typecheck clean, with exactly one file red and both of its failures
+ * saying the same thing: design §5.2 does not declare it. Add the design row
+ * and the suite is green. So §11 row 6's *"one registration"* holds for code
+ * and costs a row in `docs/plans/2026-10-13-editor-design.md` beside it,
+ * which is this registry's upstream being an upstream rather than a comment.
  *
  * `site/depthmap.ts` is **read** here, through a namespace import, and is not
  * modified: design §5.2's amendment to its recorded rationale is plan §7
@@ -48,10 +71,11 @@ import {
   absentShading,
   auditShadings,
   defaultShadingInfo,
+  offeredShadings,
   resolveShading,
   shadingInfo,
 } from './shadings.js'
-import type { ShadingInfo, ShadingTable } from './shadings.js'
+import type { AbsentShading, ShadingInfo, ShadingTable } from './shadings.js'
 
 /**
  * The design document, which is this registry's upstream roster.
@@ -453,12 +477,16 @@ describe('every lookup refuses the prototype chain', () => {
     // The other half, and the one that proves the guard is `hasOwn` and not a
     // blocklist of five words.
     //
-    // A property literally called `constructor` gets **no contextual type**
-    // from `Record<string, ShadingInfo>`, because `Object.prototype.
-    // constructor` shadows the index signature — so the entry is annotated
-    // separately. C-4 measured both spellings failing and vitest running
-    // green while `svelte-check` reported the error; this is the shape that
-    // typechecks.
+    // The entry is annotated separately because reading it that way is
+    // clearer, and **not** because it has to be: the `constructor`-key
+    // widening C-4 met needs the entry type to carry a string-literal-union
+    // field, and `ShadingInfo` carries none — every field is `string`,
+    // `boolean` or an interface. Measured here at TypeScript 5.9.3 /
+    // svelte-check 4.7.6: the bare `constructor:` key with the value written
+    // inline is **0 errors**, so a reader budgeting a workaround for this
+    // table is budgeting for a hazard it does not have. C-10 lost four probe
+    // rounds to exactly that, and the correction is that the trigger is the
+    // field's type and not the key.
     const oddEntry: ShadingInfo = {
       shading: 'constructor',
       label: 'Oddly named',
@@ -571,5 +599,282 @@ describe('the ShadingInfo shape', () => {
       .toEqual(['label', 'light', 'reason', 'shading', 'shipped'])
     expect(Object.keys(SHADINGS.grey).sort())
       .toEqual(['implementedBy', 'label', 'reason', 'shading', 'shipped'])
+  })
+})
+
+/**
+ * This module's own source, read as the independent list of its readers.
+ *
+ * The census below is a list of questions somebody typed, so on its own it
+ * cannot see a question that stops being asked: a label set computed by the
+ * same function on both sides of a diff loses a deleted row from both sides
+ * at once. C-11 measured that, and the answer is a list derived from
+ * something the census does not control — here `shadings.ts`' own
+ * `export function` lines.
+ */
+const MODULE = fileURLToPath(new URL('./shadings.ts', import.meta.url))
+
+/**
+ * A shading nobody has registered, in the form a registration takes.
+ *
+ * Deliberately not one of design §5.2's four: a dummy drawn from the shipped
+ * roster would be answered for by the shipped registry, and every assertion
+ * below would be green over a reader that ignored its table entirely. Its
+ * reason is as long as a real entry's because `auditShadings` demands one —
+ * a dummy the audit rejects would prove the audit works and leave the
+ * registration unproven.
+ */
+const DUMMY: ShadingInfo = {
+  shading: 'sepia',
+  label: 'Sepia',
+  reason:
+    'A fixture and not a proposal. A registration test needs an entry design §5.2 does not ' +
+    'declare, so that the entry appearing cannot be the shipped registry answering in its ' +
+    'place. If a sepia shading is ever argued for it belongs in `SHADINGS` with its reason ' +
+    'quoted from the design, and this fixture should then be renamed to a name nobody wants.',
+  shipped: false,
+}
+
+/** The shipped registry plus one entry, which is the whole of a registration. */
+const REGISTERED: ShadingTable = { ...SHADINGS, [DUMMY.shading]: DUMMY }
+
+/**
+ * The names a consumer can arrive holding, derived rather than listed.
+ *
+ * Every registered shading, the dummy, every name the design has already
+ * decided against, and the inherited names E8 covers — so the census asks
+ * each reader about a name it should answer for, a name it should not, and a
+ * name whose answer lives in the other table.
+ */
+const PROBED: readonly string[] = [
+  ...DESIGNED.ids,
+  DUMMY.shading,
+  ...Object.keys(ABSENT_SHADINGS),
+  ...INHERITED,
+]
+
+/** Every table a reader in this module reads, so the census can move any of them. */
+interface ShadingInputs {
+  readonly table: ShadingTable
+  readonly absences: Readonly<Record<string, AbsentShading>>
+}
+
+/** One question and the answer this module gives it. */
+type CensusRow = readonly [label: string, answer: string]
+
+/**
+ * Every question this module answers, with its answer, sorted by question.
+ *
+ * The instrument for the negative half of criterion 3. *"A dummy entry
+ * appears without touching another file"* is a claim that **nothing else
+ * moved**, and §6.5a says a null measurement is worth only what its control
+ * is worth, so the rows are diffed across the registration and the moved ones
+ * counted. A row's label names the reader that produced it, which is what
+ * lets the check below compare the label set against the module's exports
+ * instead of against itself.
+ *
+ * Both tables are parameters. An input the census cannot vary is a row that
+ * cannot move, and a row that cannot move is a declaration rather than a
+ * measurement — C-10's finding, and the reason `absentShading` now takes the
+ * table its neighbours take.
+ */
+function censusOfShadings({ table, absences }: ShadingInputs): readonly CensusRow[] {
+  const rows: CensusRow[] = [
+    ['offeredShadings', offeredShadings(table).map(info => `${info.shading}:${info.label}`).join(' ')],
+    ['defaultShadingInfo', defaultShadingInfo(table)?.shading ?? 'nothing'],
+    ['auditShadings', auditShadings(table, DESIGNED.ids).join(' · ') || 'no complaints'],
+    ['resolveShading(undefined)', resolveShading(undefined, table)],
+  ]
+
+  for (const name of PROBED) {
+    rows.push([`shadingInfo(${name})`, shadingInfo(name, table)?.label ?? 'nothing'])
+    rows.push([`resolveShading(${name})`, resolveShading(name, table)])
+    rows.push([`absentShading(${name})`, absentShading(name, absences)?.disposition ?? 'nothing'])
+  }
+
+  return [...rows].sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
+}
+
+/**
+ * The questions whose answer differs between two censuses, by label.
+ *
+ * **The label check runs ahead of the diff, and what it buys here is a true
+ * failure rather than a red one.** C-9 kept it so that a question which vanished could not
+ * read as an answer that did not change; the callers below pin the moved
+ * labels by name, so a vanished row is red either way. Planted: drop the
+ * check and let one row disappear from the larger census, and the positional
+ * diff misaligns and names sixteen rows as moved, none of which did. A
+ * measurement that reddens while naming the wrong subject is the one a
+ * reader believes.
+ */
+function movedBetween(before: readonly CensusRow[], after: readonly CensusRow[]): readonly string[] {
+  expect(after.map(row => row[0])).toEqual(before.map(row => row[0]))
+  return after.filter((row, i) => row[1] !== before[i]![1]).map(row => row[0]).sort()
+}
+
+describe('registering a shading is an edit to the table and to nothing else', () => {
+  it('offers the dummy, which is what a picker reads and a lookup is not', () => {
+    // Criterion 3's "appears", read as plan §9 requires: the consumer of
+    // design §5.2 offers the shadings, so a shading that is registered and
+    // not offered has not appeared — it is merely reachable by a caller who
+    // already knows its name.
+    const offered = offeredShadings(REGISTERED)
+    expect(offered.map(info => info.shading)).toContain(DUMMY.shading)
+    expect(offered.find(info => info.shading === DUMMY.shading)).toEqual(DUMMY)
+  })
+
+  it('reads the table it is handed and not the module, so a table of one offers one', () => {
+    // The control on the assertion above, and the one that fails over a
+    // reader backed by `SHADING_IDS`: that reader is green on `REGISTERED`
+    // only by accident of the spread, and answers four entries here.
+    expect(offeredShadings({ [DUMMY.shading]: DUMMY })).toEqual([DUMMY])
+  })
+
+  it('hands the dummy to every reader that takes a table', () => {
+    expect(shadingInfo(DUMMY.shading, REGISTERED)).toEqual(DUMMY)
+    expect(resolveShading(DUMMY.shading, REGISTERED)).toBe(DUMMY.shading)
+    expect(auditShadings(REGISTERED, DESIGNED.ids)).toEqual([])
+  })
+
+  it('offers it to nobody who did not register it, so the fixture is not a shipped name', () => {
+    expect(offeredShadings().map(info => info.shading)).not.toContain(DUMMY.shading)
+    expect(shadingInfo(DUMMY.shading)).toBeUndefined()
+    expect(resolveShading(DUMMY.shading)).toBe(DEFAULT_SHADING)
+    expect(SHADING_IDS).not.toContain(DUMMY.shading)
+  })
+
+  it('registers into a registry that already has entries, counted from the design roster', () => {
+    // The vacuity floor, and it is not a number: §I-1's defect is a check
+    // quantified over an empty set, and "one more than the design declares"
+    // is the one honest way to say how many were there without typing it.
+    expect(DESIGNED.ids.length).toBeGreaterThan(1)
+    expect(offeredShadings()).toHaveLength(DESIGNED.ids.length)
+    expect(offeredShadings(REGISTERED)).toHaveLength(DESIGNED.ids.length + 1)
+  })
+
+  it('moves exactly the answers that name the dummy, and moves no label', () => {
+    // §11 row 6 budgets a shading at one registration. This converts that
+    // budget from a claim into a count of moved answers: the two readers a
+    // name is asked of, plus what the view offers. The label set is asserted
+    // equal ahead of the diff, so a question that stopped being answerable
+    // cannot read as an answer that did not change.
+    const moved = movedBetween(
+      censusOfShadings({ table: SHADINGS, absences: ABSENT_SHADINGS }),
+      censusOfShadings({ table: REGISTERED, absences: ABSENT_SHADINGS }),
+    )
+    expect(moved).toEqual([
+      'offeredShadings',
+      `resolveShading(${DUMMY.shading})`,
+      `shadingInfo(${DUMMY.shading})`,
+    ].sort())
+  })
+
+  it('sees the other table move, so the rows that held still were measured', () => {
+    // C-10's P12, which is the half this idiom loses if it is skipped: the
+    // census claims the absence table did not move under a registration, and
+    // a row that cannot move whatever you do is an unchecked declaration
+    // rather than a measurement. Moving it from the other side is the proof
+    // that its stillness above meant something.
+    const argued: AbsentShading = {
+      name: DUMMY.shading,
+      disposition: 'refused',
+      reason: DUMMY.reason,
+    }
+    const moved = movedBetween(
+      censusOfShadings({ table: SHADINGS, absences: ABSENT_SHADINGS }),
+      censusOfShadings({ table: SHADINGS, absences: { ...ABSENT_SHADINGS, [argued.name]: argued } }),
+    )
+    expect(moved).toEqual([`absentShading(${DUMMY.shading})`])
+  })
+
+  it('asks every reader this module exports, read from the source rather than from itself', () => {
+    // The census cannot notice a question it stopped asking, because the
+    // label set is computed by the same function on both sides of the diff.
+    // `shadings.ts`' own export list is the independent side: delete a row
+    // above and this is what says so.
+    const exported = [...readFileSync(MODULE, 'utf8').matchAll(/^export function (\w+)/gm)]
+      .map(match => match[1]!)
+    expect(exported.length, 'a module with no readers is not what this is parsing')
+      .toBeGreaterThan(1)
+
+    const labels = censusOfShadings({ table: SHADINGS, absences: ABSENT_SHADINGS }).map(row => row[0])
+    for (const reader of exported) {
+      expect(labels.some(label => label === reader || label.startsWith(`${reader}(`)), reader).toBe(true)
+    }
+  })
+})
+
+describe('what the view offers is what the lookup resolves', () => {
+  /**
+   * E8 / R-l in the form the enumerating reader meets it, which is not the
+   * form the lookups meet.
+   *
+   * `Object.prototype`'s members are non-enumerable, so they never reach a
+   * picker by themselves; what does reach one is a table that inherits from
+   * another table. `{ __proto__: SHADINGS, … }` is a plausible spelling of
+   * "the registry plus one more" and it is the wrong one — `shadingInfo` is
+   * `Object.hasOwn` and refuses an inherited name, so any reader that listed
+   * those names would put rows in the menu that select nothing.
+   *
+   * Built with `Object.create` rather than the `__proto__:` literal because
+   * the two spellings are not interchangeable: C-8 measured that the literal
+   * sets the prototype while the computed key declares an own property, and
+   * both halves are wanted here.
+   */
+  const chained: ShadingTable = Object.assign(
+    Object.create(SHADINGS) as Record<string, ShadingInfo>,
+    { [DUMMY.shading]: DUMMY },
+  )
+
+  /** A table that genuinely declares prototype member names as its own keys. */
+  const oddlyKeyed: ShadingTable = {
+    ['__proto__']: { ...DUMMY, shading: '__proto__', label: 'Oddly named' },
+    ['constructor']: { ...DUMMY, shading: 'constructor', label: 'Also oddly named' },
+  }
+
+  it('offers only what a table owns, not what it inherits', () => {
+    expect(offeredShadings(chained).map(info => info.shading)).toEqual([DUMMY.shading])
+    for (const id of SHADING_IDS) {
+      expect(shadingInfo(id, chained), id).toBeUndefined()
+    }
+  })
+
+  it('offers an entry genuinely keyed by a prototype member name', () => {
+    // The other direction, and the one that proves the reader is `hasOwn`
+    // rather than a blocklist of names: a table is free to key an entry by a
+    // name the prototype also has, and that entry is a shading like any other.
+    expect(offeredShadings(oddlyKeyed).map(info => info.shading).sort())
+      .toEqual(['__proto__', 'constructor'])
+  })
+
+  it('offers exactly the entries the lookup resolves, over every shape of table', () => {
+    // The property that makes the two readers one decision rather than two:
+    // a row the picker offers and the lookup refuses is a menu entry that
+    // selects nothing, and a row the lookup resolves and the picker omits is
+    // the registration failing to appear.
+    const shapes: readonly (readonly [string, ShadingTable])[] = [
+      ['shipped', SHADINGS],
+      ['registered', REGISTERED],
+      ['inheriting', chained],
+      ['oddly keyed', oddlyKeyed],
+      ['empty', {}],
+    ]
+    for (const [name, table] of shapes) {
+      const offered = offeredShadings(table)
+      for (const info of offered) {
+        expect(shadingInfo(info.shading, table), `${name}/${info.shading}`).toEqual(info)
+      }
+      expect(offered.map(info => info.shading).sort(), name).toEqual(Object.keys(table).sort())
+    }
+  })
+
+  it('keeps the order the table declares, which is an argument somebody made', () => {
+    // `SHADING_IDS` is ordered by how much each shading interprets, and
+    // `shadings.ts` records why that ordering was chosen over the design
+    // table's. A reader that sorted its answer would discard it, and a
+    // registration appends rather than reorders.
+    expect(offeredShadings().map(info => info.shading)).toEqual([...SHADING_IDS])
+    expect(offeredShadings(REGISTERED).map(info => info.shading))
+      .toEqual([...SHADING_IDS, DUMMY.shading])
   })
 })

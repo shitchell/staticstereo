@@ -382,6 +382,46 @@ export function shadingInfo(shading: string, table: ShadingTable = SHADINGS): Sh
 }
 
 /**
+ * The shadings a table offers, in the order it declares them.
+ *
+ * **The question a picker asks, and until this existed the answer was
+ * {@link SHADING_IDS}** — a static declaration no table can move. Every other
+ * reader here takes a name and hands back what is recorded against it, which
+ * answers *"is this a shading?"* for a caller who already has the name. The
+ * depth view does not have one: design §5.2 says it "carries a shading" and
+ * {@link ShadingInfo.label} exists to be *"a menu entry, a radio label, a
+ * legend heading"*, so what the view needs before any name is the list. A
+ * shading registered into a table that nothing enumerates is registered and
+ * not offered — plan §9: *"a registration test must assert that the thing a
+ * consumer does is now possible, not that the entry can be found."*
+ *
+ * **Defined in terms of {@link shadingInfo} rather than beside it**, so the
+ * two cannot disagree. An enumeration written independently would be free to
+ * offer a row the lookup then refuses — a menu entry that selects nothing —
+ * and `for…in`, the obvious spelling, does exactly that for a table built on
+ * another table: `Object.prototype`'s own members are non-enumerable and
+ * never reach a picker, but a `{ __proto__: SHADINGS, … }` copy's inherited
+ * entries do, and `Object.hasOwn` at the lookup refuses every one of them.
+ *
+ * Order is the table's own, which is an argument somebody made: see
+ * {@link SHADING_IDS} on why these are ordered by how much each interprets
+ * rather than by design §5.2's table, and a reader that sorted its answer
+ * would discard that. A registration therefore appends rather than reorders.
+ * `Object.keys` puts integer-like keys first, so a shading named `'0'` would
+ * jump the queue — recorded rather than guarded against, because a numeric
+ * shading name has no caller and inventing a check for one is cheaper to
+ * write than to justify.
+ */
+export function offeredShadings(table: ShadingTable = SHADINGS): readonly ShadingInfo[] {
+  const offered: ShadingInfo[] = []
+  for (const name of Object.keys(table)) {
+    const info = shadingInfo(name, table)
+    if (info !== undefined) offered.push(info)
+  }
+  return offered
+}
+
+/**
  * The shading a stored preference selects, falling back to the default.
  *
  * **This is what design §5.2's "reversible by preference rather than by code"
@@ -542,10 +582,20 @@ export const ABSENT_SHADINGS: Record<string, AbsentShading> = {
  * shows a refusal whose name, disposition and reason are all `undefined`. A
  * visibly wrong answer is recoverable; well-formed prose that explains
  * nothing is not.
+ *
+ * `table` is a parameter for {@link shadingInfo}'s reason — a copy should be
+ * read by this same function rather than by a second one written for the
+ * occasion — and for one this registry's own test earned: a census that
+ * cannot vary an input cannot show that the rows reading it held still, so
+ * the claim *"a registration moved nothing else"* would rest on a row with
+ * no way to move at all. C-5 did not need it; the registration test does.
  */
-export function absentShading(name: string): AbsentShading | undefined {
-  if (!Object.hasOwn(ABSENT_SHADINGS, name)) return undefined
-  return ABSENT_SHADINGS[name]
+export function absentShading(
+  name: string,
+  table: Readonly<Record<string, AbsentShading>> = ABSENT_SHADINGS,
+): AbsentShading | undefined {
+  if (!Object.hasOwn(table, name)) return undefined
+  return table[name]
 }
 
 /**
