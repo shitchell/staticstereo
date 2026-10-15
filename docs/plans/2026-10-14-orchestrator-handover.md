@@ -42,7 +42,7 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P2** player | **merged** | 60 files / 1333; zero files under `src/` |
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
-| **P3a** shell, additive half | **in progress** | **cluster C complete** incl. C-17/C-18; **76 files / 1791**. Remaining: **D-1…D-6**, two verifier clusters, reviewer, gate runner |
+| **P3a** shell, additive half | **implementation complete** | clusters A, B, C, D all closed; **80 files / 1881 / 0 skipped**, typecheck 0 over 451. Criteria 0,1,4,5,6,12,13,17,18,20 met. Remaining: **two verifier clusters, a reviewer, the gate runner** |
 | **P3b** store, shell, teardown | not started | depends on P3a |
 | **P1** `.stst` · **P7** perception | **not started, unblocked** | both depend only on P0 |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
@@ -129,11 +129,16 @@ orchestrator.
 | 10 | Split P3 so nothing renders until P3b without weighing the owner's visibility | surfaced only by asking him |
 | 11 | Landed eleven separate doc commits on `main` mid-phase, making a `site/` test redden on `docs/` edits and forcing three branch merges | two workers measured the churn |
 | 12 | Briefed a PM to read plan sections **that were not in its checkout** — `main` had moved and its branch had not. **Recurred immediately on the next shift**, with the amended sections again being the ones the brief named, one of them a rule the PM was required to apply | the receiving agent's `git log --oneline -1 main`, now six for six |
+| 18 | Relayed a citation defect as `file:line → newline`, collapsing the **location of the citation** with the **target it points at** — the worker nearly declined both items as fabrications, since nothing cites the location and a 226-line file cannot contain the cited range. Also relayed "four-word orphan" for a one-word one | the repair worker swept every citation into its own edited files |
 | 17 | **On the third pass at the same table, dropped a clause from criterion 13** — its registration test, which R-ac makes part of it by explicit ruling, leaving a landed commit unbudgeted by any criterion. Also promoted a PM's labelled *inference* to established fact, inside the document that carries the rule against doing so | the PM re-audited all nine rows again |
 | 16 | **Reconstructed those nine criteria wrongly: five rows defective, and criterion 15 deleted** by putting criterion 14's content in its row. Nine rows, no gap, internally consistent — quote-diff clean, row count nine, both checks pass. A cure for an absence that produced a better-hidden absence | the PM checked all nine against its ledger after two of the three I asked about came back wrong |
 | 15 | **Adopted criteria 12–20 and ruling E14 in a message and never wrote them into any document.** Three of them are what cluster D is aimed at; one had already cost two tasks; two briefs quoted E14 as "verbatim". Invisible to the quote-diff rule, because a diff is blind to what was never written | the PM asked what its criteria said and found they said nothing |
 | 14 | Amended criterion 3 in the execution plan and **not in the design document**, leaving two tier-0 documents in conflict for a whole sub-cluster — in a phase whose idiom parses the design document | the PM read both and reported it rather than editing |
 | 13 | Wrote criterion 3 as "a dummy appears **without touching another file**" — measured false for a real registration on three registries. A PM correctly refused to reinterpret it in a ledger | C-13, C-14, C-15 measured it; the PM escalated rather than deciding |
+
+**Across three correction passes on one table the defect was *always* a dropped clause or
+label and *never* a wrong fact** — so for tier-0 documents the audit must be a
+completeness check against a deeper source, not a consistency check between peers.
 
 **The pattern is uniform and matches what every PM reported about itself: each was a claim
 a single command would have settled, skipped because it felt too small.** §1.2e is as
