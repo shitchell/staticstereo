@@ -281,6 +281,80 @@ function rosterVerdict(spec: string, fromDir: string, roster: ReadonlySet<string
   }
 }
 
+/**
+ * Does the layout this file walks still match the layout `tsc` writes?
+ *
+ * `SRC` and `DIST` above are a transcription of `tsconfig.json`'s `rootDir`
+ * and `outDir`, and every `dist/` assertion in this file rests on them: the
+ * pairing walk turns `dist/shared/x.js` into `src/shared/x.ts` by string
+ * surgery across exactly those two roots, and `built` decides whether to run
+ * at all by asking whether `dist/shared` exists. §9's "a hand-written list of
+ * 'the places that do X' is a check" applies to a hand-written *path* the same
+ * way, and the failure is worse than going stale, because the stale tree is
+ * still there to be certified. Measured on this tree, `outDir` moved to
+ * `dist2` with a **successful** rebuild writing 13 modules there and
+ * `dist/shared` left exactly as the previous build wrote it:
+ *
+ * ```
+ * tsconfig outDir      build   src/shared + src/core purity
+ *   "dist"   (correct) exit 0  23 passed (23)
+ *   "dist2"            exit 0  23 passed (23)   [over a dist/ tsc no longer writes]
+ *   rootDir "."        exit 0  23 passed (23)   [emits dist/src/**, same]
+ * ```
+ *
+ * Both guards certified a tree the build had abandoned, and `files: ["dist"]`
+ * is what npm publishes. So the containment relation below is not the sensor
+ * for this — containment holds perfectly between a current roster and a stale
+ * `dist/`, which is precisely the wrong green.
+ *
+ * **It is deliberately not gated on `built`.** The question is about the
+ * config, which is on disk whether or not anything has been compiled, and
+ * gating it would hand the defect its cheapest escape: `rm -rf dist` makes
+ * `built` false, every `dist/` assertion skip, and the suite green again.
+ * A clean checkout still passes, because a clean checkout's `tsconfig.json`
+ * is correct.
+ *
+ * Both routes out of a failure here are right — move the output back, or
+ * repoint this file at where it now goes — so the message names both rather
+ * than leaving the reader to find the third, wrong one.
+ */
+function emitLayoutVerdict(
+  options: { readonly rootDir?: string; readonly outDir?: string },
+  walkedSrc: string,
+  walkedDist: string,
+): Verdict {
+  // Fail closed on absent, as everywhere else here: with no `outDir` (or no
+  // `rootDir`) `tsc` emits beside the sources, so there is no `dist/` layout
+  // for this file to be right or wrong about, and "nothing to compare" must
+  // not read as "they agree".
+  for (const [name, value] of [['rootDir', options.rootDir], ['outDir', options.outDir]] as const) {
+    if (value === undefined) {
+      return {
+        ok: false,
+        why: `tsconfig.json sets no ${name}, so tsc emits beside the sources and the dist/ ` +
+          `walks in this file are about a directory nothing writes`,
+      }
+    }
+  }
+  if (options.rootDir !== walkedSrc) {
+    return {
+      ok: false,
+      why: `tsconfig.json compiles from ${options.rootDir}, but this file pairs dist/ entries ` +
+        `back into ${walkedSrc}. Either move rootDir back or repoint SRC here; do not delete ` +
+        `dist/ to make the walks skip`,
+    }
+  }
+  if (options.outDir !== walkedDist) {
+    return {
+      ok: false,
+      why: `tsconfig.json emits to ${options.outDir}, but this file walks ${walkedDist}, which ` +
+        `is whatever a previous build left there — and files: ["dist"] publishes it. Either ` +
+        `move outDir back or repoint DIST here; do not delete dist/ to make the walks skip`,
+    }
+  }
+  return OK
+}
+
 /* ===================================================================== */
 /*  the installation probe                                                */
 /* ===================================================================== */
@@ -322,6 +396,38 @@ const installation: Installation = {
 /* ===================================================================== */
 
 /**
+ * `tsconfig.json`, as TypeScript itself reads it — the single authority behind
+ * both the roster below and `emitLayoutVerdict` above. It answers two separate
+ * questions, `fileNames` ("what does this compile") and `options` ("where does
+ * it put the result"), and this file needs both: a roster that is right about
+ * a `dist/` nobody writes is still wrong.
+ */
+function tsconfig(): ts.ParsedCommandLine {
+  const configPath = join(ROOT, 'tsconfig.json')
+  const read = ts.readConfigFile(configPath, ts.sys.readFile)
+  // Fail closed, both here and below. An unparseable or unresolvable config
+  // must not read as "no files to guard" — a roster that is empty because the
+  // question could not be answered is the fail-open shape §9 keeps naming,
+  // and it would report a clean `src/shared` over every module in it.
+  if (read.error) {
+    throw new Error(
+      `tsconfig.json did not parse: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`,
+    )
+  }
+  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, ROOT, undefined, configPath)
+  if (parsed.errors.length > 0) {
+    throw new Error(
+      `tsconfig.json did not resolve to a file list: ` +
+        parsed.errors.map(d => ts.flattenDiagnosticMessageText(d.messageText, ' ')).join('; '),
+    )
+  }
+  // `parseJsonConfigFileContent` absolutises `rootDir` and `outDir` against
+  // the config's directory, so `emitLayoutVerdict` compares absolute paths to
+  // absolute paths without re-resolving either.
+  return parsed
+}
+
+/**
  * Which sources are guarded, asked of the compiler rather than of the build.
  *
  * The roster has to be `include: ["src"]` minus `tsconfig.json`'s three
@@ -344,25 +450,7 @@ const installation: Installation = {
  * the site bundle and never in `dist/`.
  */
 function compiledFiles(): readonly string[] {
-  const configPath = join(ROOT, 'tsconfig.json')
-  const read = ts.readConfigFile(configPath, ts.sys.readFile)
-  // Fail closed, both here and below. An unparseable or unresolvable config
-  // must not read as "no files to guard" — a roster that is empty because the
-  // question could not be answered is the fail-open shape §9 keeps naming,
-  // and it would report a clean `src/shared` over every module in it.
-  if (read.error) {
-    throw new Error(
-      `tsconfig.json did not parse: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`,
-    )
-  }
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, ROOT, undefined, configPath)
-  if (parsed.errors.length > 0) {
-    throw new Error(
-      `tsconfig.json did not resolve to a file list: ` +
-        parsed.errors.map(d => ts.flattenDiagnosticMessageText(d.messageText, ' ')).join('; '),
-    )
-  }
-  return parsed.fileNames.map(f => resolve(f))
+  return tsconfig().fileNames.map(f => resolve(f))
 }
 
 function guardedSources(): string[] {
@@ -429,6 +517,25 @@ describe('the shared/ rule, as a predicate', () => {
     expect(rosterVerdict('./gone.js', pkg, roster).ok).toBe(false)
   })
 
+  it('rejects a tsconfig whose emit layout is not the one this file walks', () => {
+    const src = '/r/src'
+    const dist = '/r/dist'
+    expect(emitLayoutVerdict({ rootDir: src, outDir: dist }, src, dist)).toEqual(OK)
+
+    // The measured case: a moved outDir with a clean build, which leaves the
+    // walked dist/ stale and every assertion over it true of the last build.
+    const moved = emitLayoutVerdict({ rootDir: src, outDir: '/r/dist2' }, src, dist)
+    expect(moved.ok).toBe(false)
+    expect(moved.ok ? '' : moved.why).toContain('/r/dist2')
+
+    const reRooted = emitLayoutVerdict({ rootDir: '/r', outDir: dist }, src, dist)
+    expect(reRooted.ok).toBe(false)
+
+    // Absent is not agreement.
+    expect(emitLayoutVerdict({ rootDir: src }, src, dist).ok).toBe(false)
+    expect(emitLayoutVerdict({ outDir: dist }, src, dist).ok).toBe(false)
+  })
+
   it('allows shared → shared and shared → core, and nothing else', () => {
     const pkg = '/r/src/shared'
     const core = '/r/src/core'
@@ -486,6 +593,11 @@ describe('src/shared and dist/shared import only what runs in both runtimes', ()
     return { count: all.length, bad: bad.sort() }
   }
 
+  it('walks the directories tsc is configured to write, not the ones a previous build left', () => {
+    const v = emitLayoutVerdict(tsconfig().options, SRC, DIST)
+    expect(v.ok ? '' : v.why).toBe('')
+  })
+
   it.skipIf(!built)('every emitted module pairs back to a guarded source, so neither walk can be silently empty', () => {
     // The vacuity floor, and deliberately **not** the incumbent's literal.
     //
@@ -501,10 +613,23 @@ describe('src/shared and dist/shared import only what runs in both runtimes', ()
     // A relation has neither problem. The two walks are now independent in a
     // stronger sense than before — one is TypeScript's answer to "what does
     // this tsconfig compile", the other is what `tsc` actually wrote to disk —
-    // so requiring the second to be contained in the first fails loudly for a
-    // mis-pathed root, a changed extension filter, an `outDir` that moved, an
-    // `exclude` glob that grew to cover a module still being emitted, and an
-    // orphan in `dist/` whose source is gone.
+    // so requiring the second to be contained in the first fails loudly for an
+    // `exclude` glob that grew to cover a module still being emitted, and for
+    // an orphan in `dist/` whose source is gone. Those are the two, and this
+    // comment used to claim five.
+    //
+    // **The three it does not catch, because a reader who assumes otherwise is
+    // the reason the extra two were written down.** A *vacuous* walk — an
+    // extension filter that stopped matching, a roster that resolved to
+    // nothing — is caught, but by the two `toBeGreaterThan(0)` floors directly
+    // below, not by the relation. And a **mis-pathed `rootDir` or a moved
+    // `outDir` are invisible to containment by construction**: containment
+    // holds perfectly between a current roster and a `dist/` that the build
+    // has abandoned, which is exactly the wrong green. Measured: `outDir`
+    // moved to `dist2`, rebuild exit 0 writing 13 modules there, `dist/shared`
+    // untouched — `23 passed (23)` across this file and `src/core/purity.test.ts`,
+    // which was every test both files then had. `emitLayoutVerdict` is what
+    // sees that; it is a different instrument and it runs unbuilt.
     //
     // **Containment, not equality**, and the direction is the whole point of
     // the roster change. The other direction — every guarded source has an
@@ -513,11 +638,22 @@ describe('src/shared and dist/shared import only what runs in both runtimes', ()
     // a new leaky module redden *here*, with a message about the build, and
     // its paired control (the same new module with the import removed) redden
     // identically — which is §9's "my control proves the diff works": it would
-    // prove the instrument functions, not that it saw the import. Whether an
-    // unbuilt source is itself a defect is a freshness question, and
-    // `src/core/purity.test.ts`'s `dist/ is either absent or current` already
-    // owns it over the whole of `dist/`, `dist/shared` included, with its own
-    // paired control.
+    // prove the instrument functions, not that it saw the import.
+    //
+    // This used to add that `src/core/purity.test.ts`'s `dist/ is either
+    // absent or current` "already owns" whether an unbuilt source is a defect.
+    // It does not, and that file's own docblock says so: it pairs `dist/`
+    // *back* to `src/`, so a source with no counterpart is never paired and
+    // never compared. Measured — `src/shared/zzzNew.ts` written and not built,
+    // `src/core/purity.test.ts` reports `8 passed (8)`.
+    //
+    // **Nothing owns it, and that is the right answer rather than a gap.**
+    // Since the roster came from `tsconfig.json` instead of from `dist/`, a
+    // never-compiled module is guarded by the source walk and the
+    // ambient-global walk the moment it is on disk — which is the half that
+    // covers the site bundle, and the half P1 criterion 8 is about. What is
+    // left unowned is only "should someone have run `npm run build`", which is
+    // a workflow question and cannot produce a wrong green about purity here.
     const sources = new Set(guardedSources())
     const emitted = filesUnder(DIST_SHARED).filter(f => f.endsWith('.js'))
     expect(sources.size, 'tsconfig.json compiles nothing under src/shared, so the source walk guards nothing').toBeGreaterThan(0)
