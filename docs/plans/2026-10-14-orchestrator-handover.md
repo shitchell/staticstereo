@@ -571,10 +571,15 @@ binding on tier 0 as on tier 1.
   criteria identified only by a local label; the correct response is to ask what it is.
 - **Record decisions in commit messages.** They are the durable record; the scratchpad is
   not, and a committed source file must never cite it.
-- **Brief with a sha, never a section number alone.** Error 12: a PM was told to read
-  plan sections its branch did not contain. Hand over `main`'s sha and the instruction to
-  check it; the receiving agent's `git log --oneline -1 main` has caught this five times
-  out of five.
+- **Brief with a sha, and attach the sha's resolution procedure.** Error 12: a PM was told
+  to read plan sections its branch did not contain. **Refined 2026-10-16, because the sha
+  alone proved insufficient twice in one hour** — `main` moves every few minutes while
+  agents are being written briefs, so both the gate runner and an audit worker read shas
+  that had already moved. The one that carried *"verify it rather than trusting me; if the
+  count is nonzero, merge"* resolved and continued; the one carrying a bare assertion could
+  only flag it and stop. **A sha is a claim; the procedure is what makes it checkable.**
+  The receiving agent's own `git log --oneline -1 main` has now caught this **seven times
+  out of seven**.
 - **Dispatching a worker to answer one question is normal and cheap.** Say so explicitly
   in PM briefs — three of five shifts crossed the source prohibition, and the cause is a
   PM between tasks with nobody to ask (plan §1.2l).
