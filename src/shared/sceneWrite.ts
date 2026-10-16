@@ -214,10 +214,38 @@ function canonicalAnim(v: unknown, where: string): unknown {
 }
 
 /**
- * `keys` first, then `kind` — the same discrimination, in the same order, as
+ * `keys` first, then `kind`.
+ *
+ * This docblock read: *"the same discrimination, in the same order, as
  * `validateAnimOne` in `site/scene.ts` and `validateAnimItem` in
  * `src/cli/scene.ts`. Deliberately the same order: a bag carrying both would
- * otherwise be written as one shape and read back as the other.
+ * otherwise be written as one shape and read back as the other."*
+ *
+ * **That is false, and it names the exact failure that does occur while
+ * claiming it is prevented.** Measured 2026-10-16:
+ *
+ * ```
+ * this function, below         if ('keys' in a)                  keys first
+ * site/scene.ts:225-226          if ('keys' in v) ... if ('kind' in v)   keys first
+ * src/cli/scene.ts:503           if (a['kind'] !== undefined)      kind FIRST
+ * ```
+ *
+ * The CLI's branch `return`s at `scene.ts:532` without ever reading `keys`.
+ * So a bag carrying both **is** written here as a track and read back by the
+ * CLI as a preset — one shape out, the other shape in, which is the sentence
+ * above describing its own counter-example.
+ *
+ * Kept and corrected beside rather than deleted, because the paragraph's
+ * existence is the only reason anyone looks at the three sites together.
+ *
+ * **The divergence itself is deliberately not fixed here** (orchestrator
+ * criterion 24, not a gate blocker). The input is malformed and *neither*
+ * validator rejects it; the CLI's laxity is pre-existing and predates this
+ * module; and nothing compared the two sides until this module gave them
+ * something to disagree about. The fix is to reject a both-keys bag on both
+ * sides, which makes the order moot and this paragraph true rather than
+ * merely accurate — and that is a change to `src/cli/scene.ts`'s accepted
+ * input, which is not this task's to make.
  */
 function canonicalAnimOne(v: unknown, where: string): Bag {
   const a = requireBag(v, where)
