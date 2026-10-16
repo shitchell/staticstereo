@@ -1404,3 +1404,45 @@ report that was otherwise exact.
    for `'set'` than for `'depthView'`. Bears directly on R-1.
 3. RED is **reconstructed by mutation, not test-before-code** — the production half already
    existed. H-1b said so plainly rather than letting it read as original TDD.
+
+## Shift 3 close — ownership, and one candidate task the successor must not lose
+
+### Ownership ruling, 2026-10-16 — P1/P7 owns three `site/` files
+
+**`site/legibility.ts`, `site/legibility.test.ts`, `site/project.test.ts` are P1/P7's.**
+The first two are its criterion 5 subject (the `illegible` reword); the third is its
+criterion 10 deliverable (the site reads a `.stst`). **No actual collision exists** — none
+of the three is on P3b's teardown list, which is `main.ts`, `index.html`, and the
+`controls` / `markup` / `present` / `scale` / `diagnostics` / `depthmap` / `stageguide`
+tests. **If teardown turns out to need any of them, escalate rather than edit.** Both PMs
+have been told, so neither discovers it at a merge.
+
+### CANDIDATE TASK, not in scope this shift — `build:site` catches one builtin spelling of four
+
+Measured by the other phase and recorded at `7fda4b0`. **`await import('node:fs')` on a
+reachable path in `site/fonts.ts` exits 0 with a warning AND THE NEEDLE SHIPS**, emitting a
+`__vite-browser-external-*.js` chunk. Note what that defeats: **it beats the
+constant-folding trap too**, because the code genuinely is in the bundle — so the standard
+"confirm the plant survived the build" control passes and the check still says nothing.
+
+**The complement is the useful half.** Inside `src/shared/` the purity guard catches all
+three import forms. **So the unguarded hole is `site/*.ts` — which is P3b's territory, and
+`site/` is about to grow a great deal under cluster F.** The hole grows with it.
+
+Deliberately **not added to this shift's scope** by tier 0, on the grounds that this PM was
+at half context and handing over. **It is a real task and it belongs to whoever owns
+`site/` when cluster F lands.** Sized like D-0: a sensor, not a redesign.
+
+### Also new at `7fda4b0` and already relayed inline to both live workers
+
+**`npm run build` does not clean `dist/`.** A stale planted file survived a rebuild and
+gave **4 reds where a wiped rebuild gives 2** — and the spurious extra red read exactly
+like a genuine finding. **Any worker planting into built output must `rm -rf dist
+dist-site` first.** H-2 was additionally told this contaminates a cold-vs-warm wall-clock
+comparison, which is the measurement its whole task may turn on, and that CI always builds
+cold.
+
+**`main` has moved to `7fda4b0` and this branch has NOT merged it** — deliberately, because
+H-2 owns the primary worktree and merging would move the tree under a live worker. Both
+new §9 rows were relayed inline instead (§1.2n: a brief carries the content of anything
+added mid-phase, not a section number). **Merge `main` once H-2 and R-1 have landed.**
