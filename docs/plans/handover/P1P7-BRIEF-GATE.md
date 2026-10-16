@@ -551,6 +551,43 @@ been degraded once by paraphrase, and the paraphrase is what makes them harmless
   NOT-COVERED sweep. Measured citation counts: obligation 2 nine times, obligation 4 three,
   obligation 3 once, **obligation 1 zero.**
 
+### §10.6 units — the reviewer's "three symbols deviate" is REFUTED, and this is §6 req 6
+
+Measured by verifier U-2 at `fb8d2c8`, reading only via `git show`. **Report the finding
+below, not the reviewer's version of it**, which is in the findings document as
+NOT-COVERED item 5 and is wrong in one of its three claims and over-reaching in another.
+
+| symbol | actual unit | deviates? |
+|---|---|---|
+| `quantisationStep` `:401` | normalised depth — `1/|disparityBudget|`, a **reciprocal** of scene px | only under a LITERAL reading; its own docblock at `:352` already denies it |
+| `CollidingPair.gap` `:426` | normalised depth | **rule does not reach it** — §10.6 binds "every perception *function*"; `collidingPairs` returns a struct array |
+| `DepthStop.depth` `:631` | normalised depth 0..1 | **NO — the design MANDATES it.** §5.3 requires the strip carry "two scales at once — depth 0..1 and the separation it maps to, in scene px", citing §10.6 while doing so |
+
+**The reviewer's list is also incomplete**: `restingDepth` `:461` is a roster-listed
+perception function returning normalised depth **with a docblock silent on units
+entirely** — the only one of the set making no unit claim at all — and `measureInk`
+violates the **"takes"** half too (its `depthMap` input is 0..1).
+
+**The defect is in the rule's wording, not in three symbols.** Of thirteen roster-listed
+perception functions, **exactly one** (`legibilityOf`) takes a bare scene-px number, so a
+literal reading of *"every perception function takes and returns scene px"* is violated by
+essentially the whole module from its first line. And the design already glosses its own
+rule narrowly at §8.2: *"§10.6's rule about naming the pixel space was written for
+scene-vs-device"* — under which a normalised-depth quantity is not a px quantity and
+**none of the three deviates.**
+
+**⚠ A DANGLING TIER-0 REFERENCE, found incidentally.** §10.1's existing deviation record
+cites *"recorded here per §6.6"* — and **§6.6 does not exist**: design §6 has only 6.1,
+6.2, 6.3, and `git grep "6.6"` hits only the design doc's own two self-references. The one
+existing deviation record cites a convention nobody can read. **This is the orchestrator's
+and it blocks writing any new record that cites §6.6.**
+
+**Status for your report: requirement 6 is satisfied only if the orchestrator has landed a
+§10.6 amendment. Ask your PM for the sha. If there is none, report requirement 6 as NOT
+satisfied with this as the single named reason** — do not report it as satisfied on the
+strength of the units being correct, because the units being correct is precisely what is
+not in dispute.
+
 - `18` inlined in prose at `site/controlspec.ts:522,539` and `site/index.html:223,224,299` —
   P3a-merged, **excluded from P7 criterion 6 by ruling** as prose-staleness.
 - `src/node/canvas.vendored.test.ts:113` — the third `runLengths(…, 0.5)` site. **P3b's.**
