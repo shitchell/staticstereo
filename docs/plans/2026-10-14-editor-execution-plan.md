@@ -928,9 +928,15 @@ is derived from the plan rather than from the design or from the requirement.
    `resolveStereo`.
 8. **R22 obligation 4 has a sensor:** no perception signature takes a subjective
    parameter. Neither obligation mapped to any criterion, which is plan §3's own lesson
-   live — a phase can pass its gate with a design item simply missing. **Scoped to a named list** — the
-   survey worker enumerates candidate constants and the PM fixes the list before dispatch,
-   because "is this constant perceptual?" is otherwise unjudgeable.
+   live — a phase can pass its gate with a design item simply missing.
+
+   *(Corrected 2026-10-16 — orchestrator error 28.* This paragraph used to end with
+   *"**Scoped to a named list** — the survey worker enumerates candidate **constants** … because
+   'is this constant perceptual?' is otherwise unjudgeable."* **That sentence belongs to
+   criterion 6, which is the constants criterion; criterion 8 is about parameters**, and
+   criterion 6 already carries its own named-list wording. A reader scoping criterion 8 from
+   this paragraph scoped the wrong thing. Found by a verifier reading both criteria against
+   each other.)*
 
 **P7 does not touch `site/main.ts`.** Revision 1 had it rewiring a file P3 deletes, while
 running before P3. The module lands standalone; P4 consumes it.
@@ -1330,6 +1336,50 @@ hole until G-3. A harness pinning a clause that is only half true would pin the 
 `hashprojection.test.ts`'s mapped `SAMPLES` table leaves vitest at 34 passed when the `set`
 row is removed — **only the compiler sees it.** Recorded rather than smoothed over.
 
+### P7 rulings from V-4, 2026-10-16
+
+**The `cardboarding` contradiction is settled: the roster is wrong and the module is right.**
+`perceptionRoster.ts:189` declares it `graded`; `perception.ts:1175` says *"Objective and
+ungraded."* V-4 measured which survives: a one-line strengthening of the witness —
+**`graded` ⇒ the answer owns a `grade` field** — reddens **exactly one row of thirteen**, and
+it is `cardboarding`. `fusionComfort` and `legibilityOf` both carry a literal `grade`;
+`cardboarding` does not. **Ruled: reclassify `cardboarding` as `objective`, and adopt the
+one-line strengthening**, because without it the table is not a sensor on the classification
+at all.
+
+**That second half is the substantive finding and it is worse than the contradiction.** V-4
+censused all thirteen return shapes against the ratchet:
+
+| direction | detectable |
+|---|---|
+| `graded → objective` | **0 of 13** |
+| `objective → graded`, scalar/string return | 9 of 13 |
+| `objective → graded`, object-with-a-number return | **blind** (`measureInk`) |
+
+So the `AssertNever` pair is a real ratchet on **membership** — it cannot go short, proved —
+and **no sensor at all on the value**. The file's own docblock is accurate about this and
+nobody overclaimed; the gap was simply open. **Criterion 2 is not violated under either
+declaration** — `cardboarding` returns a verdict plus three quantities — so the defect is
+that `Grading`'s two values had no operative difference, not that a row broke a criterion.
+
+**Criterion 6's "against a named list fixed before dispatch" is discharged by something
+stronger, and the clause is retired.** No list artefact was ever recorded; the ledger carries
+it as an open question. But V-4 ran an **independent census** instead and found every
+`runLengths` threshold outside `perception.ts`: four in `metamorphic.real.test.ts` (all
+`ABSOLUTE_INK_DEPTH`), `canvas.vendored.test.ts:113` (P3b's, known-open), and
+`src/core/metamorphic.test.ts:706` — which it then **measured to be a separator, not a
+threshold**, by changing `0.5` to `0.01` over a binary 0/1 map and watching the value stay
+byte-identical. **An exhaustive census beats a list fixed in advance**, because the list can
+be wrong and the census is checkable. Criterion 6 is **MET on the substantive property, by
+measurement.**
+
+**The §6.5a control that matters, reproduced exactly.** With the forbidden fix applied
+(`runLengths` made peak-relative) against the **pre-commit** file: `14 passed` and **all 21
+`[measured]` values byte-identical** — blind by pass/fail *and* by value. Against **HEAD**'s
+file, the same mutation reddens and moves a measurement `487 vs 0 → 487 vs 487`. **So the
+standing ruling against importing `INK_FRACTION` there is vindicated and the commit closed a
+real blind spot.** Both halves named, as the rule requires.
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
@@ -1494,7 +1544,10 @@ Each already cost a correction. Hand this table to every worker.
 | a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |
 | `grep -c '↓'` counts skipped tests | **It returns 0 on a genuine 22-skipped run**, and `grep -c 'skipped'` can too. **Every "0 skipped, verified positively by `↓`" on P3b verified nothing.** The sound instrument is vitest's own summary line, which names skips explicitly when they exist — `Tests  1349 passed | 22 skipped (1371)` — so **a parenthetical total equal to the passed count is positive proof of zero skips**, and an unequal one is the alarm. Check the summary, never a glyph. |
 | an agent's last transcript line is the frontier of its work | **It is a statement of intent, not a record of state.** A PM read a killed agent's final self-instruction — *"Now extend the parser cross-check…"* — as the thing left undone, and briefed its replacement accordingly. The work had **already been finished**; the line was written *before* doing it. The adopting worker added no code there and verified instead. **Reasoning backwards from a last line infers a frontier that was never claimed** — ask whether the work after it exists rather than assuming the transcript stops where the work did. |
+| `npm run build` gives you a clean `dist/` | **It does not clean it.** A verifier contaminated its own run this way and caught it: a stale planted file left **4 reds where a wiped rebuild gives 2**, and the spurious extra red was *"emits no test file and no testing/ helper into dist/shared"* — which **reads exactly like a genuine finding**. Anyone planting into `src/shared/testing/**` must `rm -rf dist dist-site` first. A gate runner that rebuilds over a dirty tree can report a defect that does not exist, in the vocabulary of one that does. |
+| a test that derives its expectations from the constant is the robust kind | **It is robust against intentional change and blind to the constant moving at all** — which is the opposite of what you want from a *threshold* witness. Measured: `INK_FRACTION` 0.5 → 0.9 and `TIGHT_MULTIPLE` 2 → 3 each leave `src/shared/perception.test.ts` at **21 passed**, because every one of its boundary tests derives its budgets from the module's own constants. The only sensor that sees either move is the file that uses **literal** budgets. **The sharpest part: a docblock amended specifically to avoid a stale assertion now cites that derivation as its proof** — *"what witnesses that is … every one of which derives its budgets from the module's own constants"* — so **the cited mechanism is precisely the reason the claim fails.** Invariant 4 says assert on structure not values; a threshold is the narrow exception, and **every threshold needs at least one literal-pinned witness** or nothing can see it change. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
+| `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four.** `await import('node:fs')` on a *reachable* path in `site/fonts.ts` exits **0** with a warning, and the needle **ships** — found in `dist-site/assets/index-*.js` with a dedicated `__vite-browser-external-*.js` chunk emitted, which also defeats the constant-folding trap because the code is genuinely there. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
 | a standing ruling in the handover was ruled | Not necessarily. "`seek` clamps to the last frame" sat in §4 under *do not re-litigate* for a week. It entered in the handover's **own birth commit**, and the P2 record it purported to settle says the opposite — *"Nothing pins `seek`… P3 must decide"*. It was the orchestrator's inference, formatted as an inheritance, and a PM correctly refused to build on it. **A ruling's authority is the measurement or the decision behind it; `git log -S` finds that in one command.** Where a §4 entry cannot be traced to one, it is a proposal. |
 | the suite measures the code | It measures the code **in the environment you ran it in**, and every tier of this system runs inside the same agent harness. `svelte-check` 4.7.6 picks its output format in `getOutputFormat()`: an explicit `--output` wins, **otherwise it returns `machine` if `process.env.CLAUDECODE === '1'` and `human-verbose` if not.** Two gate harnesses spawned it with `{...process.env}` and parsed for a `COMPLETED` line that only machine format emits. So the suite was green for **every agent that ever ran it** and red on the only machine that ships — `main` was broken for nine hours and eight commits, and no tier could have seen it, because the blindness was in the thing all of them shared. **When a test spawns a child, strip the harness's variables and pin every format the child would otherwise decide by sniffing its environment.** |
