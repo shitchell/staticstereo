@@ -1255,6 +1255,31 @@ to work. That distinction is worth asking of every guard this phase ships.
 from anything. It is the hand-written-list shape §9 warns about, accepted because no
 derivation exists, and recorded so nobody reads the green as total.
 
+> **Corrected 2026-10-16 by R-1, from V-BC's measurement. The paragraph above names the
+> wrong mechanism and would have sent the next reader to the wrong cure.** The dominant
+> hole was **member-name suppression, not roster length**: `globalsIn` skipped any
+> identifier in the `name` position of a `PropertyAccessExpression` — the suppression that
+> stops `a.window` accusing `site/present.ts` — so `globalThis.Date.now()` planted in
+> `site/transport.ts` left `store.test.ts` at **24/24 green while `Date.now()` on the same
+> line went RED.** `Date` *was* on the roster. **Every listed name was evadable by
+> prefixing it**, and lengthening the roster could not have closed any of it.
+>
+> **Resolved rather than re-noted, since §9 forbids a note.** The suppression is narrowed
+> at its one `globalThis` receiver (property and index spellings, and exempt from the
+> declaration filter) rather than removed, because removing it reddens legitimate code.
+> Two further measurements came out of it: **`Promise.resolve().then(f)` was a genuine
+> roster gap** — an inconsistency inside the roster's own intent, since `queueMicrotask`
+> was listed — and adding `Promise` exposed a **latent false positive affecting every
+> entry**: the real closure holds nine `Promise` references and **all nine are type
+> annotations** on the image-decode path, so type position is now ignored for both
+> rosters. All three plants are sensored in `store.test.ts`'s own controls.
+>
+> **The residue is accepted and argued, not hidden:** a receiver laundered through a
+> variable (`const g = globalThis`), a computed member name, and a spelling nobody has
+> thought of are all out of reach of a parser that is not a type checker. The list is still
+> neither derived nor complete; what has changed is that the stated reason is now the true
+> one.
+
 ### Criterion 22 — the two rulings its adoption forced, 2026-10-16
 
 The salvaged H-1 work was adopted at `24392c3` with **fourteen claims, each with a named
