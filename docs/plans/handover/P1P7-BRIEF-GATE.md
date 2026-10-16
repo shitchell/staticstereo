@@ -179,6 +179,31 @@ mistake already made once on this phase.
 **Never `npm run typecheck | tail`** — `$?` after a pipeline is `tail`'s status. Redirect
 and echo, as written above.
 
+### ☠ RAW `tsc` IS NOT A USABLE INSTRUMENT ON THIS TREE — it exits 2 when CLEAN
+
+Measured by implementer I-J2 while running criterion 8's control, and it invalidates a
+figure already in the record.
+
+**Raw `tsc` exits 2 on a clean tree**, because of a pre-existing
+`TS2307 Cannot find module './SvelteSmoke.svelte'` that **`svelte-check` resolves and raw
+`tsc` cannot.** So anyone who reaches for `tsc` directly sees a phantom error before
+making any change, and any mutation they then apply appears to produce *two* errors and
+exit 2.
+
+That is exactly how the recorded control figure for criterion 8 — *"`TS2344` ×2, exit 2"* —
+came to be **wrong twice**. Under `npm run typecheck`, the real reading is **one error and
+exit 1**:
+
+```
+exit 1, 476 FILES 1 ERRORS
+ERROR src/shared/testing/perceptionRoster.ts  Type '"disparityBudget"' does not satisfy the constraint 'never'.
+```
+
+**Use `npm run typecheck`. Never substitute `npx tsc`**, and if you see a `TS2307` about a
+`.svelte` module, that is the pre-existing condition and not a finding. This pairs with the
+`build`/`build:site` null-reading warning below: `typecheck` is the only type instrument on
+this repo that is calibrated at all.
+
 ---
 
 ### ⚠ "build 0, build:site 0" is TWO NULL READINGS about `site/`, not one
