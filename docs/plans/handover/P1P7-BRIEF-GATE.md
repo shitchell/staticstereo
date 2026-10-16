@@ -118,6 +118,36 @@ For an untracked file, say its name, size and first line. For a tracked file, th
 the diff is to let your PM tell *deliberate work* from *redirected output*, which is the
 only distinction that matters and the one you cannot make alone.
 
+**⚠ A DIFFSTAT CANNOT TELL YOU A DIRTY TREE IS BENIGN. SEARCH THE CONTENT.** On 2026-10-16
+a crash killed two implementers mid-task and left 44 modified lines across four files. The
+diffstat read as ordinary small hand-edits — and two of those lines were a **deliberately
+planted rot fixture that had not yet been reverted**:
+
+```diff
+-export function disparityBudget(stereo: StereoOpts): number {
+-  return stereo.sepFar - stereo.sepNear
++export function disparityBudget(stereo: StereoOpts, comfortBias: number = 0): number {
++  return stereo.sepFar - stereo.sepNear + comfortBias
+```
+
+Plants are normal here — criterion 8's verification *requires* planting an optional
+parameter and reverting it — so **any crash, timeout or interruption can leave one live.**
+
+**This one would have passed the gate.** A default-valued parameter is behaviour-neutral at
+every existing call site, so nothing reddens, every exit code stays 0, and the count does
+not move. **Line count is the wrong discriminant**: the most dangerous diff a plant can
+wear is a small, plausible, feature-shaped one.
+
+So when step 0 is dirty, before anyone calls it ordinary, grep the diff for:
+
+- **added parameters with defaults** — `grep -nE '^\+.*\([^)]*=[^)]*\)' ` over `git diff`
+- **changed arithmetic** in a function body
+- any identifier that appears in the diff and **nowhere else in the repo** (`git diff | grep '^+' ` then `grep -rn <ident> src/ site/`) — a plant's name is usually unique, and a plant that has been reverted leaves no hits
+
+Ask your PM which worker owned the file and **whether that worker's task involved a plant**.
+"The worker was doing criterion 8" is sufficient reason to treat every line of its diff as
+suspect until it confirms its own revert.
+
 **`git merge main` is step 1 and a conflict is an escalation, not a thing to resolve.** The
 branch has not merged `main` since `8f9a36f`.
 
