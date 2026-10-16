@@ -56,15 +56,26 @@ const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
  *   rootDir "src/core" outDir "dist"   2   13 passed (13)
  * ```
  *
- * Three wrong greens, one of them with the build exiting 2. `2e07de6`'s
- * successor closed the same hole in `src/shared/purity.test.ts` by *detecting*
- * it — `emitLayoutVerdict` there compares the config against that file's own
+ * Three wrong greens, one of them with the build exiting 2. `70718ea` closed
+ * the same hole in `src/shared/purity.test.ts` by *detecting* it —
+ * `emitLayoutVerdict` there compares the config against that file's own
  * transcription and reddens. This file takes the other route and keeps no
  * transcription to compare: it walks wherever the config says `tsc` writes, so
  * a moved `outDir` leaves it reading the real output instead of certifying the
  * abandoned one. The two are complements, not duplicates — detecting the move
  * is how `dist/` stops being published stale, and following it is how these
  * assertions keep having a subject.
+ *
+ * This sentence read "`2e07de6`'s successor" until the sha was checked against
+ * git, and it is worth recording how it was wrong rather than only that it
+ * was. `git show 2e07de6:src/shared/purity.test.ts | grep -c
+ * emitLayoutVerdict` is **0**; `git log -S emitLayoutVerdict --
+ * src/shared/purity.test.ts` puts the introduction at `70718ea`, whose parent
+ * is `b3e7601`, with twelve commits between the two — so `2e07de6` is not its
+ * predecessor in any git sense. The sharp part is that `2a553aa`, the commit
+ * that wrote the wrong sentence, names `70718ea` correctly in its own message:
+ * the log and the code it describes disagreed, and only the code was wrong. A
+ * sha is one command to verify and that command had not been run.
  *
  * Fails closed, as `roster.ts` does and for the same reason: with no `outDir`
  * or no `rootDir`, `tsc` emits beside the sources and there is no output tree
