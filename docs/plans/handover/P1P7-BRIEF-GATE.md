@@ -576,17 +576,35 @@ rule narrowly at §8.2: *"§10.6's rule about naming the pixel space was written
 scene-vs-device"* — under which a normalised-depth quantity is not a px quantity and
 **none of the three deviates.**
 
-**⚠ A DANGLING TIER-0 REFERENCE, found incidentally.** §10.1's existing deviation record
-cites *"recorded here per §6.6"* — and **§6.6 does not exist**: design §6 has only 6.1,
-6.2, 6.3, and `git grep "6.6"` hits only the design doc's own two self-references. The one
-existing deviation record cites a convention nobody can read. **This is the orchestrator's
-and it blocks writing any new record that cites §6.6.**
+**A DANGLING TIER-0 REFERENCE, found incidentally — now CLOSED.** §10.1's existing
+deviation record cited *"recorded here per §6.6"* and **§6.6 did not exist**; design §6 had
+only 6.1, 6.2, 6.3. So the project's single existing deviation record pointed at a
+convention nobody could read, which is why U-2 fell back to plain English rather than
+pretending to apply it. **§6.6 "Recording a deviation" now exists** at `a8f9edd`
+(`editor-design.md:780`), along with §8.4 which also cited it.
 
-**Status for your report: requirement 6 is satisfied only if the orchestrator has landed a
-§10.6 amendment. Ask your PM for the sha. If there is none, report requirement 6 as NOT
-satisfied with this as the single named reason** — do not report it as satisfied on the
-strength of the units being correct, because the units being correct is precisely what is
-not in dispute.
+### ✅ REQUIREMENT 6 IS SATISFIED — cite `a8f9edd`
+
+**Verified by this PM rather than taken on report**: `a8f9edd` resolves, is an ancestor of
+`main`, and `§10.6` carries the amendment with **the original wording kept verbatim
+beside it** because other sections cite it.
+
+**It is a RULE AMENDMENT under §6.6 point 4, not a deviation record**, and the distinction
+is the whole ruling: nothing deviated, so there was nothing to record. The amended rule
+reads *"Every px quantity crossing a boundary is scene px and is named as such… Normalised
+depth (0..1) is a legitimate second axis and is not a px quantity, so this rule does not
+bind it — but a symbol in normalised depth must say so."*
+
+**Report requirement 6 as SATISFIED, citing `a8f9edd`.** Do not re-litigate the three
+symbols; do not report them as open deviations. **`DepthStop` is named in the amendment as
+the canonical both-axes case** — `depth` in 0..1, `name` as `` `${separation} scene px` `` —
+which is §5.3's "two scales at once" built exactly as specified, and which is also F1's fix.
+
+**Still open under the amendment, as a DOCUMENTATION GAP and not a deviation:**
+`restingDepth`'s docblock is silent on units, and `measureInk`'s `peak`/`threshold` are
+normalised depth on both the input and output side. Routed to an implementer; if it has
+landed, cite its commit, and if not, carry it as open — **it does not block requirement 6**,
+which the amendment settles on its own.
 
 - `18` inlined in prose at `site/controlspec.ts:522,539` and `site/index.html:223,224,299` —
   P3a-merged, **excluded from P7 criterion 6 by ruling** as prose-staleness.
