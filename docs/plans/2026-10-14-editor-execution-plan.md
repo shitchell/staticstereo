@@ -1573,6 +1573,28 @@ how.
 
 ## 9. Known traps
 
+> ### The generalisation that covers every row below
+>
+> **Every instrument this project trusted and then actually measured turned out blind.**
+> Not most — every one that was put to a control. The skip glyph. **Both** builds over
+> `site/` types. `build:site` over three of four builtin spellings. The `@ts-expect-error`
+> wall over 45 of 52 controls. `conditional` under a write hoisted one level. `isGlobalRoot`
+> under a pair of parentheses. A baseline that cannot see what predates it. A `vitest list`
+> census that omits skips and cannot tell a retitle from a delete. A roster ratchet blind in
+> one entire direction. A census instrument that silently writes its output over the file
+> you named.
+>
+> **Each was caught only when someone planted a control against an instrument nobody had
+> ever watched fire.** None was caught by reading the instrument, by reasoning about it, or
+> by it behaving oddly — several had been cited as evidence across multiple shifts while
+> blind.
+>
+> **Assume the next one is in whatever you are about to trust.** PM-SHELL-P3b-4's closing
+> line, and it is the only sentence here that predicts the rest of the table instead of
+> recording it.
+
+
+
 Each already cost a correction. Hand this table to every worker.
 
 | Trap | Reality |
