@@ -182,6 +182,52 @@ re-confirmed once `pages` is green again.
 
 ---
 
+## 2b. P1/P7 — requirement 1 is NOT satisfied at HEAD. Ruled 2026-10-16.
+
+**All four verifier clusters ran against `b3e7601`. Seventeen commits have touched `src/` or
+`site/` since** — confirmed by the orchestrator's own `rev-list`, against a census that said
+ten, because the set **grows while the phase works.** So `05a7d2e`'s sentence — *"every
+criterion MET with evidence from a verifier that implemented none of it"* — **is true of the
+tree the verifiers saw and is stated about the tree at HEAD, and they are different trees.**
+
+**Worse, and the reason this is not merely bookkeeping: a verifier passed a criterion over
+prose.** Criterion 10's witness at `6531698^` was two `*`-prefixed docblock mentions of
+`src/cli/scene.ts` and **no import of it**. Verified by the orchestrator: `grep -c` returns
+**2**, and `grep -E "^\s*import .*cli/scene"` returns **nothing**. **A raw count would have
+let me refute the PM; the cheap check — does the file *import* what the claim compares
+against? — settles it.** The gap was then found by a *reviewer* and fixed by an
+*implementer*, so **criterion 10's only real RED was established by the person who wrote the
+fix**, which is precisely what requirement 1 forbids.
+
+**V-2 has no report at all** — one sentence in `7fda4b0`, no criterion named, and the phrase
+*"RED re-established"* never appears for it, where it appears explicitly for V-1 and V-3.
+Its caution is kept verbatim: *"I cannot distinguish 'V-2 did measure RED and nobody wrote
+it down' from 'V-2 did not.' The honest statement is that the record does not support the
+claim, not that the claim is false."*
+
+**RULED: V-5 at full scope — option (a), the more expensive one.** Six criteria whose
+current sensor is shaped by an unverified commit (**P1-7, P1-8, P1-10, P7-2, P7-5, P7-6**),
+the new arity guard at `819101d`, everything I-J2 and I-K2 landed, **and criteria 4, 6 and
+10 re-established from scratch.** The cheaper option — carrying V-2's gap as a recorded hole
+— was rejected because **V-2 is not merely unevidenced, it is known to have failed once, in
+the specific way a control must not.** "4 and 6 are probably fine" is inference from absence
+about an instrument that demonstrably passed over prose.
+
+**The gate runner's brief says requirement 1 is "already satisfied — do not re-run this."
+That is false and must be corrected before it runs.**
+
+**Criterion 25 is reassigned to P3b**, which owns `site/`. It was open with no verifier, no
+sensor and no owner, and it is a guard over `site/*.ts` imports — not P1/P7's surface.
+P1/P7's gate report records it as **open and owned elsewhere**, not open and unowned.
+
+**Two structural notes, neither blocking, both recorded because the shape recurs:** P7-6's
+clause was retired **by V-4 itself** — a verifier amending the criterion it was sent to
+check, well-measured and ratified at `94226e5` but worth naming. And P7-8's implementing
+commit predates its own correction by a day, with **the verifier that found the error being
+the one that passed the criterion.**
+
+---
+
 ## 2a. THE SESSION IS OUT OF SUBAGENTS — read this first
 
 **RESOLVED — the cap does not carry across a session restart.** *(2026-10-16.)* The
@@ -443,6 +489,8 @@ orchestrator.
 | 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
 | 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
 | 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
+| 36 | **Inferred which finding each orphaned file belonged to, from the file set, and reported it as observation** — "the file set reads as I-J (F1 in `perception.ts`)". **F1 was already committed at `2ab76ab`.** My discard-and-redo recommendation would have **reverted good committed work to re-watch a RED for a change already made correctly.** `git log` was one command. The PM nearly accepted it *because it was plausible and matched what it remembered briefing* | the PM checked the log instead of the mapping |
+| 35 | **Read a 44-line dirty tree as "ordinary interrupted work, not corruption" on the strength of its line count** — and it contained a **live un-reverted rot plant** changing a real perception function's signature *and* arithmetic. **Behaviour-neutral at every call site, so nothing would have reddened and it would have passed the gate.** I had the diffstat and did not look at the diff | the PM read the content |
 | 34 | **Accepted "zero removals" from a gate report that named no instrument for it, and wrote it into the state table as established.** Its evidence was a count delta — +1 file, +12 tests — which **cannot** establish the claim, since +12 is equally consistent with fifteen added and three removed. §6.4 asks for names. I had just spent the evening routing a defect about a *silently unarmed* census and did not ask the prior question: **was there a census at all?** | the sibling PM re-read the gate report rather than its memory of it |
 | 33 | **Let seven reviewer findings live only in chat.** Round 1 routed to me **twice** because the mesh dropped it in both directions; I read it both times, acted on parts in messages, and **wrote none of it into a document.** F1 is a shipped user-facing string contradicting the design in two places with a sensor blind to the difference, and it **survived two full review rounds without reaching a decision-maker.** This is error 15 exactly — the one that cost nine criteria and produced five wrong reconstructions when rebuilt from memory. **Now transcribed, not summarised, in `docs/plans/2026-10-16-p1p7-review-findings.md`** | the reviewer flagged it against itself while closing round 2 |
 | 32 | **Wrote a branch-point rule with the range direction backwards** — *"if `main..HEAD` touches `src/`, `site/`, config or tests, stop and escalate"*. That range is **the branch's own work**, which is supposed to touch `src/`; measured 39 commits over 46 files, so the rule fires on every healthy feature branch. The direction carrying the risk is **`HEAD..main`**. **The project has now had this rule wrong four times** — three in a worker boilerplate, once from me | the PM measured both directions instead of obeying one |

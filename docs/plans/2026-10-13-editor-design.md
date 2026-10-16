@@ -777,6 +777,35 @@ unshareable while authoring, not discover it in Slack. Load-bearing for heightma
 
 ## 7. Animation and the timeline
 
+### 6.6 Recording a deviation
+
+*(Written 2026-10-16. **This section did not exist**, and two places already cited it —
+§8.4's own heading, "What P2 changed in this document (§6.6)", and §10.1's signature
+deviation, "recorded here per §6.6". A verifier found the dangling reference while checking
+something else. So the one existing deviation record cited a convention nobody could read,
+and a worker asked to judge whether something was a recordable deviation had no threshold
+to apply.)*
+
+**A deviation is shipped code that departs from a rule this document states.** Not a gap, not
+a thing unbuilt, not a disagreement between two documents — those are a criterion and an
+escalation respectively.
+
+**Recording one:**
+
+1. It is recorded **beside the rule it departs from**, not in a list elsewhere. A reader
+   arriving at the rule must meet the exception without having to know it exists.
+2. It carries **the measurement** that establishes the departure, not an assertion that one
+   happened.
+3. It carries **the reason the departure is correct**, or it is not a deviation record — it
+   is a defect report, and the code should change instead.
+4. **Append beside; never rewrite the rule to match the code.** If the rule itself turns out
+   to be wrong, amend the rule and say so explicitly, which is a different act with a
+   different burden of proof.
+
+**Point 4 is the one with teeth**, because a deviation record and a rule amendment are easy
+to confuse and the second is how a document quietly becomes a description of whatever was
+built.
+
 ### 7.1 One rung
 
 **verbs → keyframes**, an explicit, per-item, one-way expand. That is the whole ladder.
@@ -1148,10 +1177,47 @@ out (§2), and the strongest candidate for the first post-rewrite core change.
 `noiseScale`, "and silently right at the default of 1" — and the default is now **2**.
 Revision 1 mentioned `noiseScale` nowhere while quoting separations in "px".
 
-Rule: **every perception function takes and returns scene px**, and any view converting to
-device px does so explicitly at the boundary. The depth strip labels its axis "scene px".
-The embed-width readout in effort #2 will cross both `noiseScale` and §8.1's fit factor,
-and must name both.
+Rule, as amended 2026-10-16 — **the original wording is kept below because it is cited
+elsewhere, and this is a rule amendment under §6.6 point 4, not a deviation record:**
+
+> **Every px quantity crossing a boundary is scene px and is named as such**, and any view
+> converting to device px does so explicitly at the boundary. **Normalised depth (0..1) is a
+> legitimate second axis and is not a px quantity, so this rule does not bind it** — but a
+> symbol in normalised depth must say so. The depth strip labels its px axis "scene px".
+> The embed-width readout in effort #2 will cross both `noiseScale` and §8.1's fit factor,
+> and must name both.
+
+**Original wording:** *"every perception function takes and returns scene px, and any view
+converting to device px does so explicitly at the boundary. The depth strip labels its axis
+'scene px'."*
+
+**Why it was amended rather than recorded against.** A reviewer reported three symbols as
+deviating from the original. A verifier traced all three and **the flat verdict was wrong**:
+
+- **`DepthStop.depth`** does not deviate at all — **§5.3 of this document *mandates* a 0..1
+  depth scale and cites §10.6 while doing so.** Scene px there would violate §5.3.
+- **`CollidingPair.gap`** — the rule binds *functions*; `collidingPairs` returns a struct
+  array, and reading the rule down onto struct fields immediately self-contradicts one
+  symbol over.
+- **`quantisationStep`** is normalised depth, being a **reciprocal** of scene px — and its
+  docblock already denies the deviation in terms.
+
+And the original wording is **unsatisfiable module-wide**: of thirteen perception functions,
+**exactly one takes a bare scene-px number**; six return structs, of which `DepthStop` alone
+mixes normalised depth, scene px *and* a string. A rule violated by essentially the whole
+module from its first line was never the rule that was meant — and **§8.2 of this document
+already glosses it narrowly**: *"§10.6's rule about naming the pixel space was written for
+scene-vs-device."* The amendment adopts the gloss this document already contains in two
+other places rather than inventing one to fit the code.
+
+**`DepthStop` is the canonical both-axes case:** `depth` in normalised 0..1, `name` as
+`` `${separation} scene px` ``, which is §5.3's "two scales at once" built exactly as
+specified.
+
+**Open, and a documentation gap rather than a deviation:** `restingDepth` returns normalised
+depth and **its docblock is silent on units entirely** — the only symbol in the set making no
+unit claim. `measureInk`'s `peak`/`threshold` are normalised depth on both the input and
+output side.
 
 ### 10.7 Visual diagnostics
 

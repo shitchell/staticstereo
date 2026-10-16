@@ -30,11 +30,11 @@ summarised.**
 | # | Location | Class | Severity | Finding |
 |---|---|---|---|---|
 | **F1** | `perception.ts:822`, `:743-744` | ASSERTION | **should-fix, arguably blocking** | The label `` `${separation} px` `` **names none of the four pixel spaces**, while the docblock claims it satisfies invariant 7 and design §5.3/§10.6 says **twice** that the strip labels "scene px". The sensor `stops.test.ts:542` is `toContain('px')` — **blind to the distinction**. A shipped user-facing string contradicting the design text in two places. No consumer outside its own tests. **Fix needs `stops.test.ts:542` tightened to `toContain('scene px')`; unrun.** |
-| **F2** | `perceptionRoster.ts:126-145`, `contract.test.ts:65-75,77-126` | ASSERTION | **should-fix** | **All three halves of criterion 8's guard are blind to an added *optional* parameter.** Probe: declared `4` against `3\|4\|5` → `never`, exit 0. Control: declared `9` → `TS2344` ×2, exit 2. **LIVE at tip.** Criterion 8's rot case is therefore not eliminated. Proved at type level; **not planted in the real module during a gate window.** |
+| **F2** | `perceptionRoster.ts:126-145`, `contract.test.ts:65-75,77-126` | ASSERTION | **CLOSED `819101d`** | **All three halves of criterion 8's guard were blind to an added *optional* parameter**, because `Parameters<F>['length']` is a **union** wherever a parameter is optional, so "declared length is a member of the union" passes for every member. Fixed with `Required<Parameters<F>>['length']`. **Two figures in this row were measured wrong and are corrected here: `measureInk`'s real arity is `3 | 4`, not `3|4|5`; and the control's `"TS2344 ×2, exit 2"` is wrong in both terms** — raw `tsc` exits 2 on a *clean* tree from a pre-existing `TS2307`, so under `npm run typecheck` it is **one error, exit 1**. Proved at type level by the reviewer and then **planted for real** by the fix worker: with the rot present all three instruments were **byte-identical green** (476 files / 0 errors, contract 10/10, throws 15/15) — *that green was the bug* — and the fix makes it exit 1 naming the drifting export, with the original wrong-arity case still caught. |
 | **F3** | `shared/purity.test.ts:575` → `core/purity.test.ts:221` | POINTER | note | Correct at `70718ea`, **broken by `3d593fe`**; the real site is `:377`. LIVE. |
 | **F4** | `perception.ts:1076` → `cli/scene.ts:263` | POINTER | note | Correct at `bdd4af1`, **broken by this branch's CLI work**; the real site is `:368-371`. LIVE. |
 | **F6** | `perceptionRoster.ts`, new text at `421e265` | ASSERTION | note | Says *"verdict plus three quantities"* — there are **two** finite numbers. |
-| **F7** | `contract.test.ts:185` | invariant 3 | note | `toBeGreaterThan(20)` — magic number with no recorded derivation. |
+| **F7** | `contract.test.ts:219` — **not `:185`, measured stale** | invariant 3 | note | `toBeGreaterThan(20)` — magic number with no recorded derivation. **Substance reproduced; location did not.** This is the **fourth** line number in this document measured stale in one day; another (`:377`) was true only between two commits and is now `:466`, having drifted twice. **Prefer a stable anchor to a fresh line number — replacing one with another just restarts the clock.** |
 | **F8** | `zip.ts:58-60`, `zipRead.ts:120-122` | invariant 3 | note | Signature constants unexplained **while `SIG_ZIP64_EOCD` beside them is documented** — the inconsistency is the tell. |
 
 **F5** (`canvas.generics.test.ts:113-114`, three defects in one sentence) — **already fixed
@@ -74,12 +74,16 @@ the count of four was short.
    a build.** The reviewer: *"the single thing I most want a gate runner to close."*
 2. **R22 obligation 1 has no criterion and no sensor** — now **criterion 25**. Measured
    citations: ob.2 nine times, ob.4 three, ob.3 once, **ob.1 zero.**
-3. **Criterion 8's rot case is not eliminated** — F2.
+3. ~~**Criterion 8's rot case is not eliminated**~~ — **CLOSED at `819101d`**, with the rot planted for real rather than proved at type level.
 4. **No criterion asks what a `.stst` means for a layer type only one side accepts** — now
    **criterion 24**, closed-with-record, not to be re-raised.
-5. **Design §10.6 deviated from** — `quantisationStep`, `CollidingPair.gap`,
-   `DepthStop.depth` are in normalised depth. The module's argument is good; **a deviation
-   resolves only if recorded under DEVIATIONS**, and nobody has confirmed it is.
+5. ~~**Design §10.6 deviated from**~~ — **RESOLVED at `a8f9edd`, and the reported finding was
+   wrong in all three parts.** `DepthStop.depth` does not deviate — **§5.3 mandates a 0..1
+   scale and cites §10.6 while doing so.** `CollidingPair.gap` is out of scope — the rule
+   binds *functions*. `quantisationStep` is a **reciprocal** of scene px and its docblock
+   already denies the deviation. **The defect was §10.6's wording**, which is unsatisfiable
+   module-wide, so the rule was amended to the gloss §8.2 already contained. **§6.6, cited
+   twice and never written, now exists.**
 6. **The writer's `deflate` path has no production consumer** — write-side
    `CompressionStream`, design §6.2's named mechanism, is **test-only** now.
 7. **The CLI/site value axis is unscoped** — five container-reachable disagreements pinned,
