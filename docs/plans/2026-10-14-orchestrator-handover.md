@@ -489,6 +489,9 @@ orchestrator.
 | 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
 | 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
 | 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
+| 42 | **Wrote "three independent measurements converge" about three readings of source.** One method applied three times is blind in whatever way the method is blind, and **a worker had already flagged exactly this about its own result** — *"agreement between two reports, not two measurements of different kinds"* — before I wrote the stronger claim. **Convergence is reassuring; it is not corroboration.** The plant control that would make it a measurement is still outstanding, and the docs rule stays open until it lands | the PM corrected the framing, citing its own worker's caution |
+| 41 | **Corrected error 40 with a reader set of eight; it is three.** My instrument was `grep -rln "docs/"`, which **matches comments** — five of the eight reference `docs/` only in prose, and two have **no `fs` import at all.** So the correction committed **the same compression one level down**: *"this file mentions the path"* is true, *"therefore it reads it"* is false. **It also caused a departing PM to disavow a commit whose safe-list was CORRECT**, on the strength of my wrong set. **And an over-wide blame set is not the safe side** — it invites a real branch defect to be waved off as the orchestrator's docs commit | PM-SHARED-5 opened every candidate file |
+| 40 | **Briefed every PM that a "docs-only" divergence is safe to merge. Measured false — eight test files parse `docs/`**, four of them the design document, which I amended by +70/−4 at `a8f9edd` while two phases were merging `main` on that rule. **I checked the path prefix, not whether anything reads the path:** *"everything is under `docs/`"* is true, *"therefore no test can see it"* is false, **and I briefed the join as a verification.** Nothing broke — both gates were green afterwards — but every merge made on that rule was made blind | a verifier measured it against its own PM's merge |
 | 39 | **Quoted a CI budget band as a constraint — again — and it was wrong again.** 94s became "93–108s with apt 19–25s" after error 29; the next run measured **117s with apt at 31s**, outside the corrected band. **Error 29's shape recurring inside error 29's own correction.** The fix is not a third band: **stop quoting a performance figure as a constraint at all.** Say what it is made of and have the runner measure it — any band from four samples is a sample | the PM logged it against itself rather than absorbing it |
 | 38 | **Briefed a PM to "watch for their clearance requests and grant one at a time" — requests that §1.2g makes structurally impossible to deliver.** A worker had already received `No agent named … is reachable` twice, in a document I had read. Waiting was a deadlock, not a protocol; the fix is to **push the decision**, which the PM did unprompted. **And I launched that successor into the primary worktree while its predecessor was still committing there**, having taken a handover commit as proof of stand-down — two PMs writing one tree, which resolved benignly by luck rather than by design | the PM pushed the decision and reported the near-divergence against itself |
 | 37 | **Ratified a task premise that was false, and wrote a §9 row that reassured where it should have warned.** ESC-9's *"the check reddens on a doc string"* is wrong — comments are stripped, a docblock never reddened it, and the offender is a **runtime string literal** minification must keep, so the clause was already true and the natural fix **would have gone green and fixed nothing.** Separately my §9 row said the `node:fs` needle **ships and is findable**; measured, vite rewrites it and the text is **absent from every byte**, so the old check passed 34/34 over a bundle carrying a live builtin import. **Both point the same way — toward believing a check works** | the worker refuted the premise of its own task |
@@ -523,6 +526,107 @@ a single command would have settled, skipped because it felt too small.** §1.2e
 binding on tier 0 as on tier 1.
 
 ---
+
+## 5d. Criterion 5's tight branch — ruled 2026-10-16
+
+**Criterion 5 names two branches; only one is witnessed.** V-5 planted the forbidden string
+into the **`tight`** branch and got **ten files green with all 128 `[measured]` values
+byte-identical** — blind by pass/fail and by value. Both anti-advice assertions run on the
+*illegible* fixture only.
+
+**RULED: the sensor goes in `src/shared/perception.test.ts`, NOT `site/legibility.test.ts`** —
+and the reason is **durability**, not only the ownership contention both PMs raised:
+
+1. **`site/` is under teardown and P3b owns it.** A new criterion sensor placed in a file
+   that teardown may rewrite or delete is **placed where it can be lost.** Neither option as
+   offered accounts for that, and it is the decisive point.
+2. **The criterion is about the perception module's verdict strings — the model layer.**
+   `site/legibility.ts` is now a bare `export *` shim; **asserting on the model asserts on
+   the real subject** rather than on a re-export.
+3. It touches no contested file, so no ownership ruling is needed at all.
+
+**Sequencing approved, and it is NOT the V-2 inversion.** V-5 has **already established the
+RED itself** — plant documented, full green across ten files recorded, 128 values unmoved —
+**as a verifier that implemented none of it.** An implementer now only has to build a sensor
+that catches **V-5's already-documented plant**, which is verification-then-implementation
+in the right order. **It must reproduce V-5's plant first, confirm green (the bug), add the
+assertion, confirm red, revert, rebuild, confirm green** — the rebuild because
+`site/dist.test.ts`'s freshness guard is mtime-based and stays red after a bare revert.
+
+**Option (c), merging with it as a recorded gap, is refused.** The criterion names both
+branches explicitly, and *"a phase passes its own gate with a design item simply missing"*
+has now happened **four times** on this phase.
+
+**Carried, not blocking: criterion 7 is discharged by there being only one writer**, not by
+a two-sided comparison — **none exists or could today.** That is a statement about the
+future rather than a defect now, **but the criterion's wording invites a reader to believe a
+comparison exists**, and if P5 adds a site-side writer that does not call `writeStst`,
+nothing in the repo would notice. **Reword it rather than leave it.**
+
+## 5c. `166b6da`'s removal — ratification wording, 2026-10-16
+
+**Ratified, but NOT in the words I was about to use.** I escalated this as *"replace-in-place,
+not a coverage loss"*; V-D0b measured that wrong. **Use this wording verbatim, which is
+V-D0b's:**
+
+> **replace-in-place with two declared real-reference coverage losses (computed specifier;
+> non-script emitted file), both inside the file's stated boundary, traded for one
+> real-reference gain (externalised builtin)**
+
+**Measured, needle grep-confirmed in the artifact before each verdict:** a non-foldable
+`await import(location.hash.slice(1) || '@napi-rs/canvas')` — **old exit 1, new 37 passed
+exit 0, silent**, over a bundle literally containing the call. And a real import inside
+`dist-site/index.html` — **old exit 1 naming the offender, new silent**, because the file is
+not a script chunk and is never visited. **Against one genuine gain**, the externalised
+builtin, old 34-passed-exit-0 → new exit 1.
+
+**`166b6da` stands — repair, not revert.** It closes a real hole and **declares both losses
+accurately under its own BOUNDARY heading.** Its *summary* sentence does not, and a
+ratification quotes the summary — see §9's new row.
+
+**Two follow-ups fold into S-2, not a separate task**, since both are *the fix was
+enumeration-complete, not class-complete*:
+- **Restore coverage for the computed-specifier and non-script-file classes**, and **pin the
+  emitted extension set** — *"both builds emit only css html js woff2"* exists **only in
+  prose**, which is the unpinned premise underneath the second loss.
+- **The `__vite-browser-external` gap must get a real sensor, and the fix is this table's own
+  pattern: make the note be the test.** Assert the stub name is present in the build output,
+  so a vite upgrade that renames it **reddens loudly** instead of going silent. Two lines.
+  **I am not accepting an unsensored gap here** — the standing ruling is that a gap ships
+  with a sensor, never a note, and this one currently ships with a note that calls itself a
+  sensor.
+
+**Settled and closed: `dist-player` is wholly pre-existing and NOT created by `166b6da`.**
+The deleted test ran over `dist-site` only and the player block is **byte-identical before
+and after** (md5 `b04bfab3…`). The ownership question is answered; the player gap stays
+queued as pre-existing P3b work.
+
+## 5b. Live cross-phase handoff — the builtin-spelling matrix, split 2026-10-16
+
+**A §9 row of mine is unverified and load-bearing:** *"`build:site` catches one spelling of
+four"* has **never been reproduced**. Its only provenance is a relayed verifier result in
+`7fda4b0` — and **`02e8e27` has already overturned the other half of that same commit's
+bundle claim** (the needle *"ships and is findable"* → measured **absent from every byte**).
+**One half of a two-claim paragraph is confirmed false and the other has never been
+checked.** The four spellings are never enumerated and the caught one is never named.
+
+**A single 16-cell matrix settles it:** plant each of `import 'node:fs'`,
+`import * as fs from 'node:fs'`, `await import('node:fs')`, `require('node:fs')` in **(a)** a
+reachable `site/*.ts` path and **(b)** `src/shared/*.ts`, build **with and without**
+`build.rollupOptions.onwarn`, record the exit code per cell.
+
+**RULED: split by ownership.**
+- **The `site/*.ts` half is P3b's** and needs no authorisation. It closes P3b's own queue
+  item — the player bundle has **no `@napi-rs`/`node:` specifier check at all**, which is
+  pre-existing and ~5 lines to add once the matrix says which spellings matter.
+- **The `src/shared/*.ts` half is P1/P7's, AFTER its gate.** It is the *complement* claim —
+  *"inside `src/shared/` the purity guard catches all three import forms"* — a different
+  instrument, separably measurable. **Not now:** V-5 is live in `src/shared/container.ts`,
+  and two agents planting in one directory is exactly how a plant survived a crash into a
+  tree that looked finished.
+
+**Until both halves land, treat the "one spelling of four" row as unverified** and do not
+build a task on it — which is the trap the row itself now warns about.
 
 ## 5a. Live handoffs to unstarted phases
 
