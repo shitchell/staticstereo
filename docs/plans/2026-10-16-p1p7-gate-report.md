@@ -1,7 +1,7 @@
 ---
 title: P1/P7 gate report
-description: The gate run for the .stst and perception phases — four exit codes, counts, census, CI, and the open items a merge inherits
-status: complete; ready-to-merge pending the criterion 5 sensor
+description: The gate runs for the .stst and perception phases — four exit codes, counts, census, CI, and the open items the merge inherited
+status: MERGED at `da0e4a9` on the re-gate at `e72e7ce`. The body below describes the FIRST gate at `5801cfe`; the appendix supersedes its numbers. Items under "carried open past the merge" were NOT closed by it.
 date: 2026-10-16
 tags: [gate, staticstereo, p1, p7]
 ---
@@ -381,3 +381,175 @@ all**. The rule is **a read call whose argument resolves under `docs/`, NOT the 
    wipe having been complete. All three directories were verified gone before the merge.
 8. **Two gate→PM messages failed to send** (`No agent named … is reachable`). The report was
    treated as the channel of record, which is why it is committed here.
+
+---
+
+# Appendix — gate RE-RUN at `e72e7ce`
+
+**The report above describes the first gate, at `5801cfe`. This appendix supersedes its
+numbers.** A re-run was required because `9439c11` added criterion 5's tight-branch sensor
+after that gate, moving the count.
+
+| | |
+|---|---|
+| gated sha | **`e72e7ce`**, `origin/feat/p1p7-shared` matching exactly |
+| census merge-base | **`7ce9861`**, taken before the merge, verified independently by the runner |
+| typecheck · build · build:site · test | **0 · 0 · 0 · 0** |
+| counts | **`Test Files 96 passed (96)` · `Tests 2130 passed (2130)` · 0 skipped** |
+| CI | **`38882243266`** · `pull_request` · **SUCCESS** · 1m41s · PR #4 · head sha **byte-equal** to the gated sha |
+
+**`ready-to-merge: YES`**, all seven requirements, with requirement 1 resting on a relay —
+see below.
+
+## Criterion 5's sensor: RED re-established by the gate, not by its author
+
+The first gate left requirement 5 pending on this. `9439c11` was verified structurally
+(**+31/−0, exactly one new `it`**, asserting `legibilityOf(ink, budget).grade === 'tight'`
+**before** reading the string, fixture derived from the file's own
+`disparityBudget(DEFAULT_STEREO)` rather than a copied literal) — and then the gate
+re-established its RED itself:
+
+| arm | `src/shared/perception.test.ts` | `site/legibility.test.ts` |
+|---|---|---|
+| control | exit 0, `25 passed (25)` | — |
+| forbidden advice planted into the **`tight`** branch only | **exit 1**, `1 failed \| 24 passed (25)` — failing on the new assertion **and nothing else** | **exit 0, `36 passed (36)` — blind** |
+| reverted | exit 0, `25 passed (25)` | — |
+
+**The `site/` file is confirmed blind to that branch, exactly as the finding described.**
+Caveat recorded by the runner: *a single plant is one input, not a proof the sensor covers
+every phrasing of the advice.*
+
+## The matching count, disconfirmed three ways
+
+2130 was predicted before the run and the run returned exactly that. **A match is the
+alarm.** None of the three disconfirmations is the arithmetic:
+
+1. **sha, branch and `pwd` stamped by the same shell** that produced the counts.
+2. **CI, a different machine, the same sha** — `96 passed (96)`, `2130 passed (2130)`.
+3. **A different instrument in the same build state.** `vitest list` on the **built** tree
+   collects **exactly 2130 names** — a direct match, not a reconciled sum.
+
+## The build-state census delta — corrected, and the correction lives in §9
+
+**The figure recorded earlier in this document — "26 names are gated on `dist*`
+presence" — is wrong in shape, and the corrected row is now in the execution plan's §9
+trap table** (landed `7a1a5e9`, the row beginning *"a name census and a suite run answer
+the same question"*). **Read it there; it is not restated here, so there is one copy.**
+
+The short of it, for a reader deciding whether to follow the link: the delta is **30 added
+and 4 removed**, net +26, and the four exist **only unbuilt** — so **a census crossing
+build states trips §6.4's REMOVAL gate, not merely an addition count.** The earlier figure
+understated it in the direction that blocks a merge.
+
+## Census — 3 removals, unchanged triage, a fifth independent agreement
+
+Merge-base `7ce9861` (1858 names) → tip `e72e7ce` (2104), **both unbuilt**: 3 removed,
+249 added. The same three names as the first gate, with the same triage — two retitles and
+one deletion authorised by criterion 5, all three originating at `b3e7601`.
+
+**That is a fifth independent instrument agreeing, and it agreed across a DIFFERENT
+merge-base** (`7ce9861` here, `69abca9` for the first gate).
+
+**Both guards printed for all six census files taken**, none skipped:
+
+| census | bytes | `test -s` | exit | names |
+|---|---|---|---|---|
+| primary tip, unbuilt | 251890 | PASS | 0 | 2104 |
+| primary tip, built | 254699 | PASS | 0 | 2130 |
+| scratch tip, unbuilt | 251890 | PASS | 0 | 2104 |
+| scratch merge-base | 218853 | PASS | 0 | 1858 |
+| scratch merge-base, planted | — | PASS | 0 | 1857 |
+| scratch merge-base, reverted | — | PASS | 0 | 1858 |
+
+**Fidelity control passed**: scratch tip vs primary tip in the same build state, `diff`
+exit 0, **byte-identical at 2104 names**, `comm` empty both directions. `node_modules` by
+**`cp -a`**, verified not a symlink and not `cp -al`. Zero dependency drift between
+merge-base and tip.
+
+**§6.5a paired control, both halves**: one **row** deleted from an existing `.each` table
+(not a whole `it.each(` line) plus one plain `it()` renamed. The census reported exactly
+the two removals and the one addition and nothing else. **The total moved 1858 → 1857 —
+net −1 for two removals, so a count-only check would have hidden the rename.** Reverted;
+post-revert census byte-identical to baseline.
+
+## Docs readers — intersection empty, all three green
+
+**A correction to the PM's figure.** The PM reported that the merge changed **7** `docs/`
+paths; the runner measured **3** and is right. The PM's command measured *everything
+changed since the merge-base*, which included **four of its own commits**. The merge itself
+brought three: the execution plan, the orchestrator handover, and the review-findings
+document. **The conclusion was unaffected — none is in the runtime reader set — but the
+number was wrong and the label was the error:** "paths the merge will change" was in fact
+"paths changed since merge-base".
+
+The runner **re-derived the reader set by predicate** — a read call whose argument resolves
+under `docs/` — rather than trusting the handed list, and reached the same three calls plus
+the invisible roster path at `site/keybindings.ts:662`. Run singly and read at **file
+level**: `keybindings` `1 passed (1)` / 65 · `views` `1 passed (1)` / 94 · `shadings`
+`1 passed (1)` / 61.
+
+## A judgement call made against a literal instruction, and recorded as a call
+
+`main` moved by one commit mid-run — `5e52550`, docs-only, the execution plan,
+`merge-tree` clean, **not** in the runtime reader set. **The runner did not merge it**, on
+the reasoning that merging mints a new sha, which **orphans CI run `38882243266` — the only
+green CI at the gated sha, and one of its two independent disconfirmations** — while `main`
+moves every few minutes, so chasing it trades a measurement held for one that must be
+re-acquired.
+
+**Flagged by the runner as its call, not a measurement**, which is the correct way to
+surface it. The PR's merge-base is therefore one commit behind `main`'s tip and CI tested
+`e72e7ce`.
+
+## Requirement 1 remains a RELAY, in the runner's own words
+
+V-5 verified all eight criteria and all 17 commits at pin **`26d1f2d`**. The runner measured
+the delta itself: **78 commits** from that pin to `e72e7ce`, of which **4 touch `src/` or
+`site/`** — `2524fa4` and `9312529` (main-side harness fixes), the merge `5801cfe`, and
+`9439c11`.
+
+**`9439c11` postdates every verifier and was written in response to V-5's own finding.** The
+runner re-established its RED, which is the best available substitute and is not the same
+thing.
+
+> *"If the orchestrator merges on requirement 1, it merges on V-5's word, not on mine."*
+
+## ⚠ CARRIED OPEN PAST THE MERGE — these were NOT closed by it
+
+**The merge settled the gate. It did not settle these.** Recorded in the orchestrator's
+words at the point of merge, because each is a thing a later reader would otherwise assume
+the merge resolved.
+
+- **Requirement 1 is a RELAY.** **78 commits** from V-5's pin `26d1f2d` to the gated sha,
+  **4 touching `src/`/`site/`**, and **`9439c11` postdates every verifier** — its RED
+  re-established by the gate runner, **which is the best available substitute and is not
+  the same thing.**
+- **`vitest list` is collection-only**, so *"zero removals beyond the three"* is **not**
+  *"nothing was hollowed out."* (§9 carries the row.)
+- **Criterion 5's sensor is proven not-blind, not proven exhaustive** — **one plant is one
+  input.**
+- **NOT-COVERED 6** — the `deflate`/`CompressionStream` path with **no production
+  consumer** — is **open, unmeasured by anyone, and parked against case E, which is
+  Shaun's. It resolves whichever way he rules.**
+
+Everything else on the gate report's OPEN list carries forward unchanged and was
+**relayed, not re-certified**, by this re-run.
+
+## Uncertain — carried
+
+1. `5e52550` not merged; the PR's merge-base is one docs commit behind `main`.
+2. The PM said 7 changed docs paths, the runner measured 3. Same conclusion; the
+   discrepancy is explained above but was **unexplained at the time the runner reported it**,
+   and it said so rather than reconciling it.
+3. **`vitest list` is collection-only.** A test whose **name** survives while its **body**
+   is gutted is invisible to the census. **"Zero removals beyond the three" must not be read
+   as "nothing was hollowed out."**
+4. **One plant is one input.** Criterion 5's sensor is proven not-blind; it is not proven
+   to cover every phrasing that would satisfy the two regexes.
+5. **Requirement 1 is a relay.** The runner never saw V-5's report.
+6. The build-state delta (4 removed / 30 added) was measured at this sha only.
+7. It was not independently verified that the implementer commits after `b3e7601` compose
+   sequentially. The single post-merge `npm test` on one tree is the authority and says 2130.
+8. `yuv444p` was **not** re-run. The needle is confirmed absent from both freshly built
+   output directories, but the four-arm blindness experiment stands on the first gate's
+   record and was not repeated.
