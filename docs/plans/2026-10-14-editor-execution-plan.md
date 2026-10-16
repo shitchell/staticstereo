@@ -1255,6 +1255,56 @@ to work. That distinction is worth asking of every guard this phase ships.
 from anything. It is the hand-written-list shape §9 warns about, accepted because no
 derivation exists, and recorded so nobody reads the green as total.
 
+### Criterion 22 — the two rulings its adoption forced, 2026-10-16
+
+The salvaged H-1 work was adopted at `24392c3` with **fourteen claims, each with a named
+mutation, grep-confirmed in the real file and its verdict quoted.** `git diff b27a315 HEAD`
+is empty: content brought across, the salvage branch **not** merged.
+
+**The erasure is genuinely solved, and the proof is a control rather than a claim.**
+`SetAction` is a **mapped type distributed over control id → the model's own field type**, so
+each member pairs one literal `control` with one concrete `value` type and there is no fresh
+object literal for an index signature to widen. Severing that correlation turns **exactly six
+of eleven `@ts-expect-error` directives "unused"** — precisely the six value-type claims —
+while the five structural ones still bite. So the wall is neither inert nor double-counted.
+This answers the question SPIKE-1 left open and that H-1 was permitted to fail.
+
+**Ruling 1 — clause 1 is MET over 52 of 63, and the residue is accepted with a condition.**
+The other eleven are the preset family. The gap is **derived and sensored**:
+`unwritableControls()` names them and the partition asserts
+`CONTROL_IDS.length === WRITABLE_CONTROL_IDS.length + residue.length`, which reddens the day
+a registry control grows without a write path. **A sensored residue is not a hidden gap, so
+it discharges criterion 22** — but it does **not**, by itself, discharge **R6**, which says
+the strong editor exposes *every* control.
+
+The resolution is already in the standing rulings: **bundles are UI macros writing an `Anim`
+array at attach time, not registry entries**, forced by `PresetFn` returning a single
+`Track`. A preset is therefore **applied, not set** — it is a different mechanism by design,
+not a missing one. **Condition: R6 is discharged for the residue only when the
+preset-application path exists and is itself exercised and sensored.** That path is cluster
+F/G's. **It must not be dropped on the grounds that criterion 22 passed** — the criterion
+passing is exactly what would make it invisible.
+
+**Ruling 2 — clause 2 is true of the `set` path and false of the `Action` union. Tripwire
+now, remove later.** The legacy keyed arms survive because `main.ts` consumes them, so
+`{type:'stereo', patch:{[key]: Number(raw)}}` **still compiles clean with nothing watching
+it.** A declared gap with no sensor is what this phase's own standing rule forbids, so
+"accept it as a note" is excluded. Of the remaining two, **do both, in this order**:
+
+1. **Tripwire the known hole now**, on this repo's own *the note **is** the test* precedent —
+   the same shape as `site/views.test.ts` depending on `site/index.html` so that teardown
+   reddens it **by design**.
+2. **Sequence the actual removal after G-3 deletes `main.ts`**, at which point the legacy
+   arms lose their only consumer and the tripwire retires with them.
+
+**H-2's scope follows from this and should be settled before it dispatches**: its harness
+pins clause 2 **for the `set` path**, and the tripwire — not the harness — covers the legacy
+hole until G-3. A harness pinning a clause that is only half true would pin the wrong thing.
+
+**One claim in the adoption has no runtime RED and H-1b said so unprompted:**
+`hashprojection.test.ts`'s mapped `SAMPLES` table leaves vitest at 34 passed when the `set`
+row is removed — **only the compiler sees it.** Recorded rather than smoothed over.
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
@@ -1418,6 +1468,7 @@ Each already cost a correction. Hand this table to every worker.
 | a cross-phase note will be read when it matters | Make the note **be** the test. P3a deliberately left `site/views.test.ts` depending on `site/index.html`, so P3b's teardown turns it red *by design* with a message naming the teardown. Its author's framing: *"the HTML dependency is not a cost I tolerated — it is the deliverable; §9 says a note is not a sensor, so the note **is** the test."* |
 | a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |
 | `grep -c '↓'` counts skipped tests | **It returns 0 on a genuine 22-skipped run**, and `grep -c 'skipped'` can too. **Every "0 skipped, verified positively by `↓`" on P3b verified nothing.** The sound instrument is vitest's own summary line, which names skips explicitly when they exist — `Tests  1349 passed | 22 skipped (1371)` — so **a parenthetical total equal to the passed count is positive proof of zero skips**, and an unequal one is the alarm. Check the summary, never a glyph. |
+| an agent's last transcript line is the frontier of its work | **It is a statement of intent, not a record of state.** A PM read a killed agent's final self-instruction — *"Now extend the parser cross-check…"* — as the thing left undone, and briefed its replacement accordingly. The work had **already been finished**; the line was written *before* doing it. The adopting worker added no code there and verified instead. **Reasoning backwards from a last line infers a frontier that was never claimed** — ask whether the work after it exists rather than assuming the transcript stops where the work did. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
 | a standing ruling in the handover was ruled | Not necessarily. "`seek` clamps to the last frame" sat in §4 under *do not re-litigate* for a week. It entered in the handover's **own birth commit**, and the P2 record it purported to settle says the opposite — *"Nothing pins `seek`… P3 must decide"*. It was the orchestrator's inference, formatted as an inheritance, and a PM correctly refused to build on it. **A ruling's authority is the measurement or the decision behind it; `git log -S` finds that in one command.** Where a §4 entry cannot be traced to one, it is a proposal. |
