@@ -222,6 +222,98 @@ type _NoGradingExtra = AssertNever<Exclude<keyof typeof GRADING, PerceptionFunct
 export const GRADED_FUNCTIONS = (Object.keys(GRADING) as PerceptionFunctionName[])
   .filter(n => GRADING[n][0] === 'graded')
 
+/* ─────────────────────────── the thresholds ─────────────────────────── */
+
+/**
+ * Every value export of the module that is a number — i.e. every perceptual
+ * threshold it owns, enumerated by the compiler rather than by hand.
+ *
+ * The module's own line between the two kinds of export is already sharp:
+ * quantities a caller computes are functions, judgements the project has
+ * committed to are `const`s. `UNMEASURED_INK` is a string and
+ * `LAYER_RELIEF_KEYS` an object, so "number" picks out exactly the thresholds
+ * and nothing else. Deriving the set this way is the same move
+ * {@link PerceptionFunctionName} makes, for the same §9 reason: a list of the
+ * thresholds typed into a test goes short the day one is added, and it goes
+ * short **green**.
+ */
+export type PerceptionThresholdName = {
+  [K in keyof typeof perception]-?:
+    typeof perception[K] extends number ? K : never
+}[keyof typeof perception]
+
+/**
+ * Every perceptual threshold, pinned to a **literal**, with what the number is.
+ *
+ * ## Why this is a second copy of a number on purpose
+ *
+ * §2 invariant 4 says assert on structure, not on values — *"pin the
+ * guarantee, not today's output"* — and this table is the narrow exception the
+ * orchestrator carved for thresholds on 2026-10-16, because the invariant
+ * applied without one produces a suite that cannot see a calibration move.
+ *
+ * It was measured, not argued. Before this table existed, moving
+ * `LENTICULAR_SEGMENTS_MIN` from 6 to 5 — which moves the exported
+ * {@link perception.STOP_COUNT_MIN} from 6 to 5 — left the full suite at
+ * `Tests 2117 passed (2117)` with all 128 `[measured]` values byte-identical,
+ * while `depthStops` at `sepFar: 100, sepNear: 92` changed from **8 detents to
+ * 5**. A live, shipped, user-visible change, invisible to every instrument in
+ * the repository. The reason is the one §9 records: `perception.stops.test.ts`
+ * bounds the count with `>= Math.min(STOP_COUNT_MIN, capacity)` and
+ * `<= STOP_COUNT_MAX`, both derived from the constants under test, so the
+ * bounds move with them and the assertion is satisfied at any value.
+ *
+ * **A test that derives its expectation from the constant is blind to that
+ * constant moving.** That is the right shape for a guarantee and the wrong one
+ * for a threshold, and the two kinds of claim have to be written differently.
+ * The derived assertions elsewhere are not replaced by this table — they pin
+ * the shape, which is theirs to pin — and this table pins the number, which
+ * nothing else did.
+ *
+ * ## What the second element is for
+ *
+ * The same thing as {@link GRADING}'s and {@link PARAM_KINDS}': the half a
+ * machine cannot check. A literal in a test says a number has not moved; it
+ * cannot say the number is *right*, and the evidence for each of these is
+ * uneven enough that a reviewer needs telling which is which. The full
+ * calibration lives on each constant's own docblock in `perception.ts` and is
+ * not copied here — this is the one-line identification and the strength of
+ * the evidence, so that a reviewer reading a diff that moves one of these
+ * knows at a glance whether they are looking at arithmetic or at one observer
+ * on an unblinded afternoon.
+ *
+ * ## What this cannot see
+ *
+ * The private constants behind {@link perception.STOP_COUNT_MIN} and
+ * {@link perception.STOP_COUNT_MAX}, where they move *inside* the
+ * intersection. `STOP_COUNT_MIN` is `max(ABSOLUTE_JUDGMENT_CATEGORIES_MIN,
+ * LENTICULAR_SEGMENTS_MIN)` = `max(4, 6)`, so raising the 4 to a 5 changes no
+ * exported value, no behaviour and nothing in the suite — measured. That is
+ * not a hole in this table so much as a statement of where the threshold
+ * actually is: `perception.ts` writes the exported pair as the intersection
+ * precisely because *"that is the only thing the evidence supports"*, which
+ * makes the endpoints evidence citations and the intersection the number. A
+ * move of an endpoint across the other one does change the export and is
+ * caught here, and `keeps the two cited ranges overlapping at all` in
+ * `perception.stops.test.ts` catches the degenerate case from the other side.
+ */
+export const THRESHOLDS = {
+  INK_FRACTION: [0.5, 'Share of a layer\'s own peak depth that counts as ink. Chosen, not measured: it is the definition the 18px stroke table was calibrated against, and excluding the antialiasing fringe is the point of it'],
+  TIGHT_MULTIPLE: [2, 'Budgets of stroke width that count as comfortable rather than tight. Chosen, not measured — the rule supports only the one-budget boundary, and nothing was tried at 1.5 or 3'],
+  STOP_COUNT_MIN: [6, 'Fewest detents the depth strip offers. The intersection of Miller 1956\'s 4-8 nameable categories and the lenticular trade\'s 6-9 segments — two unrelated sources, neither measured in this project'],
+  STOP_COUNT_MAX: [8, 'Most detents the depth strip offers. The other end of the same intersection; see STOP_COUNT_MIN'],
+  DEPTH_BLUR_RELIEF: [1, 'Depth-map blur radius, in scene px, at which a slab stops reading as a floating plane. One observer, unblinded, hedged three times in one sentence, and the smallest radius anyone tried rather than a measured boundary'],
+  FUSION_PLATEAU_BUDGET: [22, 'Widest budget the 2026-10-12 fusion sweep found comfortable, in scene px. One observer, sighted, labelled in the findings document itself as not a blinded trial'],
+  FUSION_CLIFF_BUDGET: [32, 'Budget past which that sweep reported fusion failing, in scene px. Same sweep, same weakness'],
+} as const satisfies Record<PerceptionThresholdName, readonly [number, string]>
+
+type _NoThresholdMissing = AssertNever<Exclude<PerceptionThresholdName, keyof typeof THRESHOLDS>>
+type _NoThresholdExtra = AssertNever<Exclude<keyof typeof THRESHOLDS, PerceptionThresholdName>>
+
+/** The roster's names, as runtime data, for a caller that wants to sweep them. */
+export const THRESHOLD_NAMES =
+  Object.keys(THRESHOLDS) as readonly PerceptionThresholdName[]
+
 /* ──────────────────── building a call from the roster ──────────────────── */
 
 /**

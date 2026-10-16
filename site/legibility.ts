@@ -13,10 +13,23 @@
  * changed the verdict *string* deliberately (the budget is not a lever on
  * legibility — `perception.ts`'s `describeLegibility` carries the finding)
  * and criterion 2 widened `legibilityOf` from a bare grade to a reading, so
- * that test file is modified and can no longer witness "nothing changed". The
- * thresholds still have not moved, and what witnesses *that* is now
- * `src/shared/perception.test.ts`'s boundary tests, every one of which derives
- * its budgets from the module's own constants.
+ * that test file is modified and can no longer witness "nothing changed".
+ *
+ * **The replacement witness this paragraph named was not one, and the reason
+ * it gave was the reason it failed.** It read: *"The thresholds still have not
+ * moved, and what witnesses that is now `src/shared/perception.test.ts`'s
+ * boundary tests, every one of which derives its budgets from the module's own
+ * constants."* A test that computes its expected budget from `TIGHT_MULTIPLE`
+ * agrees with `TIGHT_MULTIPLE` at every value of it. Measured: `INK_FRACTION`
+ * 0.5 → 0.9 and `TIGHT_MULTIPLE` 2 → 3 each left that file at 21 passed. So a
+ * docblock amended specifically to avoid a stale assertion cited, as its
+ * proof, the exact mechanism that makes the assertion unobservable.
+ *
+ * The thresholds still have not moved, and what witnesses it is
+ * `src/shared/perception.test.ts`'s `pins every threshold to a literal, over a
+ * set the compiler enumerates`, sweeping a roster
+ * `src/shared/testing/perceptionRoster.ts` derives from the module's numeric
+ * exports rather than from anybody's list.
  *
  * **The shim exists because P7 must not touch `site/main.ts`.** That file is
  * the rule's one production importer and a later phase deletes it, so rewiring

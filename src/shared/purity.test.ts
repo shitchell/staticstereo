@@ -45,11 +45,11 @@
  * `build` and `typecheck` exit 0. Measured on this tree while planting the
  * controls below: `import { createCanvas } from '@napi-rs/canvas'` in
  * `src/shared/pixels.ts` leaves `dist/shared/pixels.js` byte-identical. And
- * `site/` does not consume `dist/` at all — `site/fonts.ts:1` and
- * `site/legibility.ts:23` import `../src/shared/*.js`, i.e. the Vite bundle is
- * built from **these sources**. So the source walk is the one that covers the
- * browser, and the `dist` walk is the one that covers the published package.
- * Both run.
+ * `site/` does not consume `dist/` at all — `site/fonts.ts`'s import and
+ * `site/legibility.ts`'s `export *` both name `../src/shared/*.js`, i.e. the
+ * Vite bundle is built from **these sources**. So the source walk is the one
+ * that covers the browser, and the `dist` walk is the one that covers the
+ * published package. Both run.
  *
  * The second reason is the one that made the first half of this file blind for
  * its whole life, and it is plan §7's amended P1 criterion 8. **A source walk

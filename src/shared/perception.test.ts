@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import * as perception from './perception.js'
 import * as shim from '../../site/legibility.js'
 import { DEFAULT_STEREO } from '../core/index.js'
+import { THRESHOLDS, THRESHOLD_NAMES } from './testing/perceptionRoster.js'
 import type { Scene } from '../core/types.js'
 import type { InkMeasurement, Legibility } from './perception.js'
 import type {
@@ -25,10 +26,25 @@ import type {
  *
  * **"Unchanged" is past tense as of 2026-10-15.** P7 criteria 2 and 5 changed
  * `legibilityOf`'s return shape and the verdict string on purpose, so that
- * file is modified and is no longer a witness that nothing moved. The
- * thresholds still have not moved; what witnesses that is the boundary tests
- * below, which derive every budget from the module's own constants and so
- * cannot be satisfied by a number someone retyped.
+ * file is modified and is no longer a witness that nothing moved.
+ *
+ * **The sentence that followed was false, and it named its own reason for
+ * being false.** It read: *"The thresholds still have not moved; what
+ * witnesses that is the boundary tests below, which derive every budget from
+ * the module's own constants and so cannot be satisfied by a number someone
+ * retyped."* The derivation is exactly why they witness nothing. Measured:
+ * `INK_FRACTION` 0.5 → 0.9 and `TIGHT_MULTIPLE` 2 → 3 each leave **this file**
+ * at 21 passed, because every budget below is computed from the constant under
+ * test and moves with it. A derived assertion is blind to intentional change
+ * *and* to accidental change alike; it is the right shape for a guarantee and
+ * the wrong one for a threshold.
+ *
+ * It is amended rather than deleted because the claim it makes is still the
+ * one this file owes, and only the mechanism was wrong. What witnesses it now
+ * is `pins every threshold to a literal, over a set the compiler enumerates`
+ * at the foot of this file. The derived boundary tests stay exactly as they
+ * are — they pin the shape, which is theirs to pin — and nothing below should
+ * be rewritten to use a literal instead.
  *
  * Why a set comparison rather than the three names `site/main.ts` imports: a
  * shim that silently drops an export is the failure mode here, and spot-checks
@@ -340,6 +356,70 @@ describe('soloLayerScene, at the new path', () => {
 })
 
 describe('the constants are what they claim to be', () => {
+  it('pins every threshold to a literal, over a set the compiler enumerates', () => {
+    // **Invariant 4's narrow exception, and the measurement that bought it.**
+    // "Assert on structure, not on values" is right everywhere else and is
+    // wrong here: a threshold's whole content *is* its value, so a test that
+    // derives its expectation from the constant cannot see the constant move.
+    // Measured before this assertion existed, each mutation rebuilt and run
+    // against the full suite:
+    //
+    //   INK_FRACTION         0.5 -> 0.9   1 red   (site/legibility.test.ts)
+    //   TIGHT_MULTIPLE       2   -> 3     1 red   (site/legibility.test.ts)
+    //   DEPTH_BLUR_RELIEF    1   -> 2     1 red   (perception.cardboarding)
+    //   FUSION_PLATEAU_BUDGET 22 -> 20    1 red   (perception.fusion)
+    //   FUSION_CLIFF_BUDGET  32  -> 30    1 red   (perception.fusion)
+    //   STOP_COUNT_MAX       8   -> 7     1 red   (perception.stops)
+    //   STOP_COUNT_MIN       6   -> 5     **2117 passed, 0 red**
+    //
+    // Six of the seven had picked up a witness along the way, one each, by
+    // accident rather than by rule. The seventh had none, and it is not
+    // dormant: at `sepFar: 100, sepNear: 92` that move takes `depthStops` from
+    // **8 detents to 5**, with all 128 `[measured]` values in the suite
+    // byte-identical. `perception.stops.test.ts` bounds the count with
+    // `>= Math.min(STOP_COUNT_MIN, capacity)` and `<= STOP_COUNT_MAX`, so the
+    // bounds move with the constants and hold at any value of them.
+    //
+    // **The set is derived, not listed.** Six-of-seven is the signature of
+    // accident, so the fix cannot be six more literals typed into this file —
+    // that is §9's hand-written list, and it would go short green the day the
+    // module grows an eighth threshold. `PerceptionThresholdName` is the
+    // module's numeric value exports as the compiler sees them, and
+    // `THRESHOLDS` is checked against it in both directions by an
+    // `AssertNever` pair. A new threshold is a typecheck error until someone
+    // writes its number down.
+    expect(THRESHOLD_NAMES.length).toBeGreaterThan(0)
+    for (const name of THRESHOLD_NAMES) {
+      expect(perception[name], `${name} has moved away from the literal the roster pins`)
+        .toBe(THRESHOLDS[name][0])
+    }
+  })
+
+  it('classifies exactly the module\'s numeric exports, neither more nor fewer', () => {
+    // The runtime witness for the `AssertNever` pair, for the reason
+    // `perception.ts` gives about `LAYER_RELIEF_KEYS`: the pair is enforced by
+    // `npm run typecheck` alone, so without this the ratchet is invisible to
+    // `npm test`, and the two gates run on different triggers. This one also
+    // names the export that drifted, which the mapped form costs.
+    const numeric = Object.entries(perception)
+      .filter(([, v]) => typeof v === 'number')
+      .map(([k]) => k)
+      .sort()
+    expect(numeric).toEqual([...THRESHOLD_NAMES].sort())
+  })
+
+  it('records what each threshold is and how good the evidence for it is', () => {
+    // The half a machine cannot check. A literal says the number has not
+    // moved; it cannot say the number is right, and these range from
+    // arithmetic over a citation to one observer hedging three times in a
+    // sentence. Identical in kind to `PARAM_KINDS` and `GRADING`, and
+    // identically honest about its limits.
+    for (const name of THRESHOLD_NAMES) {
+      expect(THRESHOLDS[name][1].length, `${name} has no recorded reason`)
+        .toBeGreaterThan(20)
+    }
+  })
+
   it('INK_FRACTION is a fraction of the layer peak', () => {
     expect(perception.INK_FRACTION).toBeGreaterThan(0)
     expect(perception.INK_FRACTION).toBeLessThanOrEqual(1)
