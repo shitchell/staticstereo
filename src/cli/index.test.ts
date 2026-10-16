@@ -8,6 +8,10 @@ import { run } from './index.js'
 import { DEFAULT_STEREO, dominantPeriod, marginsFor, PRESETS } from '../core/index.js'
 import type { Margins } from '../core/index.js'
 import { decodeGif } from '../shared/gif.js'
+import { writeStst } from '../shared/container.js'
+import { readStst } from '../shared/containerRead.js'
+import type { StstMember } from '../shared/container.js'
+import { parseSceneText, validateScene } from './scene.js'
 
 /**
  * ffmpeg is an external binary and GitHub's runners no longer ship it.
@@ -545,5 +549,154 @@ describe('stst error reporting', () => {
     expect(r.code).toBe(2)
     expect(r.err).toMatch(/\.webm/)
     expect(r.err).toMatch(/\.gif/)
+  })
+})
+
+/* -------------------------------------------------------------------- .stst */
+
+/**
+ * P1 criterion 6 end to end: `stst` reads and writes `.stst`, **and adds no
+ * member to `COMMANDS`** — `render`, `still` and `preview` are the whole verb
+ * list, so the read is an input the existing commands accept and the write is
+ * a side-output flag like `--depth-map`.
+ *
+ * The read half does not assert "exited 0". It renders the *same* slab scene
+ * out of a container and measures the GIF's repeat periods, because the thing
+ * that could go wrong is a scene that survives the archive with its `stereo`
+ * block or its layers quietly reduced, and that renders fine and encodes the
+ * wrong depth.
+ */
+describe('stst over a .stst project file', () => {
+  const PROJECT_SCENE = validateScene(parseSceneText(SLAB_SCENE, 'slab.yaml'), 'slab.yaml')
+
+  async function project(members: StstMember[] = []): Promise<{ dir: string; path: string }> {
+    const d = await dir()
+    const path = join(d, 'project.stst')
+    await writeFile(path, await writeStst(PROJECT_SCENE, members))
+    return { dir: d, path }
+  }
+
+  it('renders a .stst, encoding the same depth the .yaml does', async () => {
+    const { dir: d, path } = await project()
+    const out = join(d, 'out.gif')
+    const r = await cli(['render', path, '-o', out])
+    expect(r.err).toBe('')
+    expect(r.code).toBe(0)
+
+    const gif = decodeGif(await readFile(out), 'out.gif')
+    expect(gif.width).toBe(PLATE_W * NOISE)
+    expect(gif.frames).toHaveLength(12)
+    const row = rgbaRow(gif.frames[0]!.rgba, gif.width, Math.floor((H * NOISE) / 2))
+    expect(periodIn(row, SLAB, NOISE).period).toBe(SEP.sepNear * NOISE)
+    expect(periodIn(row, BG, NOISE).period).toBe(SEP.sepFar * NOISE)
+  })
+
+  it('takes a .stst on still and preview too, since the input is not a command', async () => {
+    const { dir: d, path } = await project()
+    expect((await cli(['still', path, '-o', join(d, 'one.png')])).code).toBe(0)
+    expect((await cli(['preview', path, '-o', join(d, 'p.gif')])).code).toBe(0)
+  })
+
+  it('reports a damaged project as a usage-level error naming the file, not a stack', async () => {
+    const d = await dir()
+    const path = join(d, 'truncated.stst')
+    const bytes = await writeStst(PROJECT_SCENE, [])
+    await writeFile(path, bytes.slice(0, bytes.length - 40))
+    const r = await cli(['render', path, '-o', join(d, 'out.gif')])
+    expect(r.code).toBe(1)
+    expect(r.err).toMatch(/truncated\.stst/)
+    // The container reader is what spoke, not the YAML parser. Without this
+    // line the test passes on the *old* loader too — a truncated zip handed to
+    // `parseSceneText` also exits 1 with the file name in it — so the
+    // assertion that distinguishes the two is the one worth having.
+    expect(r.err).not.toMatch(/valid YAML or JSON/)
+    expect(r.err).toMatch(/zip/)
+    // Same bar as `stst error reporting`'s `expectClean`, restated rather than
+    // shared: hoisting that helper out of its describe would edit a block this
+    // task was not asked to touch (invariant 8).
+    expect(r.err).not.toMatch(/\n\s+at /)
+    expect(r.err).not.toMatch(/Cannot read propert|undefined is not|TypeError/)
+  })
+
+  /* ---------------------------------------------------------- --save-project */
+
+  it('writes a .stst that readStst reads back, from a plain .yaml scene', async () => {
+    const { dir: d, path } = await scene(SLAB_SCENE)
+    const saved = join(d, 'saved.stst')
+    const r = await cli(['render', path, '-o', join(d, 'out.gif'), '--save-project', saved])
+    expect(r.code).toBe(0)
+    expect(r.out).toMatch(/saved\.stst/)
+
+    const back = await readStst(new Uint8Array(await readFile(saved)))
+    expect(back.scene.size).toEqual([W, H])
+    expect(back.scene.layers).toHaveLength(1)
+    expect(back.members).toEqual([])
+  })
+
+  /**
+   * **The decision in `scene.ts`, as a sensor.** Reading a project through a
+   * `Scene`-shaped door and saving it again would drop every mask and source,
+   * and the command below writes to the path it read from — so the lossy
+   * version destroys the only copy. Nothing warns; the loss is removed
+   * instead, and this is what notices if it comes back.
+   */
+  it('round-trips a project onto its own path without losing masks or sources', async () => {
+    const members: StstMember[] = [
+      { name: 'ball.png', role: 'mask', data: new Uint8Array([9, 8, 7]) },
+      { name: 'ball.png', role: 'source', data: new Uint8Array([6, 5]) },
+      { name: 'sky.png', role: 'source', data: new Uint8Array([4]) },
+    ]
+    const { dir: d, path } = await project(members)
+    const before = await readFile(path)
+
+    // Saved **beside** the input first, not over it. Writing to the same path
+    // and then comparing bytes is the vacuous version of this test: a
+    // `--save-project` that did nothing at all would leave the file untouched
+    // and pass. A separate path makes "it wrote" and "it kept everything" one
+    // assertion, since determinism (criteria 5 and 7) says a lossless re-save
+    // of the same scene and members is byte-identical — so a dropped member,
+    // a reordered entry or a moved mtime all show up here.
+    const copy = join(d, 'copy.stst')
+    const r = await cli(['render', path, '-o', join(d, 'out.gif'), '--save-project', copy])
+    expect(r.code).toBe(0)
+    expect(r.out).toMatch(/copy\.stst/)
+    expect(Buffer.compare(before, await readFile(copy))).toBe(0)
+
+    // And over the path it was read from, which is the command that destroys
+    // the only copy if the read is lossy.
+    expect((await cli(['render', path, '-o', join(d, 'out.gif'), '--save-project', path])).code)
+      .toBe(0)
+    const back = await readStst(new Uint8Array(await readFile(path)))
+    expect(back.members.map(m => `${m.role}:${m.name}`))
+      .toEqual(['mask:ball.png', 'source:ball.png', 'source:sky.png'])
+    expect([...back.members[0]!.data]).toEqual([9, 8, 7])
+  })
+
+  it('saves the scene the render used, overrides included', async () => {
+    const { dir: d, path } = await scene(SLAB_SCENE)
+    const saved = join(d, 'saved.stst')
+    const r = await cli([
+      'render', path, '-o', join(d, 'out.gif'), '--sep-far', '44', '--save-project', saved,
+    ])
+    expect(r.code).toBe(0)
+    const back = await readStst(new Uint8Array(await readFile(saved)))
+    // What you rendered is what you saved. The alternative — saving the scene
+    // file as authored — would make the project disagree with the artifact it
+    // was produced alongside, and there would be no way to tell from the
+    // `.stst` which flags were in play.
+    expect(back.scene.stereo?.sepFar).toBe(44)
+  })
+
+  it('saves a project built from --text, which has no scene file at all', async () => {
+    const d = await dir()
+    const saved = join(d, 'text.stst')
+    const r = await cli([
+      'still', '--text', 'HI', '--size', '60x30', '-o', join(d, 'o.png'),
+      '--save-project', saved,
+    ])
+    expect(r.code).toBe(0)
+    const back = await readStst(new Uint8Array(await readFile(saved)))
+    expect(back.scene.size).toEqual([60, 30])
+    expect(back.scene.layers[0]!.type).toBe('text')
   })
 })

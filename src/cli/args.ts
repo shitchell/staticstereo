@@ -35,6 +35,26 @@ export type Command = (typeof COMMANDS)[number]
 export const FORMATS = ['gif', 'mp4', 'png'] as const
 export type Format = (typeof FORMATS)[number]
 
+/**
+ * The project-file extension, for `--save-project` on the way out and for
+ * `loadScene`'s dispatch on the way in.
+ *
+ * **Not a member of {@link FORMATS}, and that was the decision.** Adding
+ * `'stst'` there would redefine `FORMATS` from "encoder for rendered pixels"
+ * to something broader, and make `render scene.yaml -o project.stst` read as
+ * "render to a project" — which is not what it does: a `.stst` holds the
+ * scene, not the pixels, and `render` would still have nothing to encode. It
+ * also entangles {@link check}, where `still` is forced to `.png` and the mp4
+ * flags are gated on the format, so every rule there would grow a case for a
+ * value that is not an encoder. The project file is a **side-output**, and
+ * `--depth-map` is the shape this repo already uses for one.
+ *
+ * Lives here rather than in `scene.ts` because `scene.ts` imports this module
+ * (for `UsageError`) and the reverse would be a cycle — and because
+ * extension-to-meaning is already this file's job, next to `outputFormat`.
+ */
+export const PROJECT_EXT = '.stst'
+
 /** Lossy-capable ffmpeg knobs, passed straight through to `writeMp4`. */
 export interface Mp4Overrides {
   qp?: number
@@ -52,6 +72,13 @@ export interface CliArgs {
   output?: string
   /** Dump the rasterised depth map here as a PNG. */
   depthMap?: string
+  /**
+   * `--save-project`: also write the scene as a `.stst` project file.
+   *
+   * A side-output beside the render, exactly like {@link depthMap} — not an
+   * output *format*; see {@link PROJECT_EXT}.
+   */
+  saveProject?: string
 
   /* scene-level overrides — all absent unless the flag was given */
   fps?: number
@@ -111,6 +138,10 @@ Output:
   --depth-map <path.png>   also dump the depth map — a stereogram cannot be
                            debugged by eye, so this is how you tell an
                            authoring bug from an encoding one
+  --save-project <p.stst>  also write the scene as a .stst project file, which
+                           the site and "stst <cmd> p.stst" both read back.
+                           Reading a .stst and saving one keeps its masks and
+                           sources, so this is safe onto the same path
   -q, --quiet              print nothing but errors
 
 Timing (override the scene file):
@@ -173,7 +204,8 @@ const FLAGS = new Set([
 
 /** Flags that take a value. `-o` is the one short alias worth having. */
 const VALUED = new Set([
-  '-o', '--output', '--text', '--depth-map', '--size', '--font-size',
+  '-o', '--output', '--text', '--depth-map', '--save-project',
+  '--size', '--font-size',
   '--font-weight', '--depth',
   '--at', '--at-time', '--fps', '--duration',
   '--sep-far', '--sep-near', '--noise-scale', '--depth-blur', '--seed',
@@ -306,6 +338,7 @@ export function parseArgs(argv: readonly string[]): ParseResult {
       case '-o': case '--output': args.output = value; break
       case '--text': args.text = value; break
       case '--depth-map': args.depthMap = value; break
+      case '--save-project': args.saveProject = value; break
       case '--size': args.size = pair(flag, value, 'WxH'); break
       case '--at': args.at = pair(flag, value, 'x,y'); break
       case '--font-size': args.fontSize = num(flag, value); break
@@ -389,6 +422,30 @@ function check(args: CliArgs): void {
         }
       }
     }
+  }
+
+  /**
+   * The one place the two halves of criterion 6 have to agree.
+   *
+   * `loadScene` dispatches on `PROJECT_EXT` and nothing else — deliberately,
+   * so that *which reader runs* is not a function of the bytes. A project
+   * written under any other name is therefore a zip this same program will
+   * hand to the YAML parser, and the author's next command gets "not valid
+   * YAML or JSON" about a file that is perfectly valid. Enforcing the
+   * extension costs one message here instead.
+   *
+   * `--depth-map` has no equivalent rule and does not need one: nothing reads
+   * a depth map back, so a `.jpg` there is only a lie about its own contents.
+   */
+  if (
+    args.saveProject !== undefined &&
+    !args.saveProject.toLowerCase().endsWith(PROJECT_EXT)
+  ) {
+    throw new UsageError(
+      `option "--save-project" writes a project file, so its path must end in ` +
+      `${PROJECT_EXT} — got "${args.saveProject}". That is the extension ` +
+      `"stst ${command} <file>" dispatches on when reading one back.`,
+    )
   }
 
   if (args.atTime !== undefined && command !== 'still') {

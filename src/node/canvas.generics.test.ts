@@ -59,14 +59,56 @@
  * *reported*, so the evidence stays visible in CI output without being
  * load-bearing.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
 import { nodeCanvas, resolveFontGenerics, CSS_GENERIC_FAMILIES } from './canvas.js'
 import { rasterDepth } from '../core/raster.js'
 import { report } from '../core/testing/metamorphic.js'
+import { INK_FRACTION } from '../shared/perception.js'
 import type { Scene } from '../core/types.js'
 
 const canvas = nodeCanvas()
+
+/** Repository root, the same way `canvas.vendored.test.ts` reaches it. */
+const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+
+/* --------------------------------------------------- the comments' pointers */
+
+describe('this file\'s own comments', () => {
+  it('names no source path that does not resolve', () => {
+    // **Written because this file has now written a stale pointer twice, and
+    // the second time was in the commit that was fixing the first.** The
+    // metric's docblock below records that the threshold's comment used to
+    // point at a bare `export *` shim holding no constant — "a pointer at a
+    // shim rots quietly". The same commit then wrote a new pointer naming a
+    // metamorphic.real module in this directory that has never existed, beside
+    // a sibling filename that resolves only in a different directory. A
+    // recorded note is not a sensor (§9), and "do not write stale pointers" is
+    // the purest form of a recorded note, so the property gets an instrument.
+    //
+    // **Scoped to paths that carry a directory, which is the whole judgement
+    // in this test.** A bare `raster.ts` is a nickname and the reader resolves
+    // it by knowing the repository; demanding it resolve from here would be
+    // wrong, and demanding it resolve uniquely anywhere would have passed the
+    // sibling that caused this. A path with a slash in it is a claim about
+    // where a file is, and that claim is either true or it is not.
+    //
+    // The escape hatch, for the day someone needs to cite a file that is gone:
+    // name it without backticks. This reads the file's own convention — a
+    // backticked path is a pointer — rather than every string in it.
+    const source = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    const cited = [...source.matchAll(/`([\w.-]*\/[\w./-]+\.(?:ts|js|json|html|md))`/g)]
+      .map(m => m[1]!)
+    const missing = [...new Set(cited)].filter(p => !existsSync(resolve(ROOT, p))).sort()
+    expect(missing).toEqual([])
+    // The vacuity floor, and only that: a count taken from today's comments
+    // would be §9's hand-written list again in numeric form.
+    expect(cited.length).toBeGreaterThan(0)
+  })
+})
 
 /**
  * The ratio a real Latin rendering must clear.
@@ -96,14 +138,43 @@ const LATIN_RATIO = 2
  * 3.69× — overlapping ranges once a third family is involved — while the
  * extents differ by 0.944 against 4.210.
  *
- * Thresholded at half the peak, matching `site/legibility.ts`'s `INK_FRACTION`,
- * so the antialiasing fringe does not add a pixel per side to a narrow stem.
+ * Thresholded at `src/shared/perception.ts`'s {@link INK_FRACTION} of the
+ * peak, so the antialiasing fringe does not add a pixel per side to a narrow
+ * stem.
+ *
+ * **Imported, not written out, and the comment used to point at the wrong
+ * file.** The threshold was spelled `peak * 0.5` here with a comment saying it
+ * matched the constant — which is a perceptual threshold inlined outside the
+ * module that owns it (P7 criterion 6), so the day a calibration round moves
+ * `INK_FRACTION` this metric would silently keep measuring the old definition
+ * and nothing would go red. The comment named `site/legibility.ts`, which is
+ * now a bare `export *` shim over `src/shared/perception.ts` and holds no
+ * constant of its own; a pointer at a shim is a pointer that rots quietly.
+ *
+ * The same shape, deliberately *not* unified: `runLengths`, declared in
+ * `src/core/testing/metamorphic.ts`, takes an **absolute** ink threshold where
+ * this one is a fraction of the layer peak, so the two numbers coincide only
+ * on a full-depth layer. `ABSOLUTE_INK_DEPTH` in
+ * `src/node/metamorphic.real.test.ts` is that threshold named, and carries the
+ * standing ruling against importing `INK_FRACTION` into it. This metric is
+ * peak-relative and is the same quantity `measureInk` computes, which is why
+ * it imports.
+ *
+ * **The constant and the function are cited, and the call sites deliberately
+ * are not.** The sentence this replaces enumerated two files' `runLengths(…,
+ * 0.5)` calls, and by the time it was committed none of it was true: one of
+ * the two paths named a module that has never existed, the other resolved only
+ * in a different directory, and the same commit had already replaced the
+ * literal `0.5` in `metamorphic.real.test.ts` with `ABSOLUTE_INK_DEPTH`. A
+ * named export moves with its rename; a census of who calls it does not. The
+ * census itself has been run — see this file's `names no source path that does
+ * not resolve`, which is the half of that lesson a machine can hold.
  */
 function inkExtent(depth: ArrayLike<number>, w: number, h: number): number {
   let peak = 0
   for (let i = 0; i < depth.length; i++) if (depth[i]! > peak) peak = depth[i]!
   if (peak <= 0) return 0
-  const t = peak * 0.5
+  const t = peak * INK_FRACTION
   let lo = Infinity
   let hi = -Infinity
   for (let y = 0; y < h; y++) {
@@ -136,6 +207,53 @@ async function widthRatio(size: number, font?: string): Promise<number> {
   expect(narrow).toBeGreaterThan(0)
   return wide / narrow
 }
+
+/* --------------------------------------------------- the metric's wiring */
+
+describe('the ink metric', () => {
+  it('thresholds at the module\'s INK_FRACTION rather than a number of its own', () => {
+    // **The sensor for P7 criterion 6 at this site.** Importing the constant
+    // is invisible while `INK_FRACTION` is 0.5, because that is what the
+    // inlined literal was — so this map is built *from* the constant and is
+    // the thing that goes red if the import is ever unwound.
+    //
+    // Three samples on one row. The peak is 1, so the module's threshold is
+    // `INK_FRACTION` exactly: the sample at `INK_FRACTION` is ink (the
+    // comparison is `>=`, as in `measureInk`) and the one just below it is
+    // not. The extent therefore starts at x=1, and an implementation that
+    // kept a literal 0.5 answers 8 at any `INK_FRACTION` above 0.5 and 1 at
+    // any value below it. Both were measured against an unmodified copy of
+    // this file before the import landed.
+    //
+    // **A plain array rather than a `Float32Array`, and that is not tidiness.**
+    // The first draft used one and went red under the `INK_FRACTION = 0.9`
+    // arm of that control — not because the wiring was wrong but because
+    // float32 stores 0.9 as 0.899999976…, so the deliberately-at-threshold
+    // sample landed *below* a float64 threshold and the sensor measured the
+    // representation instead of the metric. `inkExtent` takes `ArrayLike`
+    // precisely so either works; the boundary case needs the one that can
+    // hold the value it is testing.
+    const w = 8, h = 1
+    const d: number[] = new Array<number>(w * h).fill(0)
+    d[0] = INK_FRACTION * 0.99
+    d[1] = INK_FRACTION
+    d[7] = 1
+    expect(inkExtent(d, w, h)).toBe(7)
+  })
+
+  it('is the same ink definition the perception module measures', () => {
+    // Not a duplicate of the above: that one pins the *number*, this one pins
+    // the *comparison*. `measureInk` counts a sample at or above the
+    // threshold; a metric written with `>` would agree on every real glyph
+    // and disagree exactly here, which is where a reader would never look.
+    // Plain array for the reason the test above records.
+    const w = 4, h = 1
+    const d: number[] = new Array<number>(w * h).fill(0)
+    d[1] = INK_FRACTION
+    d[3] = 1
+    expect(inkExtent(d, w, h)).toBe(3)
+  })
+})
 
 /* ------------------------------------------------------- the environment */
 

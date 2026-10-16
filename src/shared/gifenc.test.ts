@@ -7,13 +7,39 @@ import { GifReader } from 'omggif'
 import {
   BW_PALETTE, GIFEncoder, applyPalette, quantize, twoColourPalette,
 } from './gifenc.js'
+import { CHILD_ENV } from './testing/spawnEnv.js'
 
-const run = promisify(execFile)
+/**
+ * `execFile`, with a **constructed** environment forced in at the one place
+ * every caller goes through.
+ *
+ * Not `promisify(execFile)` bare. Forcing the environment here rather than at
+ * each `run(...)` is the difference between a rule and a habit: a third probe
+ * added later gets it without its author having to know. `env` is spread
+ * *after* the caller's options so no call site can accidentally re-inherit,
+ * and `CHILD_ENV` is named twice in this file for the same reason the census
+ * in `spawnEnv.test.ts` counts call sites — see `testing/spawnEnv.ts` for the
+ * measurement that none of these tools branches on the harness variable, and
+ * for why an inherited environment is an input no test can state.
+ *
+ * The return type is written out rather than taken as
+ * `ReturnType<typeof execFileAsync>`. That inherits the union
+ * `string | Buffer`, because `execFile`'s overloads key the payload type on an
+ * `encoding` option this wrapper does not pass — and both call sites below
+ * feed `stdout` straight to `JSON.parse` and `Buffer.from`, which then stop
+ * compiling. Naming the shape here is the narrowing, and it is honest: with
+ * no `encoding` given, node's default is `utf8` and these are strings.
+ */
+const execFileAsync = promisify(execFile)
+const run = (
+  file: string, args: readonly string[], opts: { cwd?: string } = {},
+): Promise<{ stdout: string; stderr: string }> =>
+  execFileAsync(file, [...args], { ...opts, env: CHILD_ENV })
 
 /** Can this node run a `.ts` file directly? Needed to test node's resolution. */
 const HAVE_STRIP_TYPES = spawnSync(process.execPath, [
   '--experimental-strip-types', '--no-warnings', '--input-type=module', '--eval', 'void 0',
-], { stdio: 'ignore' }).status === 0
+], { stdio: 'ignore', env: CHILD_ENV }).status === 0
 
 const W = 8, H = 8
 

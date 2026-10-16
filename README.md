@@ -178,8 +178,19 @@ measure up to **29% away** (DejaVu Sans is the heavy outlier: 18px where the ven
 gives 14px at 90px bold). That is the one condition under which these numbers stop
 holding, and it is the reason the fallback is loud.
 
-Alternatively raise `sepNear` to shrink the budget, buying legibility at the cost of depth
-range; for text, which wants one flat plane anyway, that is usually the right trade.
+**Raising `sepNear` is not the alternative it looks like.** This paragraph used to say it
+was: shrink the budget, buy legibility at the cost of depth range, usually the right trade
+for text. It moves the *verdict* — the rule above is budget-relative — and
+[blinded trials](docs/2026-10-12-legibility-findings.md) say it does not move what a
+viewer can see. One round held the stroke at 14px and swept the budget over 10, 18, 24 and
+30px: four exact reads out of four. The legibility threshold is an **absolute stroke
+width**, so shrinking the budget spends real depth range on nothing. The site's panel
+stopped offering the trade in the same pass that this paragraph did. Size and weight are
+the levers; the table above is the map.
+
+(Shrinking the budget *is* worth doing for a different reason — it makes the image easier
+to hold fused, which is the other axis that document separates out — but that is a comfort
+decision about `sepFar`/`sepNear`, not a fix for type nobody can read.)
 
 **The emitted image is wider than `size:`, and you should compose only inside `size:`.**
 `size:` is the **stage** — the region that survives fusion. The encoders cannot express
