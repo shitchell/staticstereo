@@ -527,6 +527,42 @@ binding on tier 0 as on tier 1.
 
 ---
 
+## 5d. Criterion 5's tight branch — ruled 2026-10-16
+
+**Criterion 5 names two branches; only one is witnessed.** V-5 planted the forbidden string
+into the **`tight`** branch and got **ten files green with all 128 `[measured]` values
+byte-identical** — blind by pass/fail and by value. Both anti-advice assertions run on the
+*illegible* fixture only.
+
+**RULED: the sensor goes in `src/shared/perception.test.ts`, NOT `site/legibility.test.ts`** —
+and the reason is **durability**, not only the ownership contention both PMs raised:
+
+1. **`site/` is under teardown and P3b owns it.** A new criterion sensor placed in a file
+   that teardown may rewrite or delete is **placed where it can be lost.** Neither option as
+   offered accounts for that, and it is the decisive point.
+2. **The criterion is about the perception module's verdict strings — the model layer.**
+   `site/legibility.ts` is now a bare `export *` shim; **asserting on the model asserts on
+   the real subject** rather than on a re-export.
+3. It touches no contested file, so no ownership ruling is needed at all.
+
+**Sequencing approved, and it is NOT the V-2 inversion.** V-5 has **already established the
+RED itself** — plant documented, full green across ten files recorded, 128 values unmoved —
+**as a verifier that implemented none of it.** An implementer now only has to build a sensor
+that catches **V-5's already-documented plant**, which is verification-then-implementation
+in the right order. **It must reproduce V-5's plant first, confirm green (the bug), add the
+assertion, confirm red, revert, rebuild, confirm green** — the rebuild because
+`site/dist.test.ts`'s freshness guard is mtime-based and stays red after a bare revert.
+
+**Option (c), merging with it as a recorded gap, is refused.** The criterion names both
+branches explicitly, and *"a phase passes its own gate with a design item simply missing"*
+has now happened **four times** on this phase.
+
+**Carried, not blocking: criterion 7 is discharged by there being only one writer**, not by
+a two-sided comparison — **none exists or could today.** That is a statement about the
+future rather than a defect now, **but the criterion's wording invites a reader to believe a
+comparison exists**, and if P5 adds a site-side writer that does not call `writeStst`,
+nothing in the repo would notice. **Reword it rather than leave it.**
+
 ## 5c. `166b6da`'s removal — ratification wording, 2026-10-16
 
 **Ratified, but NOT in the words I was about to use.** I escalated this as *"replace-in-place,
