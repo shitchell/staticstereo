@@ -1,4 +1,4 @@
-import { resolveStereo } from '../src/core/index.js'
+import { LAYER_KEYS, PRESET_PARAMS, SCENE_KEYS, STEREO_KEYS, resolveStereo } from '../src/core/index.js'
 import {
   frameIndexAt,
   frameTimesOf,
@@ -12,7 +12,18 @@ import {
 } from './transport.js'
 import { validateScene } from './scene.js'
 import type { TransportState } from './transport.js'
-import type { Anim, Layer, Scene, StereoOpts } from '../src/core/types.js'
+import type {
+  Anim,
+  AssertNever,
+  Layer,
+  LayerOf,
+  Preset,
+  Scene,
+  SceneKey,
+  StereoKey,
+  StereoOpts,
+} from '../src/core/types.js'
+import type { ParamDescriptor, PresetKind } from '../src/core/index.js'
 
 /**
  * The page's state and the pure transitions over it.
@@ -76,6 +87,268 @@ export interface UiState {
   transport: TransportState
 }
 
+/* ------------------------------------------------ criterion 22: the write
+ * path for every control
+ *
+ * **What was wrong.** ESC-7 measured 17 of 63 `CONTROLS` entries with a keyed
+ * `Action` and 46 with none — every `layer.*.at`/`.depth`/`.name`, all
+ * `layer.shape.*`, all `image|gif.src|mode|mask`, all 11 `preset.*`. Their
+ * only write path was handing `reduce` a whole rebuilt `Scene`, which
+ * `store.ts`'s header says the store must not own, and criterion 6 is
+ * structurally unable to see it: it proves a spec is *reachable*, not that a
+ * value is *writable*.
+ *
+ * **Why the obvious fix is worse than the gap.** A path-addressed action
+ * carrying a computed key **erases the field type**. Measured, at this phase's
+ * commit, with `tsc` under this repo's own `strict` + `noUncheckedIndexedAccess`:
+ *
+ * ```ts
+ * const bad: Action = { type: 'stereo', patch: { cross: 1 } }        // TS2322
+ * declare const key: string
+ * const sneaky: Action = { type: 'stereo', patch: { [key]: Number(raw) } }  // 0 errors
+ * declare const narrow: keyof StereoOpts
+ * const p: Partial<StereoOpts> = { [narrow]: Number(raw) }                  // 0 errors
+ * ```
+ *
+ * The third line is the part worth keeping: **narrowing the key to the
+ * correct union does not restore the check.** A fresh object literal with a
+ * computed key is typed by its *index signature*, and an index signature of
+ * `number` satisfies a target whose property is `boolean`. So a generated
+ * widget could write a number into `cross` with nothing between it and the
+ * scene. SPIKE-1's own code had that bug and compiled.
+ *
+ * **The shape that does not erase.** One `Action` member per control, built
+ * by distributing a mapped type over a map from control id to the *model's*
+ * type for that field. Each member pairs one literal id with one concrete
+ * value type, so the checker has a correlation to lose rather than an index
+ * signature to widen — and the member for `'stereo.cross'` is the only one
+ * whose `control` accepts that literal.
+ *
+ * Three consequences, all of them deliberate:
+ *
+ *  - A caller holding an id in a *variable* cannot write at all. That is the
+ *    generic renderer, and the compile error is the point: it must narrow —
+ *    by switching on the unit, by a per-control reader — before it writes.
+ *    This is the hole closing, not a missing feature.
+ *  - `value` is required even where the model's field is optional, and
+ *    `undefined` is only *accepted* there. Omitting it is a different mistake
+ *    from clearing the field and the two must not be one spelling.
+ *  - `index` is required exactly on the layer controls and refused on the
+ *    singletons, because `scene` and `scene.stereo` are singletons and a
+ *    layer control that did not say *which* layer would be addressing the
+ *    selection rather than the model.
+ *
+ * **What this does not reach: the eleven `preset.*` controls.** `Preset` is
+ * `{kind: string; [param: string]: unknown}` (`src/core/types.ts`), so a verb
+ * parameter's declared type in the model **is** `unknown` and there is no
+ * wrong-typed write into one to refuse. They are therefore not in this map;
+ * they are declared in {@link unwritableControls}, and
+ * `_PresetParamsAreUntypedInTheModel` below is the tripwire that fires the day
+ * that stops being true. See that function for the full argument and the cost
+ * of each alternative.
+ */
+
+/**
+ * The layer variants the editor derives controls for.
+ *
+ * Written out and tied to the model's union below rather than read from
+ * `browserReachableLayerTypes()`, because that function is a *runtime* probe
+ * of the validator and a type cannot ask it anything. The tie here is the
+ * narrower claim the types can carry — `draw` and nothing else is excluded —
+ * and `controls.test.ts` asserts this tuple against the probe's answer, which
+ * is the half the compiler cannot make.
+ */
+export const BROWSER_LAYER_VARIANTS = ['text', 'image', 'gif', 'shape'] as const
+type BrowserLayerVariant = typeof BROWSER_LAYER_VARIANTS[number]
+type EditableLayerType = Exclude<Layer['type'], 'draw'>
+type _NoVariantMissing = AssertNever<Exclude<EditableLayerType, BrowserLayerVariant>>
+type _NoVariantExtra = AssertNever<Exclude<BrowserLayerVariant, EditableLayerType>>
+
+/**
+ * Scene keys whose members are controls under another owner, not controls in
+ * their own right.
+ *
+ * The type-level twin of `controlspec.ts`'s `SCENE_CONTAINERS`, and declared
+ * here rather than imported because that table's declared type is
+ * `Partial<Record<SceneKey, …>>`, whose `keyof` is every scene key. The two
+ * are independent readings of one decision and `controls.test.ts` compares
+ * the id sets they produce, which is what makes this a guard rather than a
+ * copy.
+ */
+const CONTAINER_SCENE_KEYS = ['stereo', 'layers'] as const
+type AuthorableSceneKey = Exclude<SceneKey, typeof CONTAINER_SCENE_KEYS[number]>
+
+type SceneValues = { [K in AuthorableSceneKey as `scene.${K}`]: Scene[K] }
+/**
+ * `Scene['stereo']` and not `StereoOpts`: the field a control writes is
+ * `scene.stereo.sepFar`, whose declared type is `Partial<StereoOpts>`'s, so
+ * `undefined` is part of it. Taking the resolved `StereoOpts` instead would be
+ * stricter than the model and would make this path disagree with the existing
+ * `{type: 'stereo'}` arm, which accepts a `Partial`.
+ */
+type StereoValues = { [K in StereoKey as `stereo.${K}`]: NonNullable<Scene['stereo']>[K] }
+type LayerValuesOf<V extends BrowserLayerVariant> =
+  { [K in keyof LayerOf<V> as `layer.${V}.${K & string}`]: LayerOf<V>[K] }
+type LayerValues =
+  & LayerValuesOf<'text'>
+  & LayerValuesOf<'image'>
+  & LayerValuesOf<'gif'>
+  & LayerValuesOf<'shape'>
+
+/** Every writable control id, mapped to the model's own type for its field. */
+export type ControlValues = SceneValues & StereoValues & LayerValues
+
+/** A control id this module can write. See {@link unwritableControls} for the rest. */
+export type WritableControlId = keyof ControlValues
+
+/**
+ * The same id set, composed from the *rosters* instead of from the types.
+ *
+ * The pair below is not a membership guard — `LAYER_KEYS` and `keyof LayerOf<V>`
+ * are already tied by ten `AssertNever` pairs in `src/core/types.ts`, and §9 is
+ * blunt that a guard derived from the roster it guards *"proves only that the
+ * derivation ran twice."* What it does guard is this file's own composition:
+ * the id **grammar** (`owner.key`, `owner.scope.key`), the container exclusion
+ * and the variant exclusion. Get any of those wrong and the runtime list below
+ * stops naming the same controls the type map does, which is the drift a
+ * reader of either one alone cannot see.
+ */
+type RosterWritableId =
+  | `scene.${AuthorableSceneKey}`
+  | `stereo.${StereoKey}`
+  | { [V in BrowserLayerVariant]: `layer.${V}.${typeof LAYER_KEYS[V][number]}` }[BrowserLayerVariant]
+type _NoWritableIdMissing = AssertNever<Exclude<WritableControlId, RosterWritableId>>
+type _NoWritableIdExtra = AssertNever<Exclude<RosterWritableId, WritableControlId>>
+
+/**
+ * Where a layer control says *which* layer, and where a singleton refuses to.
+ *
+ * `index?: never` rather than an omission: an omitted property is satisfied by
+ * an object that carries one, so `{control: 'scene.fps', index: 0}` would
+ * compile and the index would be silently ignored.
+ */
+type ControlAddress<K> = K extends `layer.${string}`
+  ? { readonly index: number }
+  : { readonly index?: never }
+
+/**
+ * Write one control's value.
+ *
+ * `-?` on the outer mapped type is load-bearing and was measured: without it
+ * the map inherits the optionality of the model's own fields, the indexed
+ * access then yields `… | undefined`, and `const a: SetAction = undefined`
+ * compiles. The modifier strips that; `value`'s own optionality is unaffected
+ * because it is declared in an ordinary type literal inside the body.
+ */
+export type SetAction = {
+  [K in keyof ControlValues]-?: {
+    readonly type: 'set'
+    readonly control: K
+    readonly value: ControlValues[K]
+  } & ControlAddress<K>
+}[keyof ControlValues]
+
+/**
+ * Every control id {@link SetAction} can write, as runtime data.
+ *
+ * `AssertNever` is enforced by `npm run typecheck` alone, so without a runtime
+ * witness the pair above is invisible to `npm test` — the same reason
+ * `SCENE_KEYS` and `LAYER_KEYS` are exported upstream. The element type is the
+ * roster-composed union, so the pair ties this array to the type map as well.
+ */
+export const WRITABLE_CONTROL_IDS: readonly RosterWritableId[] = [
+  ...SCENE_KEYS
+    .filter((key): key is AuthorableSceneKey =>
+      !(CONTAINER_SCENE_KEYS as readonly string[]).includes(key))
+    .map(key => `scene.${key}` as const),
+  ...STEREO_KEYS.map(key => `stereo.${key}` as const),
+  ...BROWSER_LAYER_VARIANTS.flatMap(variant =>
+    // `as RosterWritableId` and not `as const`: `flatMap` instantiates the
+    // callback once over the whole variant union, so the inferred template
+    // literal is the cross product `layer.${V}.${every key of any variant}` —
+    // wider than the truth and wide enough to hide a real drift. The pair
+    // above is what keeps this cast honest; the cast only stops the cross
+    // product from being the thing the pair compares.
+    LAYER_KEYS[variant].map(key => `layer.${variant}.${key}` as RosterWritableId)),
+]
+
+/** Why a `CONTROLS` entry has no type-preserving write path. */
+export interface UnwritableControl {
+  /** The control id. Mirrors the key, as `ControlInfo.control` does. */
+  readonly control: string
+  /** The class of the gap, so a reader can tell two causes apart. */
+  readonly disposition: 'untyped-in-model'
+  /** The argument, in prose a human can be shown. */
+  readonly reason: string
+}
+
+/**
+ * Fires the day `Preset` stops being an open bag of `unknown`.
+ *
+ * `unknown extends T` is true only of `unknown` and `any`, so this resolves to
+ * `never` exactly while a verb parameter has no declared type. The moment one
+ * does, this is a typecheck failure carrying the sentence below — which is
+ * §9's *"a recorded note is not a sensor"* applied to the one finding in this
+ * task that is a statement about a type nobody is editing today.
+ */
+type _PresetParamsAreUntypedInTheModel = AssertNever<
+  unknown extends Preset[string]
+    ? never
+    : 'Preset parameters now carry types; the preset residue in `unwritableControls` can shrink'
+>
+
+const PRESET_RESIDUE_REASON =
+  '`Preset` is `{kind: string; [param: string]: unknown}`, so this parameter\'s declared type ' +
+  'in the model IS `unknown`. Criterion 22\'s second clause — a wrong-typed write fails to ' +
+  'compile — therefore has no subject here: every write is well-typed, and a compile-error ' +
+  'sensor would report the gap GREEN. Typing it needs one of three things, all upstream of ' +
+  'this module: a per-kind `Preset` union in `src/core/types.ts` (breaks `PresetFn`, which ' +
+  'reads parameters by name off an open bag); generic parameter constructors plus `as const` ' +
+  'on `PRESET_PARAMS` in `src/core/anim/params.ts`, so the descriptor names and shapes survive ' +
+  'into the type level; or a hand-written value-type table here, which is §9\'s "hand-written ' +
+  'list of the places that do X" and would be tied to nothing. Addressing is a second, ' +
+  'independent gap: a verb parameter lives inside `layer.anim`, which is ' +
+  '`Track | Preset | (Track | Preset)[]`, so a write needs a layer index AND an anim slot, and ' +
+  'the `CONTROLS` entry carries neither.'
+
+/**
+ * Every `CONTROLS` entry with no type-preserving write path, and why.
+ *
+ * **Derived from the same roster the controls are**, not listed: a sixth verb
+ * registered in `PRESET_PARAMS` produces controls in `controlspec.ts` and
+ * joins this residue here in the same breath, so the partition over
+ * `CONTROL_IDS` that `controls.test.ts` asserts stays total without anyone
+ * remembering to extend a list. That is the whole difference between a
+ * declared gap and an undetected one — §9: *"a recorded note is not a sensor.
+ * Where a gap is accepted, convert the note into a test that goes red the day
+ * someone crosses it."*
+ *
+ * `params` is a parameter for the reason every reader in `controlspec.ts`
+ * takes its population: the vacuity floor has to be able to drive this to
+ * zero, and a residue that could only be asked about the verbs that shipped
+ * would be unprovable over any other roster.
+ */
+export function unwritableControls(
+  params: Readonly<Record<string, readonly ParamDescriptor[]>> = PRESET_PARAMS,
+): readonly UnwritableControl[] {
+  const out: UnwritableControl[] = []
+  for (const kind of Object.keys(params)) {
+    for (const descriptor of params[kind] ?? []) {
+      out.push({
+        control: `preset.${kind}.${descriptor.name}`,
+        disposition: 'untyped-in-model',
+        reason: PRESET_RESIDUE_REASON,
+      })
+    }
+  }
+  return out
+}
+
+/** `PRESET_PARAMS` is keyed by the verb registry's own union; this names it. */
+type _PresetParamsIsKeyedByKind = AssertNever<
+  Exclude<keyof typeof PRESET_PARAMS, PresetKind>
+>
+
 export type Action =
   | { type: 'scene'; scene: Scene }
   | { type: 'stereo'; patch: Partial<StereoOpts> }
@@ -105,6 +378,23 @@ export type Action =
   | { type: 'play'; nowMs: number }
   | { type: 'pause'; nowMs: number }
   | { type: 'seek'; seconds: number; nowMs: number }
+  /**
+   * Criterion 22's write path: one member per writable control, each pairing
+   * a literal id with the model's own type for that field. See the block
+   * above {@link BROWSER_LAYER_VARIANTS} for why it is a distributed union
+   * and not one member carrying a path and a value.
+   *
+   * **This overlaps the keyed arms above for 17 controls and the overlap is
+   * declared, not hidden.** The alternative — reimplementing `size`, `fps`,
+   * `duration`, `freezeNoise`, `stereo`, `layerAnim` and `layerText` in terms
+   * of this one — was weighed and declined here: `layerText` carries bounds
+   * checks `set` does not, `layerAnim` is addressed by index alone and does
+   * not know the variant, and all seven are consumed by `main.ts`, which this
+   * task may not edit. So the duplication is pinned instead: `controls.test.ts`
+   * asserts the two paths produce an identical state for every one of the 17,
+   * which is the guard the channel list never had.
+   */
+  | SetAction
 
 /**
  * A typography edit to one `text` layer.
@@ -402,8 +692,73 @@ function patchText(layer: Layer, index: number, patch: TextPatch): Layer {
   return next as unknown as Layer
 }
 
+/**
+ * Apply one {@link SetAction}.
+ *
+ * **The computed key is here and only here, and that is the trade.** The hole
+ * criterion 22 exists to close is a computed key in the *vocabulary*, where
+ * every caller is exposed to it; this is a computed key in one reducer arm,
+ * behind a union that has already proved the id and the value agree. The cast
+ * to `Record<string, unknown>` is the same one `patchText` and the `layerAnim`
+ * arm already make for the same reason recorded there — *"deleting an optional
+ * key off a `Layer` is not expressible in the type."*
+ *
+ * **`undefined` removes the key rather than storing it, on the scene and the
+ * layer.** `TextPatch`'s docblock settled that distinction for the text
+ * controls and the reasoning is general: `{fps: undefined}` serialises to a
+ * hash with no `fps` key, so keeping the key in memory makes the state and the
+ * share link disagree. The one exception is `scene.stereo`, which *spreads*,
+ * because the keyed `{type: 'stereo'}` arm it has to agree with spreads — and
+ * the resolved stereo block is materialised whole by {@link initialState}, so
+ * a removal there has no meaning the editor can act on.
+ *
+ * Pair values are copied. `{...scene, size: action.value}` would alias the
+ * array the caller handed in, so a renderer reusing one scratch pair would
+ * mutate the committed scene from outside the store.
+ */
+function applySet(state: UiState, action: SetAction): UiState {
+  const value = Array.isArray(action.value) ? [...action.value] : action.value
+  const [owner, first, second] = action.control.split('.')
+
+  if (owner === 'scene') {
+    const scene = { ...state.scene } as unknown as Record<string, unknown>
+    if (value === undefined) delete scene[first!]
+    else scene[first!] = value
+    return withScene(state, scene as unknown as Scene)
+  }
+
+  if (owner === 'stereo') {
+    return withScene(state, {
+      ...state.scene,
+      stereo: { ...state.scene.stereo, [first!]: value } as Partial<StereoOpts>,
+    })
+  }
+
+  // `layer.<variant>.<key>`. The index is required by the type; the *variant*
+  // is not something the type can check against the scene, because which
+  // variant sits at an index is a runtime fact. Refused by name rather than
+  // applied, on `patchText`'s precedent: writing `r` onto a text layer would
+  // produce a scene the validator rejects with the banner naming no field.
+  const index = action.index!
+  const layer = requireLayer(state.scene, index, `set ${action.control}`)
+  if (layer.type !== first) {
+    throw new Error(
+      `cannot set ${action.control} on layer ${index}: it is a ${layer.type} layer`,
+    )
+  }
+  const next = { ...layer } as unknown as Record<string, unknown>
+  if (value === undefined) delete next[second!]
+  else next[second!] = value
+  const layers = state.scene.layers.map((each, i) =>
+    (i === index ? (next as unknown as Layer) : each))
+  return withScene(state, { ...state.scene, layers })
+}
+
 export function reduce(state: UiState, action: Action): UiState {
   switch (action.type) {
+    case 'set':
+      return applySet(state, action)
+
     case 'scene':
       return withScene(state, action.scene)
 

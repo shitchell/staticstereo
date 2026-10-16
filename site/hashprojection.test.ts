@@ -171,6 +171,16 @@ const SAMPLES: { readonly [K in Action['type']]: readonly Extract<Action, { type
     // Rejected at the edit by `patchText`; throws like the above.
     { type: 'layerText', index: 0, patch: { size: 0 } },
   ],
+  // Criterion 22's write path. It reaches the scene by three different
+  // routes — a scene key, a stereo key and a layer key — and the hash carries
+  // all three, so one sample per route rather than one per variant. The
+  // fourth is a refusal, which must leave the fragment alone.
+  set: [
+    { type: 'set', control: 'scene.freezeNoise', value: true },
+    { type: 'set', control: 'stereo.cross', value: true },
+    { type: 'set', control: 'layer.text.name', value: 'top', index: 0 },
+    { type: 'set', control: 'layer.text.text', value: 'B', index: 4 },
+  ],
 }
 
 const EVERY_SAMPLE: readonly Action[] = Object.values(SAMPLES).flat()
