@@ -12,10 +12,12 @@ import {
 } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { createServer } from 'node:http'
+import { builtinModules } from 'node:module'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parseAst } from 'rollup/parseAst'
 import {
   CLASS_CONTROL,
   CLASS_PLATE,
@@ -49,6 +51,16 @@ import {
  * `src/cli/args.ts`, and it survives minification, so its absence is real
  * evidence and its presence would be a real leak. The `@napi-rs` and `node:`
  * checks are kept as well, but as the weaker belt to that braces.
+ *
+ * That paragraph is **half right, and the half it gets wrong is the half that
+ * bit** (ESC-9). The risk it names is a comment surviving minification, and
+ * that risk never materialised — comments are stripped, measured. What did
+ * materialise is the opposite: prose inside a *runtime string literal*, which
+ * minification is obliged to keep, and which `yuv444p`'s own argument says is
+ * the durable kind. The `@napi-rs` and `node:` checks are therefore no longer
+ * text matches at all; they read module specifiers off the syntax tree. See
+ * {@link collectSpecifiers} for the measurements, and
+ * {@link VITE_BROWSER_EXTERNAL} for the hole the text version was already in.
  */
 
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '..')
@@ -398,6 +410,245 @@ function assetRefs(html: string): string[] {
 const isExternal = (ref: string): boolean =>
   /^(?:[a-z][a-z0-9+.-]*:|\/\/|#|mailto:)/i.test(ref)
 
+/* ===================================================================== */
+/*  what the bundle IMPORTS, as distinct from what it merely MENTIONS     */
+/* ===================================================================== */
+
+/**
+ * The module specifiers a built chunk actually declares, read off the syntax
+ * tree rather than matched out of the text.
+ *
+ * ## Why the text match had to go, and why the recorded reason for it was wrong
+ *
+ * The check below used to be `text.includes('@napi-rs')` over every emitted
+ * file. ESC-9 describes what it reddens on as "a doc string in
+ * `controlspec.ts`". **Measured, that is not what it is, and the distinction
+ * decides the whole design.** `site/controlspec.ts`'s `LAYER_SPECS.font.note`
+ * is a *runtime string literal* — prose inside a data registry that
+ * `deriveControls(MODEL_ROSTERS)` evaluates eagerly into `CONTROL_SPECS` — so
+ * esbuild carries it into the bundle verbatim, exactly as it carries
+ * {@link EDITOR_NEEDLES}. Planting `import { CONTROL_IDS } from
+ * './controlspec.js'` into `site/main.ts` put
+ *
+ *     ...between the browser and `@napi-rs/canvas`, which is how `sans-serif`...
+ *
+ * into `dist-site/assets/index-*.js`, and the old assertion went red on it.
+ *
+ * A *comment* mentioning `@napi-rs` never had this problem and still does not.
+ * `site/legibility.ts` is in the editor bundle today — its `measureInk` needle
+ * is in `dist-site/` and the needle block below asserts so — and its docblocks
+ * say `@napi-rs` three times, while `@napi-rs` appears nowhere in `dist-site/`.
+ * Minification strips comments. So the obvious fix, "strip comments and then
+ * grep", would have been green, would have looked principled, and would have
+ * changed nothing about the case that actually reddens.
+ *
+ * What separates the two is not where the characters sit in the source, it is
+ * **syntactic position in the output**: a module specifier is a specifier, and
+ * prose is a string. Nothing but a parser can tell those apart, so this parses.
+ * `rollup/parseAst` is rollup's own SWC parser, already resolved through vite —
+ * no new dependency and no new harness.
+ *
+ * ## The hand-written list is gone, not replaced
+ *
+ * The old check carried four node needles — `node:fs`, `node:path`,
+ * `node:child_process`, `node:url` — which is precisely the "list of the places
+ * that do X" that goes stale the day a fifth one does. {@link forbiddenImport}
+ * derives the set instead: any `node:`-prefixed specifier at all, plus
+ * `builtinModules`, which node reports for the running runtime.
+ */
+function collectSpecifiers(node: unknown, out: string[]): void {
+  if (node === null || typeof node !== 'object') return
+  if (Array.isArray(node)) {
+    for (const child of node) collectSpecifiers(child, out)
+    return
+  }
+  const n = node as Record<string, unknown>
+  const type = n['type']
+  const source = n['source'] as { type?: string; value?: unknown } | undefined
+  // `import x from 's'`, `export {x} from 's'`, `export * from 's'`. The
+  // `source` of these is always a literal — the grammar allows nothing else.
+  if (
+    (type === 'ImportDeclaration' ||
+      type === 'ExportNamedDeclaration' ||
+      type === 'ExportAllDeclaration') &&
+    typeof source?.value === 'string'
+  ) {
+    out.push(source.value)
+  }
+  // `import('s')`. Only the literal form is readable; a computed specifier is
+  // unreadable here *and* unresolvable by the bundler, so it cannot be the
+  // route a native package takes into a browser bundle.
+  if (type === 'ImportExpression' && source?.type === 'Literal' && typeof source.value === 'string') {
+    out.push(source.value)
+  }
+  // `require('s')`, which vite emits for CommonJS interop.
+  const callee = n['callee'] as { type?: string; name?: string } | undefined
+  const args = n['arguments'] as { type?: string; value?: unknown }[] | undefined
+  if (
+    type === 'CallExpression' &&
+    callee?.type === 'Identifier' &&
+    callee.name === 'require' &&
+    args?.[0]?.type === 'Literal' &&
+    typeof args[0]?.value === 'string'
+  ) {
+    out.push(args[0]!.value as string)
+  }
+  for (const key of Object.keys(n)) {
+    if (key !== 'type') collectSpecifiers(n[key], out)
+  }
+}
+
+/** Every module specifier declared in one chunk's source text. */
+function moduleSpecifiers(source: string): string[] {
+  const out: string[] = []
+  collectSpecifiers(parseAst(source), out)
+  return out
+}
+
+/** The node builtins, as the running runtime reports them — never a literal list. */
+const NODE_BUILTINS = new Set(builtinModules)
+
+/**
+ * Why a specifier may not appear in a browser bundle, or `undefined` if it may.
+ *
+ * `@napi-rs` is named rather than derived because it is the one thing in
+ * `dependencies` that cannot run in a browser at all: it resolves to a
+ * platform-specific `skia.*.node` ELF binary, which is also why a real import
+ * of it is *unbuildable* rather than merely wrong (see the block below).
+ */
+function forbiddenImport(specifier: string): string | undefined {
+  if (specifier.startsWith('node:')) return 'a node: builtin'
+  if (NODE_BUILTINS.has(specifier)) return 'a node builtin, in its bare spelling'
+  if (specifier === '@napi-rs' || specifier.startsWith('@napi-rs/')) {
+    return 'the native @napi-rs canvas binding'
+  }
+  return undefined
+}
+
+/**
+ * Vite's stub for a node builtin it externalised out of a browser build — and
+ * the reason this file now looks for a *chunk* as well as for a specifier.
+ *
+ * **Measured, and it is the hole the old text grep was already in rather than
+ * one this narrowing opens.** Plant a reachable `await import('node:fs')` in
+ * `site/main.ts` and rebuild: vite rewrites the call site to
+ * `import("./__vite-browser-external-BIHI7g3E.js")`, emits that chunk holding
+ * `const e={};export{e as default};`, and **the text `node:fs` is absent from
+ * every byte of `dist-site/`**. The old `text.includes` check reported
+ * `34 passed`, exit 0, over a bundle carrying a live import of a node builtin.
+ * A specifier set read off the AST would inherit that blindness exactly, since
+ * the surviving specifier is a relative path to the stub.
+ *
+ * So the stub itself is the evidence. Vite emits it *because* something
+ * imported a builtin, which makes it bundler-generated and unforgeable by
+ * prose — the property the whole block is after.
+ *
+ * TRIPWIRE. This is vite's internal chunk name, measured at **vite 5.4.21**. A
+ * vite release that renames it makes this detector silently blind again. If
+ * that happens the symptom is this assertion going quiet while a planted
+ * `await import('node:fs')` builds clean — NOT a red. If you are here because
+ * something reddened, the bundle really did externalise a builtin: find the
+ * import and delete it. Do not relax the predicate, and do not delete the row
+ * to make a vite upgrade green — re-measure the stub's new name and update the
+ * constant, because the row going quiet is the failure mode, not the noise.
+ */
+const VITE_BROWSER_EXTERNAL = '__vite-browser-external'
+
+const isBrowserExternalStub = (name: string): boolean =>
+  basename(name).startsWith(VITE_BROWSER_EXTERNAL)
+
+/**
+ * Which emitted files are JavaScript to be parsed.
+ *
+ * Measured: both builds emit only `css html js woff2` today, so the extra two
+ * extensions match nothing. They are here because the *extension list is the
+ * boundary* — see the block below — and a rollup output format that emitted
+ * `.mjs` would otherwise leave those chunks unparsed and unchecked in silence
+ * rather than loudly.
+ */
+const isScriptChunk = (file: string): boolean =>
+  file.endsWith('.js') || file.endsWith('.mjs') || file.endsWith('.cjs')
+
+interface ParsedChunk {
+  /** Repo-relative, which is what a failure message has to say. */
+  readonly file: string
+  readonly specifiers: readonly string[]
+}
+
+interface UnparsedChunk {
+  readonly file: string
+  readonly reason: string
+}
+
+/**
+ * Split the emitted JavaScript into "read and understood" and "could not read".
+ *
+ * The two halves are returned separately and asserted separately on purpose.
+ * `text.includes` had one failure mode and therefore one assertion: it returned
+ * `false` for a file it could not make sense of and for a file that was clean,
+ * and those are opposite findings. A parser can genuinely fail — a future
+ * output target this rollup build cannot parse, a truncated write — and the
+ * phase has already paid nine hours for a harness whose "I could not read the
+ * artifact" and "the thing I check for is wrong" arrived as the same message.
+ */
+function parseChunks(files: readonly string[]): {
+  parsed: ParsedChunk[]
+  unparsed: UnparsedChunk[]
+} {
+  const parsed: ParsedChunk[] = []
+  const unparsed: UnparsedChunk[] = []
+  for (const file of files.filter(isScriptChunk)) {
+    const label = relative(ROOT, file)
+    try {
+      parsed.push({ file: label, specifiers: moduleSpecifiers(readFileSync(file, 'utf8')) })
+    } catch (error) {
+      unparsed.push({ file: label, reason: error instanceof Error ? error.message : String(error) })
+    }
+  }
+  return { parsed, unparsed }
+}
+
+/**
+ * ## THE BOUNDARY. What these checks can no longer see, and the measured reason
+ *
+ * The whole mechanism in one sentence, because a limitation stated as a list of
+ * examples reads as complete and is not: **this now sees module specifiers, in
+ * files it parsed, and nothing else.** Everything below follows from that one
+ * sentence rather than being a separate caveat, and anything that is not a
+ * specifier in a parsed file is invisible here no matter how it is spelled.
+ *
+ * 1. **A `@napi-rs` or `node:` name that is not a specifier.** Prose in a
+ *    string literal, a surviving comment, an identifier, a filename. That is
+ *    the deliberate loss and it is what ESC-9 asked for. What makes it safe is
+ *    measured and not assumed: `src/node/canvas.ts` — the one browser-unsafe
+ *    module whose *error messages* say `@napi-rs/canvas`, and so the one whose
+ *    leak a text grep could catch where this cannot — imports `@napi-rs/canvas`
+ *    statically on line 1, and rollup cannot build that: it reaches the
+ *    platform `skia.*.node` ELF and exits 1 with `Unexpected character
+ *    '\u{7f}'`. There is no bundle to check. The only spelling that *does*
+ *    build is an externalised import, which is a specifier and is caught.
+ *    `yuv444p` above remains the string-literal probe for the general case and
+ *    is deliberately untouched — it is the belt this narrowing keeps.
+ * 2. **A computed specifier**, `import(expr)`. Only literals are readable.
+ *    Rollup cannot resolve a computed specifier either, so it cannot be how a
+ *    native package gets *bundled*; it could still be how one gets *requested*
+ *    at runtime, and that request is not visible here.
+ * 3. **Anything in a file {@link isScriptChunk} does not name.** Measured: the
+ *    builds emit `css html js woff2`, and the emitted documents link their
+ *    scripts with `src=` rather than carrying an inline body, so there is no
+ *    unparsed JavaScript today. A build that inlined the entry into the HTML
+ *    would have none of it checked.
+ * 4. **A rename of vite's external stub.** See {@link VITE_BROWSER_EXTERNAL};
+ *    that one has its own tripwire because its failure mode is silence.
+ *
+ * The honest summary of the trade: against a *mention*, sensitivity is now
+ * zero where it used to be total, which is the point. Against a real import it
+ * is strictly higher than before — row 3 of this block catches an externalised
+ * builtin that the text grep provably passed over (`34 passed`, exit 0, with a
+ * live `await import('node:fs')` in the bundle). This is not a weaker check
+ * with a narrower aim; it is a check that stopped reading prose and started
+ * reading imports.
+ */
 describe.skipIf(!fresh)('the built site', () => {
   const html = fresh ? readFileSync(join(DIST, 'index.html'), 'utf8') : ''
   const files = fresh ? filesUnder(DIST) : []
@@ -441,15 +692,109 @@ describe.skipIf(!fresh)('the built site', () => {
     expect(leaks.map(f => relative(ROOT, f))).toEqual([])
   })
 
-  it('contains no reference to @napi-rs or a node: builtin', () => {
+  it('could read every chunk it emitted — the import checks below parse, not grep', () => {
+    // Clause (3), and the half that must never be able to look like the other
+    // one. A parse failure means the two assertions after this are reading an
+    // empty specifier set and will pass for the worst possible reason.
+    const { parsed, unparsed } = parseChunks(files)
+    expect(
+      unparsed.map(u => `${u.file}: ${u.reason}`),
+      'these emitted chunks could not be parsed, so the @napi-rs and node-builtin checks ' +
+      'below saw no imports in them — that is a BROKEN CHECKER, not a clean bundle. Nothing ' +
+      'about the bundle has been established either way.',
+    ).toEqual([])
+    // ...and the vacuity floor for the same pair. A build that emitted no
+    // JavaScript, or a filter that stopped matching `.js`, makes every
+    // assertion below a `for` over nothing. "really did bundle core and the
+    // GIF encoder" covers the bundle being non-empty; this covers the *parse*
+    // having had a subject at all, which is a different claim.
+    expect(parsed.length, 'no JavaScript was parsed, so the import checks below are vacuous')
+      .toBeGreaterThan(0)
+  })
+
+  it('imports no node: builtin and no @napi-rs, by specifier and not by mention', () => {
+    // The narrowed check. A specifier is read off the syntax tree, so prose
+    // saying "@napi-rs" cannot reach this list and a real import cannot avoid
+    // it. See {@link collectSpecifiers} for why the stripped-comments version
+    // of this fix would have been green and useless.
+    const { parsed } = parseChunks(files)
     const offenders: string[] = []
-    for (const file of files) {
-      const text = readFileSync(file, 'utf8')
-      for (const needle of ['@napi-rs', 'node:fs', 'node:path', 'node:child_process', 'node:url']) {
-        if (text.includes(needle)) offenders.push(`${relative(ROOT, file)}: ${needle}`)
+    for (const { file, specifiers } of parsed) {
+      for (const specifier of specifiers) {
+        const why = forbiddenImport(specifier)
+        if (why !== undefined) offenders.push(`${file}: imports ${specifier} — ${why}`)
       }
     }
-    expect(offenders).toEqual([])
+    expect(
+      offenders,
+      'the editor bundle declares an import that cannot resolve in a browser. This is a REAL ' +
+      'regression and not a parser problem — the assertion above is the one that fires when ' +
+      'the checker cannot read the artifact. If this reddens because a prose mention of ' +
+      '@napi-rs reached a string literal, that is a BUG IN THIS CHECK and not a finding: a ' +
+      'string is not a specifier and must not appear here. Do not relax the expectation.',
+    ).toEqual([])
+  })
+
+  it('externalised nothing out of the browser build, which is how a builtin hides', () => {
+    // The half that catches what both the old text grep and a bare specifier
+    // set miss. See {@link VITE_BROWSER_EXTERNAL}: a reachable
+    // `await import('node:fs')` leaves no occurrence of `node:fs` anywhere in
+    // the output, and the old check passed over exactly that bundle.
+    const { parsed } = parseChunks(files)
+    const stubs = files.filter(isBrowserExternalStub).map(f => relative(ROOT, f))
+    const importers = parsed
+      .filter(c => c.specifiers.some(isBrowserExternalStub))
+      .map(c => c.file)
+    expect(
+      [...stubs, ...importers],
+      'vite emitted or imported a browser-external stub, which it does only when something ' +
+      'imported a node builtin it had to replace. The specifier is REWRITTEN to this stub, so ' +
+      'neither the import check above nor any text grep can see the builtin\'s name — this row ' +
+      'is the only thing that can. If this reddens, find the node import and delete it; do not ' +
+      'delete the row and do not flip the expectation.',
+    ).toEqual([])
+  })
+
+  it('tells a prose mention of @napi-rs apart from a real import of it', () => {
+    // The paired control for the two rows above, and it has to exercise the
+    // real extractor over the real two cases rather than "see something":
+    // a healthy bundle declares ZERO specifiers (measured, both output
+    // directories), so an extractor gutted to `() => []` passes every
+    // assertion in this block forever and nothing else here would notice.
+    //
+    // Both strings are the bytes a build actually produced, not inventions.
+    // The first is `LAYER_SPECS.font.note` as it appeared in
+    // `dist-site/assets/index-*.js` with `controlspec.ts` pulled into the
+    // graph; the second is the call site vite emitted for a reachable
+    // `await import('@napi-rs/canvas')` under `external: [/^@napi-rs\//]`,
+    // which is the one route by which a real @napi-rs reference can reach a
+    // browser bundle at all — every other spelling fails the build outright.
+    const prose =
+      'const n="A CSS font family. Free text and not an enum: the resolvable set differs ' +
+      'between the browser and `@napi-rs/canvas`, which is how `sans-serif` resolved to ' +
+      'dingbats for a day.";'
+    const real = 'x=async()=>await cr(()=>import("@napi-rs/canvas"),[],import.meta.url);'
+
+    expect(
+      moduleSpecifiers(prose),
+      'a prose mention inside a string literal is not an import and must not be read as one — ' +
+      'this is the false positive the narrowing exists to remove (ESC-9)',
+    ).toEqual([])
+    expect(
+      moduleSpecifiers(real),
+      'a real dynamic import of @napi-rs must still be seen — without this the narrowing above ' +
+      'would be indistinguishable from deleting the check',
+    ).toEqual(['@napi-rs/canvas'])
+    expect(forbiddenImport('@napi-rs/canvas')).toBeDefined()
+    expect(forbiddenImport('node:fs')).toBeDefined()
+    // Derived, not listed: `node:child_process` was one of the four needles the
+    // old check named, `node:zlib` was not, and neither is written down now.
+    expect(forbiddenImport('node:zlib')).toBeDefined()
+    expect(forbiddenImport('./chunk-abc123.js')).toBeUndefined()
+
+    // And the parse-failure path is reachable, so the assertion guarding it is
+    // not a formality over a function that cannot fail.
+    expect(() => moduleSpecifiers('this is (not javascript {{{')).toThrow()
   })
 
   it('bundled the vendored woff2 for every weight, with a relative url', () => {
