@@ -129,12 +129,42 @@ type _NoSignatureExtra = AssertNever<Exclude<keyof typeof SIGNATURES, Perception
  * A parameter added to an existing function changes no key, so without this the
  * table would keep describing a signature that has moved — the same shape of
  * silent drift `LAYER_RELIEF_KEYS` guards against for fields on a variant.
- * `Parameters<F>['length']` is a union where a parameter is optional, so the
- * declared length has to be *a member of* it rather than equal to it.
+ *
+ * **`Required<…>` is the load-bearing word, and the form without it was
+ * measured blind.** `Parameters<F>['length']` is a *union* wherever a
+ * parameter is optional — measured, `measureInk`'s defaulted `fraction` makes
+ * its length `3 | 4` — and the reading this comment used to prescribe, "the
+ * declared length has to be a member of it rather than equal to it", is
+ * satisfied by *every* member. So an optional parameter added to a
+ * one-parameter function moves the union from `1` to `1 | 2`, the roster's
+ * unchanged `1` is still a member, and the drift this type exists to catch
+ * passes.
+ *
+ * Measured in the real module rather than at type level, 2026-10-16: a second,
+ * defaulted, *subjective* parameter planted on `disparityBudget` and added to
+ * its arithmetic — exactly R22 obligation 4's rot case — left `svelte-check` at
+ * **0 errors over 476 files** and `perception.contract.test.ts` +
+ * `perception.throws.test.ts` at **25/25 green**. All three halves of the
+ * criterion 8 guard saw nothing. (The plant is named in this change's commit
+ * message rather than here, so that grepping for it finds no live copy.)
+ *
+ * `Required<Parameters<F>>` strips the optional modifiers off the parameter
+ * tuple, so `['length']` collapses to the single total — measured `4` for
+ * `measureInk`, `2` for that plant — and the comparison is the equality it was
+ * always meant to be. That is the right total to compare against because
+ * `SIGNATURES` lists every parameter a function *declares* and says nothing
+ * about which of them a caller may omit; optionality is a fact about the call
+ * site, not about the signature being classified.
+ *
+ * The runtime half in `perception.contract.test.ts` cannot be strengthened the
+ * same way and is not expected to be: `Function.length` stops at the first
+ * optional parameter and JavaScript exposes no count that does not, so that
+ * assertion is a *required*-parameter sensor by construction and says so. This
+ * type is the only half that can see an optional one.
  */
 type ActualArity<K extends PerceptionFunctionName> =
   typeof perception[K] extends (...args: never[]) => unknown
-    ? Parameters<typeof perception[K]>['length']
+    ? Required<Parameters<typeof perception[K]>>['length']
     : never
 
 type ArityDrift = {
@@ -183,10 +213,19 @@ type _NoArityDrift = AssertNever<ArityDrift>
  * two values of {@link Grading} differ observably in **both** directions.
  *
  * **Criterion 2 was not violated under either declaration** and that is worth
- * keeping straight: `cardboarding` returns a verdict plus three quantities, so
- * it satisfied *"quantities and a grade"* whichever way it was classified. The
- * defect was that the column had no operative difference, not that a row broke
- * a criterion.
+ * keeping straight: `cardboarding` returns a verdict plus **two** quantities,
+ * so it satisfied *"quantities and a grade"* whichever way it was classified.
+ * The defect was that the column had no operative difference, not that a row
+ * broke a criterion.
+ *
+ * This read *three* until somebody counted. Counted, under `DEFAULT_STEREO`:
+ * `CardboardReading` has four fields and exactly two are finite numbers —
+ * `depthBlur` and `blurRelief`. The verdict is `cardboarding`, a boolean, and
+ * the remaining field `relief` is a `LayerRelief[]` of strings, which the
+ * witness below never counts because it filters on
+ * `typeof v === 'number' && Number.isFinite(v)`. A third quantity would have
+ * made no difference to the argument, which is exactly why the number went
+ * three rounds unchecked.
  *
  * The hole this closes was live until 2026-10-15: `legibilityOf` returned a
  * bare `Legibility` string union — a grade with no quantities at all — while
@@ -201,7 +240,7 @@ export const GRADING = {
   measureInk: ['objective', 'A statistic over a depth map: median run width, count, peak, threshold'],
   disparityBudget: ['objective', 'sepFar − sepNear, arithmetic over the StereoOpts'],
   encodableDepths: ['objective', 'sepFar − sepNear + 1, arithmetic over the encoder — design §10.1'],
-  quantisationStep: ['objective', 'The separation step the encoder can resolve, derived from sepAt'],
+  quantisationStep: ['objective', 'The smallest difference in *normalised layer depth* (0..1) guaranteed to encode differently: 1 / |disparityBudget|. A depth step, not a separation step — perception.ts argues the unit at length, and this is the one quantity in the module that sepAt cannot be asked for'],
   restingDepth: ['objective', 'The layer\'s own depth field, defaulted — a document fact'],
   collidingPairs: ['objective', 'Which layer pairs encode identically: a fact about the encoder, not the viewer'],
   depthStops: ['objective', 'Separations spaced across the encodable range; each stop carries its own numbers'],
