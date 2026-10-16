@@ -467,12 +467,31 @@ purity sensor and it is not a type sensor either; it is a bundling sensor.
    test "$rc" -eq 0  || { echo "CENSUS EXIT $rc — a file failed to COLLECT; the census is short, not shrunk"; exit 1; }
    ```
 
-   - **`test -s` alone does NOT catch it.** The census file is **non-empty** — merely 65
-     titles short.
-   - **The exit code alone is not trustworthy either.** §9 records **two** `vitest list`
-     forms that return empty or corrupted output **at exit 0**. *"Do not trust the exit
-     code on this instrument"* has precedent in this very tool.
-   - **That is precisely why you need both.** Each covers the other's blind spot.
+   **MEASURED DIRECTLY by PM-SHARED-5 on 2026-10-16** — anchor perturbed by inserting one
+   word into the prose sentence at `editor-design.md:576`, then reverted:
+
+   | | clean tree | broken anchor |
+   |---|---|---|
+   | `vitest run <file>` exit | 0 | **1** |
+   | `vitest list <file>` exit | **0** | **1** |
+   | `vitest list <file>` output | **65 lines**, all titles | **10 lines, 445 bytes — ERROR TEXT, zero titles** |
+
+   - **`test -s` alone does NOT catch it.** The census file is **non-empty — 445 bytes.**
+   - **The exit code DOES catch it here: `vitest list` exits 1.** So the second guard is
+     the one that actually fires on this failure.
+   - **The exit code is still not trustworthy on its own.** §9 records **two** `vitest
+     list` forms returning empty or corrupted output **at exit 0**. Each guard covers the
+     other's blind spot, which is the only reason to carry both.
+
+   **⚠ A REFINEMENT THAT MAKES IT WORSE THAN "65 TITLES SHORT".** The broken-anchor census
+   is **not a truncated list — it is 10 lines of error text standing where 65 titles
+   should be.** A naive line-based diff against the baseline therefore reports **65
+   removals AND ~10 phantom ADDITIONS**, because the error message's lines are
+   indistinguishable from test names to `comm`. The file is not short; **it is
+   contaminated with non-title content that scores as test names.**
+
+   The 65 figure is confirmed exactly: a clean `vitest list site/keybindings.test.ts`
+   emits **65 lines**.
 
    **And the pass criterion for a collection failure is the FILE-LEVEL result — never a
    count, never a title diff.** `Tests  no tests` **scores as ZERO FAILURES** under any
