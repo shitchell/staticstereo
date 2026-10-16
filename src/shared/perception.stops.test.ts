@@ -537,6 +537,14 @@ describe('what the stops mean to the two consumers design §10.4 names', () => {
     // count appears, and design §5.3 has the strip labelling this very axis
     // "scene px", so the unit travels with the label.
     //
+    // `toContain('scene px')` and not `toContain('px')`: invariant 7 names
+    // *four* pixel spaces, so a bare "px" satisfies the sentence this comment
+    // already made without satisfying invariant 7 — it is the one distinction
+    // the assertion exists to make, and the weaker form was blind to it. Both
+    // design §5.3 ("in **scene px, explicitly labelled**") and §10.6 ("The
+    // depth strip labels its axis \"scene px\"") give that exact wording, so
+    // the string is quoted from the design rather than coined here.
+    //
     // Asserted as the guarantee — unique, carries the number, carries the
     // unit — rather than as the format string, which is §2 invariant 4.
     let named = 0
@@ -547,7 +555,7 @@ describe('what the stops mean to the two consumers design §10.4 names', () => {
       expect(new Set(names).size, `${s.sepFar}/${s.sepNear} repeats a name`).toBe(names.length)
       for (const stop of stops) {
         expect(stop.name, `${s.sepFar}/${s.sepNear}`).toContain(String(stop.separation))
-        expect(stop.name, `${s.sepFar}/${s.sepNear}`).toContain('px')
+        expect(stop.name, `${s.sepFar}/${s.sepNear}`).toContain('scene px')
         named++
       }
     }

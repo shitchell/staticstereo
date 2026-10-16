@@ -636,7 +636,11 @@ export interface DepthStop {
    * encoder's answer and not a prediction of it.
    */
   separation: number
-  /** @see {@link depthStops} on why the label is the separation. */
+  /**
+   * The strip label: {@link DepthStop.separation} carrying its pixel space,
+   * "scene px" per design §5.3 and §10.6. @see {@link depthStops} on why the
+   * label is the separation and why the space is spelled out rather than "px".
+   */
   name: string
 }
 
@@ -743,9 +747,17 @@ function stopCount(capacity: number): number {
  * **Named by the separation, because every other label lies somewhere.**
  * "far"/"near" invert with the pair, and this function must answer `92/110`
  * without complaint; an ordinal only restates the index the caller already
- * holds. The separation is true in every configuration, it is the second scale
- * design §5.3 puts on the strip, and carrying "px" with it names the pixel
- * space where the count appears, which is §2 invariant 7.
+ * holds. The separation is true in every configuration, and it is the second
+ * scale design §5.3 puts on the strip.
+ *
+ * **The unit is "scene px" and not "px".** Invariant 7 names *four* pixel
+ * spaces — scene, plate, backing-store, device — so a bare "px" names none of
+ * them and satisfies the invariant only by sounding like it does. Both places
+ * the design specifies this label agree on the wording: §5.3 puts the second
+ * scale on the strip "in **scene px, explicitly labelled**", and §10.6 says
+ * "The depth strip labels its axis \"scene px\"". The string is therefore
+ * quoted from the design rather than coined here, and {@link DepthStop.separation}
+ * is already documented as scene px, so the label now agrees with its own field.
  *
  * **Objective and ungraded.** Design §10's preamble says every function here
  * returns quantities *and* a grade; the orchestrator ruled on 2026-10-15 that
@@ -823,7 +835,7 @@ export function depthStops(stereo: StereoOpts): DepthStop[] {
     // about `depth`, so a wrong inverse shows up as a repeated or out-of-band
     // separation instead of as a confident wrong label.
     const separation = sepAt(depth, stereo.sepFar, range, UNBOUNDED_PLATE)
-    stops.push({ depth, separation, name: `${separation} px` })
+    stops.push({ depth, separation, name: `${separation} scene px` })
   }
   return stops
 }
