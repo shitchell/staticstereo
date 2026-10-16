@@ -43,7 +43,7 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
 | **P3a** shell, additive half | **merged** `7cd5599` | 80 files / 1881 / 0 skipped, typecheck 0 over 451, freshness positive. **Criteria 0, 1, 2, 3, 4, 5, 6, 12, 13, 17, 18, 20 met — twelve, not ten.** +523 tests, zero removals |
-| **P3b** store, undo, scene time, teardown | **in progress, third PM (PM-SHELL-P3b-3) live** | `feat/p3b-store` @ `c0a6b36`. **Criteria 8, 9, 15 and 22 done**; 9 verified by V-BC, 22 adopted at `24392c3` with fourteen mutation-backed claims. Gate 82 files / **1955 passed / 0 skipped**, four exit codes 0, typecheck clean **with and without `CLAUDECODE` stripped**. **Never seen by CI.** Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23 |
+| **P3b** store, undo, scene time, teardown | **in progress, fourth PM (PM-SHELL-P3b-4) live · GATE GREEN** | **`f84b5da` — four local exit codes 0 AND `ci` green on GitHub (run `38858032393`, draft PR #3).** `Test Files 83 passed (83)` · `Tests 1967 passed (1967)` · 0 skipped · zero removals. **The predicted 83/1967 was confirmed by measurement and never used as the baseline** — the comparison ran against the recorded `24392c3` 82/1955/0, and CI re-running on a fresh checkout on a different machine returned byte-identical counts, which is the strongest disconfirmation available for a number that matches something already written down. Two verifiers (V-22, V-SENSORS) now running, pinned to `f84b5da`. Earlier row, for history: `feat/p3b-store` @ `c0a6b36`. **Criteria 8, 9, 15 and 22 done**; 9 verified by V-BC, 22 adopted at `24392c3` with fourteen mutation-backed claims. Gate 82 files / **1955 passed / 0 skipped**, four exit codes 0, typecheck clean **with and without `CLAUDECODE` stripped**. **Never seen by CI.** Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23 |
 | **P1** `.stst` · **P7** perception | **in progress, fourth PM (PM-SHARED-4) live** | `feat/p1p7-shared` @ `b3e7601`. **All 13 implementation tasks complete.** **Three of four verifier clusters returned all-MET**; V-4 running. Baseline **96 files / 2110 passed / 0 skipped** — reproduced **three times independently**, and zero net test removals established by **three different instruments**. Remaining: V-4, five named findings, a reviewer at two rounds, a gate runner, and a green `ci` run. **The branch is 26 non-merge commits + 2 merges — see error 27; scope any review with `main...HEAD`, three dots** |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
 
@@ -534,6 +534,13 @@ binding on tier 0 as on tier 1.
   is.** A single file run alone on a loaded box is far safer than the same file inside
   `npm test`. So workers running single files are fine; it is concurrent *full suites* that
   must not overlap.
+
+  **The 4079 ms figure is EXPIRED and must not be used for sizing — 2026-10-16.** It
+  describes a test that has since been superseded. GATE-P3b-1 observed the heaviest
+  individual test at **15,515 ms**, and the four `svelte-check` harnesses at **133.7s of
+  201.2s summed test time (66%)**, which is consistent with the ">60%" above but is a
+  different world from a 4-second test against a 5-second timeout. **Anyone sizing a fifth
+  harness against 4079 ms is sizing against a number with no referent.**
 
   **The raise costs real regression sensitivity and both comments say so:** a 5× encoder
   slowdown would no longer redden these six, and nothing else in the suite watches their
