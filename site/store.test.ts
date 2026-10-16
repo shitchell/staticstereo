@@ -326,6 +326,33 @@ function tagOfReferencedAlias(
  * across. **When a guard is defeated, check whether a sibling guard already
  * carries the fix** before designing one.
  *
+ * ## The fourth hole, which was inside the third one's fix
+ *
+ * It was the same thing moved one more level: `const handlers = { apply() {
+ * … } }; if (ready) handlers.apply()`. The climb stopped at *any*
+ * object-literal member while its docblock said it stopped at *the object
+ * literal the factory returns*, so the boundary the comment described and
+ * the boundary the code had were different boundaries — and the comment was
+ * the one the next reader used to decide not to look. Dormant, it was
+ * invisible; non-dormant, it reddened two behavioural sweeps and not this
+ * sensor.
+ *
+ * **The rule that came out of that one is the one worth keeping.** Three
+ * rounds of this repair have each bought exactly the forms somebody
+ * enumerated, and each has been defeated by one more. So both sensors in
+ * this file are now keyed to the *question they are asking* and report
+ * everything they cannot answer:
+ *
+ *  - {@link isSurface} asks *is there an in-module call site to check, or
+ *    does this function leave the file?* and reports when it cannot tell.
+ *  - {@link globalsIn}'s receiver test asks *does this expression evaluate
+ *    to `globalThis`?* over the grammar's value-forwarding node kinds, which
+ *    is a closed set rather than a list of spellings, and reports every
+ *    `globalThis` whose fate it cannot follow.
+ *
+ * Both now fail **loud** where they used to fail silent. A false red is a
+ * minute; a false green was a shift, twice.
+ *
  * **What is deliberately not constrained.** Construction. The guard is over
  * writes to the storage *after* it exists, never over building the initial
  * value, so a later constructor that takes a `Scene` and resets a raster cache
@@ -345,8 +372,18 @@ interface Delegation {
    *
    * Reachability is asked **over the module**, not over the write's own
    * function: a write in a helper is only unconditional if every call to that
-   * helper is too, out to the object literal the factory returns. Scoping it
-   * to the enclosing function was a measured hole — {@link unreachableWhy}.
+   * helper is too, out to the object literal the exported factory returns.
+   * Scoping it to the enclosing function was a measured hole, and so was
+   * stopping at *any* object literal rather than that one —
+   * {@link unreachableWhy} and {@link isSurface} carry both measurements.
+   *
+   * **It fails closed, and that sentence has been false once already.** Where
+   * the climb cannot follow a hop it reports the hop it choked on rather than
+   * reporting clean — see the controls for the escaped-value case and the
+   * object-literal case, which pin the two messages. The earlier version of
+   * this claim was true of helpers and false of object-literal members, which
+   * is the shape §9 calls worse than no guard: a reader who believed it
+   * stopped checking.
    */
   readonly conditional: readonly string[]
   /** `Action` tags compared against a `.type` discriminant, `path:line tag`. */
@@ -589,17 +626,99 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
     return undefined
   }
 
+  /** Whether `node` carries an `export` modifier. */
+  const isExported = (node: ts.Node): boolean =>
+    ts.canHaveModifiers(node) &&
+    (ts.getModifiers(node) ?? []).some(m => m.kind === ts.SyntaxKind.ExportKeyword)
+
+  /**
+   * The outermost node whose runtime value *is* `node`'s, looking outwards.
+   *
+   * Parentheses, `as`, `satisfies`, `<T>x` and `!` are erased before anything
+   * runs, so `return (api as SceneStore)` returns the literal. The inward
+   * spelling of the same family is {@link forwardedFrom} in `globalsIn`, and
+   * the two exist separately only because one walks up and one walks down.
+   */
+  const throughErasure = (node: ts.Node): ts.Node => {
+    let at = node
+    while (
+      ts.isParenthesizedExpression(at.parent) || ts.isAsExpression(at.parent) ||
+      ts.isSatisfiesExpression(at.parent) || ts.isTypeAssertionExpression(at.parent) ||
+      ts.isNonNullExpression(at.parent)
+    ) {
+      at = at.parent
+    }
+    return at
+  }
+
+  /** The object literal `fn` is a member of, if it is one. */
+  const literalOwning = (fn: ts.Node): ts.ObjectLiteralExpression | undefined => {
+    if (ts.isMethodDeclaration(fn) && ts.isObjectLiteralExpression(fn.parent)) return fn.parent
+    if (
+      ts.isPropertyAssignment(fn.parent) && fn.parent.initializer === fn &&
+      ts.isObjectLiteralExpression(fn.parent.parent)
+    ) {
+      return fn.parent.parent
+    }
+    return undefined
+  }
+
   /**
    * Whether `fn` is part of the module's surface rather than an internal hop.
    *
-   * A member of an object literal — `dispatch(action) {…}` or
-   * `dispatch: action => {…}` — is reached by a caller outside this file, so
-   * there is no in-module call site to check and the climb stops. Everything
-   * else is a helper, and a helper's reachability is its callers' problem.
+   * ## The stated boundary was false, and the claim was the defect
+   *
+   * This used to read `ts.isMethodDeclaration(fn) ||
+   * (ts.isPropertyAssignment(fn.parent) && fn.parent.initializer === fn)`
+   * under a docblock saying a member *"is reached by a caller outside this
+   * file"*, and {@link Delegation.conditional}'s said the climb ran *"out to
+   * the object literal the factory returns"*. **Neither was true of the code.
+   * The test was "object-literal member", full stop** — so a write moved into
+   * a member of *any* object literal, including one declared three lines
+   * above the call that guards it, ended the climb and reported clean. The
+   * dormant form was invisible at 25/25 green and typecheck 0; the
+   * arm-dropping form reddened **two behavioural sweeps and not this sensor**,
+   * which is byte-for-byte the misleading reading this sensor was built to
+   * remove, reproduced inside its own repair.
+   *
+   * That made the *other* claim false too. {@link unreachableWhy} says in two
+   * places that where it cannot decide it reports rather than reporting clean
+   * — and for an object-literal member it reported clean. §9: *"a guard whose
+   * comment claims it fails closed while it fails open is worse than no
+   * guard, because it is what makes the next reader stop checking."*
+   *
+   * ## The boundary the code now has, which is the one it always claimed
+   *
+   * The climb stops only where the function provably **leaves this module**,
+   * because that is the only condition under which "there is no in-module
+   * call site to check" is a true sentence. Exactly one shape qualifies: a
+   * member of an object literal `return`ed — through `as`/`satisfies`/
+   * parentheses, which change no value — from an **exported function
+   * declaration**. That is the real module, and the `storage` extractor at
+   * the top of {@link delegationIn} already refuses any other factory
+   * spelling by name, so a narrower surface test here cannot fail open
+   * behind it; the control pins that refusal rather than assuming it.
+   *
+   * Everything else is undecided and is **reported** as undecided. This is
+   * the third round of this repair and the previous two each bought exactly
+   * the forms someone enumerated, so it is keyed to the question — *can a
+   * caller outside this file reach this function without passing an
+   * in-module call site?* — and the answer defaults to *"I cannot tell"*,
+   * never to *"no"*.
+   *
+   * **Widening this is how the hole comes back.** A failure here means a
+   * write sits somewhere the climb cannot follow; the repair is to teach the
+   * climb that hop, which turns a false red into a true green, never to add a
+   * node kind here, which turns a false red into a silent one.
    */
-  const isSurface = (fn: ts.Node): boolean =>
-    ts.isMethodDeclaration(fn) ||
-    (ts.isPropertyAssignment(fn.parent) && fn.parent.initializer === fn)
+  const isSurface = (fn: ts.Node): boolean => {
+    const literal = literalOwning(fn)
+    if (literal === undefined) return false
+    const returning = throughErasure(literal).parent
+    if (!ts.isReturnStatement(returning)) return false
+    const owner = enclosingFunction(returning)
+    return owner !== undefined && ts.isFunctionDeclaration(owner) && isExported(owner)
+  }
 
   /**
    * Why `write` is not on every path into the module, or `undefined`.
@@ -638,8 +757,28 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
    * over the module and keyed on the write."* So this is over the module too.
    * It climbs: a write must be unconditional within its own function, **and
    * that function must be unconditionally called from its callers**, all the
-   * way out to the object literal the factory returns. **When a guard is
-   * defeated, check whether a sibling guard already carries the fix.**
+   * way out to the object literal the exported factory returns. **When a
+   * guard is defeated, check whether a sibling guard already carries the
+   * fix.**
+   *
+   * ## …and the climb then stopped one rung short, at any object literal
+   *
+   * The fix above was measured again and **the same signature defect was
+   * inside it**: {@link isSurface} tested for "object-literal member", not
+   * for the literal the factory returns, so the write moved one more rung —
+   * `const handlers = { apply() { … } }; if (ready) handlers.apply()` —
+   * ended the climb and reported clean. Dormant, invisible at 25/25 green
+   * and typecheck 0; non-dormant, it reddened **two behavioural sweeps and
+   * not this sensor**. That reading is the one this whole guard exists to
+   * replace, so it was reproduced inside its own repair for the second time
+   * running.
+   *
+   * The repair is not a wider node-kind test. It is a boundary keyed to the
+   * question — *is there an in-module call site to check, or does this
+   * function leave the file?* — and everything the climb cannot answer that
+   * for is now **reported**: an unfollowable call site returns a reason
+   * instead of `undefined`. See {@link isSurface}, which carries the
+   * boundary, and the controls, which pin every message it can produce.
    *
    * ## The message at depth 0 is byte-identical to the old one, deliberately
    *
@@ -665,6 +804,14 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
         return `it is reached through a cycle, so reachability cannot be decided${trail}`
       }
       if (isSurface(fn)) return undefined
+      // An object-literal member that does not leave the module. Its call
+      // sites are `<binding>.<member>()`, which the climb keys on a bare
+      // identifier and cannot follow — so it says so. In reach and not taken;
+      // see the control that pins this exact string, which records why.
+      if (literalOwning(fn) !== undefined) {
+        return 'it is a member of an object literal that does not leave this module, ' +
+          `so reachability cannot be decided${trail}`
+      }
       const name = nameOf(fn)
       if (name === undefined) {
         return `it sits in an anonymous function, so reachability cannot be decided${trail}`
@@ -893,29 +1040,64 @@ const BROWSER_GLOBALS = ['document', 'window', 'location', 'history', 'navigator
  *
  * **A residue whose stated reason is false is worse than an unstated one**,
  * because the reason is what the next reader uses to decide not to look. That
- * is how this gap survived a shift. So the residue below is what was measured
- * after the repair, each probe planted in the real `site/transport.ts`,
- * grep-confirmed, and restored between runs — and each is labelled with *why*
- * it is out of reach, separately from the fact that it is:
+ * is how this gap survived a shift.
  *
- * | still invisible, measured | why |
+ * ## …and the residue that replaced it read as exhaustive, and was not
+ *
+ * The table that went here listed four spellings and two reasons, and it was
+ * short by at least three — `(Math.random(), globalThis).Date.now()`,
+ * `(true ? globalThis : globalThis).Date.now()` and
+ * `Reflect.get(globalThis, 'Date').now()`, all typecheck 0, all invisible,
+ * **none needing a resolver or a type checker**. The comma operator is the
+ * one that settles the argument: this file's own stated principle is that
+ * *wrappers which cannot change the value are erased before anything runs*,
+ * the comma operator's value **is** its right operand, and the implementation
+ * did not cover it. The principle was right and the enumeration was short,
+ * twice running — so a third enumeration was not the fix and is not what
+ * shipped.
+ *
+ * ## What shipped instead: the complement, not a list
+ *
+ * {@link globalsIn} now answers its question in two halves that partition the
+ * space between them, so the residue is a property of the partition rather
+ * than of anyone's imagination:
+ *
+ *  - **Decided.** The receiver resolves to `globalThis` through the
+ *    grammar's *value-forwarding* node kinds — erasure wrappers, the comma
+ *    operator, `?:`, `&&`/`||`/`??`, and `globalThis`'s own self-reference —
+ *    and the member is read by name or by a string literal. A hit is
+ *    reported if the member is on a roster. This set is closed by the
+ *    grammar: it is every node whose runtime value *is* the value of a named
+ *    sub-expression, which is a finite list, not a finite sample.
+ *  - **Undecided.** Every other `globalThis` reference in the file — handed
+ *    to a binding, returned from a function, passed as an argument, indexed
+ *    by anything that is not a string literal. These are now **reported**,
+ *    not passed, and the controls pin all seven measured spellings including
+ *    the four that used to be this table.
+ *
+ * So there is no longer a list of spellings that get through on the
+ * `globalThis` path. There is a cost, and it is a false **red**: a module
+ * that legitimately touches `globalThis` is reported. Measured at the time of
+ * writing, the store's closure is **21 files containing zero occurrences of
+ * the token**, so the cost is currently nil; the repair if one arrives is to
+ * teach the walk that spelling, never to drop the report.
+ *
+ * ## What remains out of reach, and this list states its own boundary
+ *
+ * These are the ways a clock can still reach this closure unseen. Each is
+ * labelled with what it would take to close it, which is separate from the
+ * fact that it is open:
+ *
+ * | still invisible | why, and what would close it |
  * |---|---|
- * | `const g = globalThis; g.Date.now()` | needs a resolver: `g`'s value |
- * | `const k = 'Date'; (globalThis as any)[k].now()` | needs a resolver: `k`'s value |
- * | `(globalThis as any)['Da' + 'te'].now()` | **needs only constant folding** |
- * | `gg().Date.now()` where `gg` returns `globalThis` | needs a resolver: the return type |
+ * | a module that both declares and uses a listed name, off the `globalThis` path | the declaration suppression's stated price; needs scope-aware resolution, i.e. a type checker |
+ * | a clock whose name is not on this roster — `Worker`, `Atomics.wait`, a vendored timer | this roster is not derived from anything and says so; the controls below fail the day a listed one stops being seen, but they cannot invent an unlisted one |
+ * | a clock reached through text this walk never parses — `eval`, `new Function`, a template fed to either | not a parser limit and not a resolver limit: the code does not exist as code until it runs |
+ * | a clock inside a module outside the closure — any non-relative specifier | `resolveModule` resolves relative paths only, so `node_modules` is outside this instrument by construction |
  *
- * Three of those four genuinely need a type checker and are the stated price.
- * **The third does not, and it is listed as a parser-reachable gap rather than
- * dressed up as one** — folding a literal concatenation is a thing this walk
- * could do and does not. It is left because a concatenated member name is not
- * a spelling anyone writes by accident, where `(globalThis as any).X` is the
- * idiomatic one; that is a judgement about likelihood, not about reach, and
- * saying so is the whole point of the correction above.
- *
- * A module that both declares and uses a listed name is still invisible on the
- * non-`globalThis` path, and that one *is* the declaration suppression's
- * stated price rather than a parser limit.
+ * **This table is the boundary, not a sample.** If a spelling is found that
+ * is none of these four and is not reported as undecided, the partition above
+ * has a gap and the gap is the defect — not the omission from a list.
  */
 const CLOCKS = [
   'Date',
@@ -978,14 +1160,25 @@ const CLOCKS = [
  * `Promise` addable to {@link CLOCKS} — nine of the closure's `Promise`
  * references are `Promise<DecodedImage>` and none of them is a microtask.
  *
- * **What is still invisible, named rather than implied, and measured rather
- * than reasoned:** a receiver laundered through a variable (`const g =
- * globalThis`), a receiver returned from a call, a computed member name, a
- * member name built by concatenation, and a module that both declares and uses
- * a listed name. All five were planted in the real `site/transport.ts` after
- * the repair and confirmed green. The concatenation one is **not** a
- * type-checker limit and is not claimed as one — see {@link CLOCKS}, where the
- * table separates "out of reach" from "in reach and not taken".
+ * ## The four it could not see are now the four it says it cannot see
+ *
+ * That paragraph used to end here with a list — a receiver laundered through
+ * a variable, a receiver returned from a call, a computed member name, a
+ * concatenated member name — each *"confirmed green"*, which is this file's
+ * own word for invisible. **A list of spellings that pass is a list someone
+ * has to keep complete, and it was measured short by three.** It is replaced
+ * by the complement: every `globalThis` reference whose fate this walk cannot
+ * follow is pushed to `escaped` and reported, so the four above now redden
+ * along with every spelling nobody has thought of. {@link CLOCKS} states what
+ * remains out of reach after that, and states it as a boundary rather than as
+ * a sample.
+ *
+ * The cost is a false **red** on a legitimate `globalThis`, which is the
+ * direction this instrument is allowed to be wrong in — the same posture
+ * `delegationIn`'s `readsByName` records one function up. The store's closure
+ * contained zero occurrences of the token when this was written, so the cost
+ * was nil on the day it shipped and will announce itself loudly if it ever is
+ * not.
  *
  * **If a clock slips past this, widen {@link isGlobalRoot} or the roster. Do
  * not re-narrow either to make a red go away** — every hole this function has
@@ -999,6 +1192,15 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
   // the declaration filter applies — these are the global whatever the file
   // calls its own bindings.
   const rooted: string[] = []
+  /**
+   * `globalThis` references that do not end in a member read this walk can
+   * name — reported rather than passed, which is the whole of the repair.
+   *
+   * Roster-independent on purpose: a receiver this walk has lost could be
+   * read for *any* global, so the report is the same for both rosters and
+   * appears in whichever one is being asked about.
+   */
+  const escaped: string[] = []
   const lineOf = (node: ts.Node): number =>
     file.getLineAndCharacterOfPosition(node.getStart()).line + 1
   /**
@@ -1023,8 +1225,26 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
    * reason is worse than no reason, because it sends the next reader past the
    * thing they could have fixed in a line. The residue below is rewritten.
    *
-   * The two families this recognises, and why each is `globalThis` rather than
-   * merely near it:
+   * ## Five node kinds was not the class either, and the docblock said why
+   *
+   * The five-kind version above was then measured against three more
+   * spellings and lost all three — `(Math.random(), globalThis).X`,
+   * `(true ? globalThis : globalThis).X` and `Reflect.get(globalThis,'X')`.
+   * **The comma operator is the one that settles it**: the principle stated
+   * in the next paragraph — *wrappers that cannot change the value are erased
+   * before anything runs* — covers `(x, globalThis)` exactly, because the
+   * comma operator's value **is** its right operand. The principle was right
+   * and the enumeration was short, for the second round running.
+   *
+   * So this is no longer keyed to a list of spellings. It is keyed to
+   * {@link forwardedFrom}, which is the grammar's **value-forwarding** node
+   * kinds: every node whose runtime value is the value of a named
+   * sub-expression. That is a closed set — the grammar has finitely many such
+   * productions and they are all here — where "spellings someone planted" is
+   * an open one. A node kind that forwards goes in `forwardedFrom`; nothing
+   * goes in this function.
+   *
+   * The families, and why each is `globalThis` rather than merely near it:
    *
    *  - **Wrappers that cannot change the value.** Parentheses, `as`,
    *    `satisfies`, `<T>x` and `!` are all erased before anything runs, so the
@@ -1035,27 +1255,71 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
    *    DateConstructor)`, which leaves `globalThis` a bare identifier and so
    *    exercised the cast in the one position where it does not break this.
    *    **Vary the position, not just the presence.**
+   *  - **Operators whose value is one of their operands.** The comma operator
+   *    yields its right; `?:` yields one branch; `&&`, `||` and `??` yield
+   *    one side. For the branching three, *every* value the expression can
+   *    take must be `globalThis` — `(c ? globalThis : other)` is not, and the
+   *    escape check reports it rather than letting it pass as neither.
    *  - **`globalThis`'s own self-reference.** `globalThis.globalThis` *is*
    *    `globalThis`, by the specification, and so is the index spelling of it,
    *    to any depth. Recursing on the receiver covers the family rather than
    *    the one rung someone thought to plant.
    *
+   * Plain assignment is deliberately **not** forwarding, though its value is
+   * its right operand: `(g = globalThis).X` would be decided while leaving
+   * `g` holding the global unseen, so it is left to the escape check, which
+   * reports it. A forwarding rule that creates a laundered binding buys one
+   * spelling and sells a silent one.
+   *
    * Optional chaining (`globalThis?.Date`) needs nothing here: it is already a
    * `PropertyAccessExpression` whose `expression` is the bare identifier.
    *
+   * `Reflect.get(globalThis, 'X')` is **not** here and is not a forwarding
+   * node — it is a member read spelled as a call, and the set of those
+   * (`Reflect.get`, a destructure, `Object.entries`, a `with` block) is open
+   * in exactly the way this function stopped enumerating. It is caught by the
+   * other half: `globalThis` in an argument position is a receiver this walk
+   * has lost, and a lost receiver is reported.
+   *
    * **If this reddens because a receiver spelling was added rather than
-   * removed, widen this function — do not narrow the call sites.** The cheapest
-   * way to make a clock-sensor failure go away is to put the bare-identifier
-   * test back, and that is the defect, not the fix.
+   * removed, widen {@link forwardedFrom} — do not narrow the call sites.** The
+   * cheapest way to make a clock-sensor failure go away is to put the
+   * bare-identifier test back, and that is the defect, not the fix.
+   *
+   * ---
+   *
+   * `forwardedFrom` is the first half of that: the sub-expressions `node`'s
+   * runtime value can be, or `undefined` if `node` is not value-forwarding
+   * syntax. The docblock above is written about the pair, because the pair is
+   * the answer and either alone is a node-kind list.
    */
-  const isGlobalRoot = (node: ts.Expression): boolean => {
+  const forwardedFrom = (node: ts.Node): readonly ts.Expression[] | undefined => {
     if (
       ts.isParenthesizedExpression(node) || ts.isAsExpression(node) ||
       ts.isSatisfiesExpression(node) || ts.isTypeAssertionExpression(node) ||
       ts.isNonNullExpression(node)
     ) {
-      return isGlobalRoot(node.expression)
+      return [node.expression]
     }
+    if (ts.isConditionalExpression(node)) return [node.whenTrue, node.whenFalse]
+    if (ts.isBinaryExpression(node)) {
+      const kind = node.operatorToken.kind
+      if (kind === ts.SyntaxKind.CommaToken) return [node.right]
+      if (
+        kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        kind === ts.SyntaxKind.BarBarToken ||
+        kind === ts.SyntaxKind.QuestionQuestionToken
+      ) {
+        return [node.left, node.right]
+      }
+    }
+    return undefined
+  }
+
+  /** Whether `node` evaluates to `globalThis` — the docblock three up. */
+  const isGlobalRoot = (node: ts.Expression): boolean => {
+    const forwarded = forwardedFrom(node)
+    if (forwarded !== undefined) return forwarded.every(isGlobalRoot)
     if (ts.isIdentifier(node)) return node.text === 'globalThis'
     if (ts.isPropertyAccessExpression(node)) {
       return node.name.text === 'globalThis' && isGlobalRoot(node.expression)
@@ -1067,6 +1331,57 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
     return false
   }
 
+  /**
+   * The outermost expression whose value is `node`'s — {@link forwardedFrom}
+   * walked upwards, which is the direction the escape check below needs.
+   */
+  const topOfForwarding = (node: ts.Expression): ts.Expression => {
+    let at: ts.Expression = node
+    for (;;) {
+      const parent: ts.Node | undefined = at.parent
+      if (parent === undefined) return at
+      const forwarded = forwardedFrom(parent)
+      if (forwarded === undefined || !forwarded.includes(at)) return at
+      at = parent as ts.Expression
+    }
+  }
+
+  /** Whether `node` is the receiver of a member read this walk can name. */
+  const isDecidedReceiver = (node: ts.Expression): boolean => {
+    const parent = node.parent
+    if (ts.isPropertyAccessExpression(parent)) return parent.expression === node
+    if (ts.isElementAccessExpression(parent)) {
+      return parent.expression === node && ts.isStringLiteral(parent.argumentExpression)
+    }
+    return false
+  }
+
+  /**
+   * Whether this `globalThis` is a *reference to the value*, not a name.
+   *
+   * `globalThis.globalThis` has two identifiers spelling it and only the
+   * receiver is a reference; the member one is handled by the recursion in
+   * {@link isGlobalRoot}. A type position references nothing at runtime.
+   */
+  const isValueReference = (node: ts.Identifier): boolean => {
+    const parent = node.parent
+    if (ts.isTypeNode(parent)) return false
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false
+    if (ts.isQualifiedName(parent) && parent.right === node) return false
+    if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) return false
+    if (
+      (ts.isVariableDeclaration(parent) || ts.isParameter(parent) ||
+        ts.isBindingElement(parent) || ts.isFunctionDeclaration(parent) ||
+        ts.isClassDeclaration(parent) || ts.isMethodDeclaration(parent) ||
+        ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) ||
+        ts.isPropertyDeclaration(parent) || ts.isMethodSignature(parent)) &&
+      parent.name === node
+    ) {
+      return false
+    }
+    return true
+  }
+
   const walk = (node: ts.Node): void => {
     if (
       (ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isFunctionDeclaration(node) ||
@@ -1075,6 +1390,14 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
       node.name && ts.isIdentifier(node.name)
     ) {
       declared.add(node.name.text)
+    }
+    // The complement of everything above: a reference to `globalThis` that
+    // does not end in a member read this walk can name. See {@link escaped}.
+    if (ts.isIdentifier(node) && node.text === 'globalThis' && isValueReference(node)) {
+      const top = topOfForwarding(node)
+      if (!(isGlobalRoot(top) && isDecidedReceiver(top))) {
+        escaped.push(`${path}:${lineOf(node)} globalThis escapes to somewhere this walk cannot follow`)
+      }
     }
     if (
       ts.isElementAccessExpression(node) && isGlobalRoot(node.expression) &&
@@ -1116,6 +1439,7 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
   return [
     ...hits.filter(hit => !declared.has(hit.slice(hit.lastIndexOf(' ') + 1))),
     ...rooted,
+    ...escaped,
   ]
 }
 
@@ -1420,6 +1744,147 @@ describe('createSceneStore', () => {
     expect(viaHelper.undelegated).toEqual([])
     expect(viaHelper.conditional, 'an unconditionally-called helper is not a suppression').toEqual([])
 
+    /*
+     * ## HOISTED ONE MORE RUNG, INTO AN OBJECT LITERAL
+     *
+     * The rung above this one was `const apply = …`, and closing it is what
+     * `6aca866` did. **It left the next rung open and said it had not.** The
+     * surface test it shipped was `ts.isMethodDeclaration(fn) ||
+     * (ts.isPropertyAssignment(fn.parent) && fn.parent.initializer === fn)`,
+     * which is *any* object-literal member and not, as its docblock claimed,
+     * the object literal the factory returns — so a write moved into a member
+     * of **any** object literal ended the climb and reported clean.
+     *
+     * Both spellings of a member are here because the old test had two arms
+     * and both were wrong, and because a fix that closed one would read as a
+     * fix. Each is the `guarded` plant from further up this list with the
+     * write moved one rung; the `if` is still on the call.
+     */
+    const inLiteralMethod = of(module(
+      '      const handlers = { apply(): void { self.state = reduce(self.state, action) } }\n' +
+      '      if (ready) handlers.apply()'))
+    expect(inLiteralMethod.undelegated).toEqual([])
+    expect(inLiteralMethod.tagsNamed).toEqual([])
+    expect(
+      inLiteralMethod.conditional,
+      'a write in a method of a local object literal is not module surface',
+    ).toEqual([
+      '/plant/store.ts:7 it is a member of an object literal that does not leave this module, ' +
+      'so reachability cannot be decided',
+    ])
+
+    const inLiteralArrow = of(module(
+      '      const handlers = { apply: (): void => { self.state = reduce(self.state, action) } }\n' +
+      '      if (ready) handlers.apply()'))
+    expect(
+      inLiteralArrow.conditional,
+      'a write in a property-assignment member of a local object literal is not module surface',
+    ).toEqual([
+      '/plant/store.ts:7 it is a member of an object literal that does not leave this module, ' +
+      'so reachability cannot be decided',
+    ])
+
+    /*
+     * ## The non-dormant form, which is the one that makes this a hole
+     *
+     * `inLiteralMethod` above drops nothing — it is the dormant plant, and a
+     * dormant plant only shows the sensor is blind. This one really drops the
+     * `depthView` arm, through a laundered tag the {@link Delegation.tagsNamed}
+     * half is declared unable to see, so the structural half is the only thing
+     * that can carry it. Measured against `6aca866`'s instrument it reported
+     * **clean**, and in the real `site/store.ts` the same shape reddened two
+     * behavioural sweeps and **not** this sensor — which is the reading this
+     * sensor exists to replace, reproduced inside its own repair.
+     */
+    const launderedInLiteral = of(module(
+      '      const handlers = { apply(): void { self.state = reduce(self.state, action) } }\n' +
+      '      const arm = action.type\n' +
+      "      if (arm !== 'depthView') handlers.apply()"))
+    expect(launderedInLiteral.tagsNamed, 'a laundered tag is still this half\'s residue').toEqual([])
+    expect(launderedInLiteral.undelegated).toEqual([])
+    expect(launderedInLiteral.conditional.length, 'a dropped arm behind an object literal').toBe(1)
+
+    /*
+     * ## And the surface test still answers its own question
+     *
+     * The returned literal's own members are reached from outside this file,
+     * so there is no in-module call site and the climb must stop — otherwise
+     * every store in the world is "conditional". The real module's `dispatch`
+     * is exactly this shape, and `honest` at the top of this test is the
+     * narrow witness; these two widen it to the part that moved.
+     *
+     * Three arms, because the boundary has three ways to be wrong and only
+     * one of them is "too wide". The second pins that a `return` through an
+     * erasure wrapper is still a `return` — `as` changes no value, which is
+     * the same principle {@link globalsIn}'s receiver test is keyed to. The
+     * third is what makes the narrowness safe rather than merely narrow: a
+     * factory spelled any other way is refused **upstream**, by the `storage`
+     * extractor, with a message naming what moved — so the surface test never
+     * gets the chance to fail open behind it. §9 asks whether a boundary
+     * states itself; this is the statement, and it is executable.
+     */
+    expect(of(
+      'import { reduce } from \'./controls.js\'\n' +
+      'export function createSceneStore(initial: UiState): SceneStore {\n' +
+      '  const self = { state: initial }\n' +
+      '  return {\n' +
+      '    state(): UiState { return self.state },\n' +
+      '    dispatch: (action: Action): void => { self.state = reduce(self.state, action) },\n' +
+      '  }\n}\n',
+    ).conditional, 'an arrow member of the returned literal is surface too').toEqual([])
+
+    expect(of(
+      'import { reduce } from \'./controls.js\'\n' +
+      'export function createSceneStore(initial: UiState): SceneStore {\n' +
+      '  const self = { state: initial }\n' +
+      '  return ({\n' +
+      '    state(): UiState { return self.state },\n' +
+      '    dispatch(action: Action): void { self.state = reduce(self.state, action) },\n' +
+      '  } as SceneStore)\n}\n',
+    ).conditional, 'a cast on the returned literal changes no value').toEqual([])
+
+    expect(() => of(
+      'import { reduce } from \'./controls.js\'\n' +
+      'export const createSceneStore = (initial: UiState): SceneStore => ({\n' +
+      '  state(): UiState { return self.state },\n' +
+      '  dispatch(action: Action): void { self.state = reduce(self.state, action) },\n' +
+      '})\n',
+    ), 'any other factory spelling is refused upstream, not passed to the surface test')
+      .toThrow(/no longer declares `createSceneStore`/)
+
+    /*
+     * ## The declared, deliberate false red — in reach and not taken
+     *
+     * A write in an object-literal member that is called **unconditionally**
+     * really is on every path, and this reports it anyway. That is a false
+     * **red**, and it is the direction this instrument is allowed to be wrong
+     * in: `readsByName` records the same posture one block up — *"it can
+     * produce a false red. It cannot produce a false green."*
+     *
+     * It is **in reach and not taken**, which is the honest label and the one
+     * {@link CLOCKS}' residue table uses for the same situation: following
+     * `handlers.apply()` needs the climb to key call sites on
+     * `<binding>.<member>` rather than on a bare identifier, which is a parser
+     * change and not a type-checker one. It is left because a store that
+     * dispatches through a local object literal is not a shape anyone writes,
+     * and a loud wrong answer costs a reader one minute where a quiet one
+     * costs a shift.
+     *
+     * **If this reddens on real code, teach the climb the `<binding>.<member>`
+     * hop. Do NOT widen the surface test to make it green** — "any
+     * object-literal member is surface" is precisely the hole this replaced.
+     */
+    const unconditionalInLiteral = of(module(
+      '      const handlers = { apply(): void { self.state = reduce(self.state, action) } }\n' +
+      '      handlers.apply()'))
+    expect(
+      unconditionalInLiteral.conditional,
+      'the declared false red: an unconditional object-literal helper still cannot be followed',
+    ).toEqual([
+      '/plant/store.ts:7 it is a member of an object literal that does not leave this module, ' +
+      'so reachability cannot be decided',
+    ])
+
     // Prose is not code, and nor is data. The module's real header discusses
     // `depthView` over eight lines, so a grep for the tag would be red on the
     // shipping module; and `'set'` joined the vocabulary at `24392c3`, so the
@@ -1719,6 +2184,24 @@ describe('the store runs in plain node', () => {
       // regression in either direction shows up in one place.
       'globalThis?.Date.now()',
       "globalThis['Date'].now()",
+      // ## The third round, and the reason this list is no longer the fix
+      //
+      // Each of these was invisible to the five-node-kind receiver test that
+      // replaced the identifier test, and **the comma operator is the one
+      // that settles it**: the docblock's own stated principle — wrappers
+      // that cannot change the value are erased before anything runs —
+      // covers `(x, globalThis)` exactly, because the comma operator's value
+      // *is* its right operand. The principle was right and the enumeration
+      // was short, twice running. {@link isGlobalRoot} is now keyed to the
+      // grammar's value-forwarding node kinds, which is a closed set, rather
+      // than to whichever spellings someone thought to plant.
+      '(Math.random(), globalThis).Date.now()',
+      '(true ? globalThis : globalThis).Date.now()',
+      '(globalThis || globalThis).Date.now()',
+      '(globalThis ?? globalThis).Date.now()',
+      '(globalThis && globalThis).Date.now()',
+      // Forwarding composes, which an enumeration of spellings does not.
+      "((0, globalThis) as any)!['Date'].now()",
     ]) {
       graph['/plant/b.ts'] = `export const b = ${spelling}\n`
       expect(
@@ -1726,6 +2209,65 @@ describe('the store runs in plain node', () => {
         `\`${spelling}\` reaches the real clock and must be reported as one`,
       ).toEqual(['/plant/b.ts:1 Date'])
     }
+
+    /*
+     * ## What the sensor cannot decide, it now says so about
+     *
+     * The rows below are the whole of {@link CLOCKS}' old residue table plus
+     * the one spelling that defeated the second repair, and **not one of them
+     * is caught by name** — the walk genuinely cannot tell what is read off
+     * the receiver. What changed is the *direction of the failure*: each used
+     * to be reported as clean, and is now reported as undecided.
+     *
+     * That is keyed to the question the sensor is asking. The question is not
+     * *"is this spelling on a list"* but *"can a module in this closure reach
+     * a clock"*, and a module that hands `globalThis` somewhere this walk
+     * cannot follow is a module whose answer is **unknown**. §9: *"a guard
+     * whose comment claims it fails closed while it fails open is worse than
+     * no guard."* So the complement of what the walk can decide is reported,
+     * which makes the set closed by construction rather than by enumeration.
+     *
+     * The cost is a false **red** on any legitimate `globalThis` use in the
+     * closure. Measured at the time of writing: the store's closure is 21
+     * files and contains **zero** occurrences of the token, so the cost is
+     * currently nil — and if one arrives, the repair is to teach the walk
+     * that spelling, never to drop this report.
+     */
+    for (const [spelling, why] of [
+      ['const g = globalThis\nexport const b = g.Date.now()', 'laundered through a binding'],
+      ["const k = 'Date'\nexport const b = (globalThis as any)[k].now()", 'computed member name'],
+      ["export const b = (globalThis as any)['Da' + 'te'].now()", 'concatenated member name'],
+      ['const gg = (): unknown => globalThis\nexport const b = (gg() as any).Date.now()',
+        'returned from a call'],
+      ["export const b = Reflect.get(globalThis, 'Date').now()", 'read by a reflection intrinsic'],
+      ['export const b = ((g: any) => g.Date.now())(globalThis)', 'passed as an argument'],
+      ['let g: any\ng = globalThis\nexport const b = g.Date.now()', 'assigned to a binding'],
+    ] as const) {
+      graph['/plant/b.ts'] = `${spelling}\n`
+      const found = closureFrom('/plant/entry.ts', files).clocks
+      expect(found.length, `\`${why}\` must be reported, not passed`).toBe(1)
+      expect(found[0], `\`${why}\``).toMatch(
+        /^\/plant\/b\.ts:\d+ globalThis escapes to somewhere this walk cannot follow$/,
+      )
+    }
+
+    // …and the same report reaches the browser roster, because an escaped
+    // `globalThis` is undecided about every global and not just the clocks.
+    graph['/plant/b.ts'] = 'const g = globalThis\nexport const b = g.document\n'
+    expect(closureFrom('/plant/entry.ts', files).globals).toEqual([
+      '/plant/b.ts:1 globalThis escapes to somewhere this walk cannot follow',
+    ])
+
+    // The negative half of the undecided report, and it is the load-bearing
+    // one: a receiver the walk *can* decide must not be reported as escaped,
+    // or the report degenerates into "this file says globalThis".
+    graph['/plant/b.ts'] = `export const b = globalThis.Date.now() + globalThis.performance.now()\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks)
+      .toEqual(['/plant/b.ts:1 Date', '/plant/b.ts:1 performance'])
+    // …including a decided receiver whose member is on no roster at all.
+    graph['/plant/b.ts'] = `export const b = (globalThis as any)['crypto']\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual([])
+    expect(closureFrom('/plant/entry.ts', files).globals).toEqual([])
 
     // …and it survives the declaration filter, which the plain-identifier path
     // does not: a file that declares its own `Date` has not stopped reaching
