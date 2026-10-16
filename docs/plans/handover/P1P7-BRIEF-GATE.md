@@ -1,7 +1,8 @@
 # Gate runner — P1/P7, branch `feat/p1p7-shared`
 
 You are the **gate runner** for phases P1 (`shared/` and `.stst`) and P7 (perception). Your
-PM is PM-SHARED-4. You are tier 2 in a three-tier agent system.
+PM is PM-SHARED-5 (the brief was written by PM-SHARED-4; the role handed over before you
+were dispatched). You are tier 2 in a three-tier agent system.
 
 **You implemented none of this phase, and that is the qualification for the role.** You run
 §6's sequence and report numbers. You do not fix anything, you do not improve anything, and
@@ -26,13 +27,22 @@ Work **in `/home/guy/code/git/github.com/shitchell/staticstereo-p1p7`** on
 PM if in doubt).
 
 ```sh
-rm -rf dist dist-site                                     # SEE BELOW — not optional
+rm -rf dist dist-site dist-player                         # THREE dirs — SEE BELOW, not optional
 git merge main                                            # conflict ⇒ STOP, escalate
 npm run typecheck > /tmp/tc.log 2>&1; echo "typecheck=$?"
 npm run build      > /tmp/b1.log 2>&1; echo "build=$?"
 npm run build:site > /tmp/b2.log 2>&1; echo "buildsite=$?"
-npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
+( git rev-parse --short HEAD; git rev-parse --abbrev-ref HEAD; pwd; npm test ) > /tmp/t.log 2>&1
+echo "test=$?"; head -3 /tmp/t.log; tail -5 /tmp/t.log
 ```
+
+**This is the ONLY sequence — run this block, not a reconstruction of it.** An earlier
+version of this brief wrote `rm -rf dist dist-site` here (two directories) while the prose
+below said three, and wrote a bare `npm test` here while the disconfirmation section below
+wrapped it. **A runner who copy-pastes the block got the wrong half of both.** The block
+above is now the corrected one and the prose below explains it; if they ever disagree
+again, the block is wrong and the prose is right, because the prose is where the
+measurement that produced it is recorded.
 
 **Wipe `dist dist-site dist-player` — THREE directories, not two.** The sibling phase's gate
 found that `rm -rf dist dist-site` **misses `dist-player/`**, which `build:site` also emits
@@ -62,9 +72,32 @@ left the tree dirty, which is why **step 0 is to confirm `git status` is clean**
 if it is not.
 
 **`git merge main` is step 1 and a conflict is an escalation, not a thing to resolve.** The
-branch has not merged `main` since `8f9a36f`; `main` has moved a dozen `docs/` commits plus
-`9312529`, which raises two test timeouts the branch does not yet have. Expect the merge to
-bring them.
+branch has not merged `main` since `8f9a36f`.
+
+**Re-measured by PM-SHARED-5 immediately before your dispatch, because this paragraph was
+wrong in both terms** — it said "a dozen `docs/` commits plus `9312529`":
+
+| | measured |
+|---|---|
+| merge-base | `69abca9` |
+| `git rev-list --count HEAD..main` | **36**, not a dozen |
+| non-docs commits among them | **two**, not one: `9312529` *and* `2524fa4` |
+| files touched by **both** sides | exactly one: `src/node/metamorphic.real.test.ts` |
+| `git merge-tree --write-tree HEAD main` | exit 0, tree written — **no textual conflict** |
+
+**`2524fa4` is the one the old sentence dropped, and it is the one that concerns you**: it
+is `fix(test): pin the gate harness's output format; CI read it only by luck`, +122/−19
+across `site/bindingregistration.test.ts` and `site/fitregistration.test.ts`. It changes
+test files, so **the merge moves your count** — see the baseline section — and it touches
+the harness-output question that the "known and expected" section below raises about
+`svelte-check`. Check whether that note is still true after your merge rather than
+repeating it.
+
+**`main` moves every few minutes.** Re-run the two commands above yourself at the moment you
+start; the table is a reading, not a constant. Note the direction: `HEAD..main` is what the
+merge will bring you. `main..HEAD` is your own branch's work and is *supposed* to touch
+`src/` — reading the escalation rule in that direction produces a false alarm, which is a
+mistake already made once on this phase.
 
 **Never `npm run typecheck | tail`** — `$?` after a pipeline is `tail`'s status. Redirect
 and echo, as written above.
@@ -129,7 +162,40 @@ run actually took, per step, and do not reconcile it against a forecast.
 run on a pushed branch.** Four local exit codes do not satisfy it — a local re-run shares
 every environmental assumption with the run it is checking. This phase's defining defect was
 a suite that was green for **every agent that ever ran it** and red on the only machine that
-ships. Push the branch and report the `ci` run's conclusion and its URL.
+ships. Report the `ci` run's conclusion, its duration and its URL.
+
+**⚠ "Push the branch" does NOT trigger `ci`, and an earlier version of this brief said it
+did.** Measured by PM-SHARED-5 in `.github/workflows/ci.yml`:
+
+```yaml
+on:
+  push:
+    branches: [main]      # ← main ONLY
+  pull_request:
+```
+
+A push to `feat/p1p7-shared` matches **neither** trigger and produces **no run at all**. A
+runner who pushes, sees no run, and reports "no CI failures" has reported a null from an
+instrument that was never armed — which is §6.5a's own failure mode, at the one requirement
+that exists because local exit codes share every assumption with the thing they check.
+
+**You must open a PR.** The sibling phase did exactly this and its runs show as
+`ci · feat/p3b-store · pull_request`. Confirm a run actually exists and is attributed to
+your branch's head sha before reporting anything about it:
+
+```sh
+git push -u origin feat/p1p7-shared
+gh pr create --base main --head feat/p1p7-shared --title '<phase> (gate run)' --body '<...>'
+gh run list --branch feat/p1p7-shared --limit 5
+gh run watch <id>          # then report conclusion + duration + URL
+```
+
+Also note: `ci` is not the only workflow — `pages.yml` exists and also runs. Report `ci`;
+if `pages` runs and fails on your branch, report that too rather than filtering it out.
+
+**For reference, `main` is currently GREEN**: run `38867425151`, `ci`, `main`, 1m36s, at
+`ee553c2`. So a red on your branch is yours and not inherited — the nine-hour red on `main`
+is closed.
 
 ---
 
@@ -205,7 +271,9 @@ checked out on the wrong branch and got back a plausible figure already in the r
 `git log <ref>` takes a ref; **`npm test` runs whatever is checked out**, and the two look
 interchangeable.
 
-**Disconfirm inside the same invocation as the test run** — not before it, not after:
+**Disconfirm inside the same invocation as the test run** — not before it, not after. This
+is already folded into the sequence block at the top of this brief; do not run a second,
+bare `npm test` alongside it:
 
 ```sh
 ( git rev-parse --short HEAD; git rev-parse --abbrev-ref HEAD; pwd; npm test ) > /tmp/t.log 2>&1
@@ -213,7 +281,9 @@ echo "test=$?"
 ```
 
 That way the sha, the branch and the directory are stamped by the same shell that produced
-the counts, and no later edit can make them disagree. The second disconfirmation is CI,
+the counts, and no later edit can make them disagree. **Quote the stamp and the summary line
+together in your report** — a sha reported separately from the counts is the thing this
+guards against, so splitting them in the write-up discards the protection you just paid for. The second disconfirmation is CI,
 which re-runs on a different machine — that is the point of requirement 7.
 
 **Report the vitest summary line verbatim.** Skips are counted from that line and **never**
