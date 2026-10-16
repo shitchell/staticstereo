@@ -1,7 +1,35 @@
 # R-1 — three sensors that cannot see what they claim to see
 
-**You are an implementer.** PM: `PM-SHELL-P3b-3`. Branch `feat/p3b-store`, worktree
-`/home/guy/code/git/github.com/shitchell/staticstereo`. You own that worktree.
+**You are an implementer.** PM: `PM-SHELL-P3b-3`.
+
+## ⚠️ READ THIS FIRST — you do NOT own the primary worktree
+
+**Another implementer (H-2) is live in
+`/home/guy/code/git/github.com/shitchell/staticstereo` right now**, building the
+criterion-22 `svelte-check` harness. Both of you plant into real files and revert, and two
+agents doing that in one tree corrupts both. **You have been given your own isolated git
+worktree. Work only there.**
+
+Three things, all measured by a predecessor (V-BC) that did this successfully:
+
+1. **Verify what commit your worktree was cut from. Do not trust this brief.** V-BC's was
+   cut from `main`, not the phase branch, and `62696ae` was not an ancestor. It checked,
+   found it, and `git reset --hard`ed onto the right commit inside its own throwaway
+   branch. **The phase branch is `feat/p3b-store`; get your worktree onto its tip**, and
+   confirm `69abca9` and `62696ae` are ancestors.
+2. **Do NOT symlink `node_modules` from the primary worktree.**
+   `node_modules/.vite/vitest/results.json` is rewritten by every `npm test`, so a symlink
+   puts your writes inside a live implementer's tree. **Use `cp -al`**, then `rm -rf` the
+   `.vite` cache and `cp -a` the other write-prone directories to break those hardlinks,
+   and **confirm separate inodes**. Verify `package.json` and `package-lock.json` are
+   unchanged in both trees afterwards. `npm ci` only if that fails and only if it provably
+   touches neither.
+3. **Commit to your own branch and report its name. Do not merge it yourself.** H-2 may
+   touch `site/controls.test.ts`, which you also touch, so a conflict is possible and
+   resolving it is the PM's call, not yours. **Report any overlap you notice.**
+
+If you cannot get a working tree, **stop and report** — do not fall back into the primary
+worktree. A worker that cannot run is a finding, not a failure.
 
 This is **remediation of already-landed, already-verified work** — cluster A and cluster C.
 V-BC verified criteria 8 and 9 and returned `MET WITH FINDINGS`. You are the findings.
@@ -81,6 +109,29 @@ will eventually be satisfied wrongly (§6.5a's tripwire paragraph).
 planted arm *suppression* into the **real** `site/store.ts` and the guard fired, naming
 `site/store.ts:170 scene`. That gap is closed by measurement.
 
+## 2a. `'set'` widened the surface A1's hole operates over — FIRST-CLASS, not an addendum
+
+Ruled by tier 0 as the more important of H-1b's two carried uncertainties.
+
+`24392c3` added `'set'` to the `Action` union. A-4's guard flags **value-position string
+literals equal to any action tag**, and A-4's own UNCERTAIN 1 already said `tagsNamed` is
+the half most likely to need narrowing because `Action`'s tags include ordinary words
+(`time`, `size`, `scene`, `frame`). **`'set'` is far worse than any of those** — it is
+three characters and one of the commonest string literals in any codebase.
+
+H-1b grepped and confirmed `site/store.ts` holds no `'set'` literal today, so the guard is
+**green on its merits right now**. That is not the issue. The issue is that **A1's hole
+and this widening compound**: a guard with a measured evasion, now operating over a
+literal-collision surface large enough that a future false positive invites someone to
+narrow `tagsNamed` — and narrowing `tagsNamed` is exactly what would remove the only half
+that sees arm *suppression*.
+
+**Treat this as part of A1's fix, not separately.** Whatever you do to close the
+reassignment hole must leave the guard able to tolerate `'set'` appearing legitimately in
+`site/store.ts` without losing suppression detection. If those two cannot both hold, that
+is a finding and an escalation — say so with the measurement rather than trading one for
+the other silently.
+
 ## 3. Finding C2 — the one criterion-9 sensor that is total over the vocabulary cannot see
 
 `holds one scene time and not two…` in `site/controls.test.ts` wraps `dispatch` in
@@ -127,11 +178,71 @@ with a sensor, never with a note, and C-2's comment currently describes the wron
 mechanism either way. **At minimum the recorded rationale must stop saying it is a
 hand-written-list problem**, because that sends the next reader to the wrong cure.
 
+## 4a. The legacy-erasure tripwire — ruled by tier 0, and it is the item with a deadline
+
+**Criterion 22's clause 2 is true of the `set` path and false of the `Action` union.**
+H-1b measured both, in this tree:
+
+```
+{ type: 'set', control: 'stereo.cross', value: Number(raw) }    ERROR
+{ type: 'set', control: anyId,          value: Number(raw) }    ERROR
+{ type: 'stereo', patch: { cross: 1 } }                         ERROR
+{ type: 'stereo', patch: { [key]: Number(raw) } }               COMPILES CLEAN   ← the hole
+```
+
+The legacy keyed arms survive in `Action` only because `main.ts` consumes them. **The
+erasure is still reachable through them and nothing watches it.** A declared gap with no
+sensor is what this phase's standing rule forbids.
+
+**Tier 0's ruling, both halves:** (1) **tripwire the known hole now**; (2) the real
+removal **sequences after G-3 deletes `main.ts`**, when the legacy arms lose their only
+consumer and the tripwire retires with them.
+
+**Build (1).** The precedent is this repo's own and is explicit: `site/views.test.ts`
+depends on `site/index.html` so that teardown reddens it **by design**, with a failure
+message naming the teardown. Its author's framing — *"the HTML dependency is not a cost I
+tolerated, it is the deliverable; §9 says a note is not a sensor, so the note **is** the
+test."* Do the same here.
+
+**What the tripwire must do:**
+- Assert that the legacy `{type:'<arm>', patch:{[key]: …}}` erasure **is currently
+  reachable** — so that the day someone closes it, or the day G-3 removes the arms, the
+  test reddens and names the reason.
+- **Its failure message must name G-3 and the retirement**, so whoever hits it knows the
+  correct action is to delete the tripwire, not to work around it. §6.5a: a guard whose
+  cheapest satisfying action is wrong will eventually be satisfied wrongly.
+- **Do not fix the hole.** Removing or re-expressing the legacy arms is ruled as G-3-or-later
+  work and it is not yours.
+
+**Why this is in R-1 and not H-2 — my decomposition call, and you may refute it.** H-2
+builds the clause-2 harness for the `set` path and carries a real risk of refusal on
+wall-clock grounds. This tripwire must land regardless of how that goes, and it is the
+same idiom as your other three items: a sensor for something currently blind. If you judge
+it belongs with the harness instead, say so rather than splitting your attention.
+
+## 4b. The 17-row self-count — a hand-written-list instance
+
+`site/controls.test.ts`'s `expect(new Set(pairs.map(…)).size).toBe(17)` is **a self-count
+of a hand-written table, not a measurement of the registry.** It catches a dropped row. It
+does **not** assert that exactly 17 registry controls have keyed arms — H-1b measured that
+a new `Action` variant *is* caught (the sample tables and the parser cross-check redden),
+but **an 18th control absorbed into an existing keyed arm would be invisible.**
+
+§9: *a hand-written list of "the places that do X" goes stale silently the day a second
+place does X — derive it from the thing that makes a site one of them.* Tier 0 has ruled
+this should be **derived or cross-checked against a derivation**, the same shape as D-1's
+fix for `EDITOR_ONLY_MODULES`. Note the adjacent trap: **a guard derived from the roster it
+guards proves only that the derivation ran twice**, so say which side of that line your
+version lands on, as H-1b did for the `CONTROL_IDS` partition.
+
 ## 5. Acceptance — checkable by you before you start
 
-1. **Each of the three plants above, re-derived from its description and not copied,
-   reddens after your change** — grep-confirmed present in the real module before any
-   verdict is read, with `npm run build` and `npm run build:site` run first.
+**Six items now, not three: A1 (§2), the `'set'` surface (§2a), C2 (§3), C1 (§4), the
+legacy tripwire (§4a), the 17-row self-count (§4b).**
+
+1. **Each plant above, re-derived from its description and not copied, reddens after your
+   change** — grep-confirmed present in the real module before any verdict is read, with
+   `npm run build` and `npm run build:site` run first.
 2. **Each positive control still passes on the pristine module.** A guard that reddens the
    plant by reddening everything is not a guard.
 3. **No false positives introduced.** Run the full suite and typecheck; any newly-red test
@@ -156,10 +267,14 @@ subject of this task.
   rationale at the C-2 clock sensor. A-4 closed its hole with **no production edit at all**;
   if you find you need one in `site/store.ts` or `site/controls.ts`, say so explicitly and
   argue it — do not slide it in.
-- **Another implementer (H-1) has recently been editing `site/controls.ts` and
-  `site/controls.test.ts`.** Read `git log --oneline -5` before you start, and if its
-  commit changed the shape of anything above, **your measurement wins over this brief** —
-  report the difference rather than forcing the description to fit.
+- **`24392c3` landed criterion 22's write path since these findings were measured** — a
+  `SetAction` mapped type, `WRITABLE_CONTROL_IDS`, `applySet`, a `'set'` reducer arm, and
+  ~800 lines across `controls.ts`, `controls.test.ts`, `store.test.ts` and
+  `hashprojection.test.ts`. **V-BC's findings predate it.** Read `git show 24392c3 --stat`
+  and `git log --oneline -8` before you start, and **if that commit changed the shape of
+  anything described above, your measurement wins over this brief** — report the
+  difference rather than forcing the description to fit. The `'set'` item in §2a exists
+  precisely because of that commit.
 - **Owned by the concurrent P1/P7 phase, stop and escalate:** `src/shared/`, `src/cli/`,
   `src/node/canvas.generics.test.ts`, `site/legibility.test.ts`.
 - **`site/typecheck-gate.test.ts`** — no RED is available for it; invariant 1 forbids
@@ -176,9 +291,11 @@ subject of this task.
   `site/controls.ts` left `tsc -p tsconfig.json` at exit 0. Only `npm run typecheck` covers
   your files.
 - `npm run typecheck | tail` is not a check; `$?` is `tail`'s.
-- **Baseline, measured post-merge at `febb020`:** 82 files / 1948 passed / 0 skipped,
-  build 0, build:site 0, typecheck 0 (0 errors, 0 warnings). H-1 may have moved it; measure
-  your own starting point and report both.
+- **Baseline: 82 files / 1955 passed / 0 skipped** at `24392c3`, build 0, build:site 0,
+  typecheck 0 (0 errors, 0 warnings) both with and without `CLAUDECODE` stripped. The tree
+  has since merged `main` twice (docs-only). **Measure your own starting point and report
+  both** — §9's *a count from the survey is still the count: not if your own phase has
+  been committing.*
 - A timeout-shaped red gets re-run alone before you report it; say that you did.
 - Use the `git` wrapper on PATH. Commit your work. Record the three findings' resolutions
   in the commit message — **the scratchpad does not survive the session and commit messages

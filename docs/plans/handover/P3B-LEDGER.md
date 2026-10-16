@@ -1350,3 +1350,57 @@ Both are in the boilerplate now. **That is twenty-one for twenty-one on worker p
 - Criterion 23 is documented at the arm but is **a note, not a sensor** — which §6 forbids.
   That obligation transfers to G-6.
 - V-BC measured vitest's skip reporting on **one** reporter configuration only.
+
+## H-1b DONE — `24392c3`. Criterion 22's work adopted with RED attributed. HEAD now `c0a6b36`.
+
+Content byte-identical to `b27a315` (`git diff b27a315 HEAD` empty); salvage branch **not**
+merged, content brought across. **82 files / 1955 passed / 0 skipped**, +7 over baseline,
+zero removals, typecheck 0 both with and without `CLAUDECODE` stripped. `main` merged
+(`ec900f0`, docs-only) → `3169a6b`; three queued briefs committed → `c0a6b36`.
+
+**14 claims, each with a named mutation, grep-confirmed, quoted verdict.** One claim has
+**no runtime RED by name**: `hashprojection.test.ts`'s mapped `SAMPLES` table — removing
+the `set` row leaves vitest at 34 passed; only the compiler sees it. Recorded so nobody
+assumes the suite covers it.
+
+**The mechanism: the erasure is genuinely solved for the `set` path, not papered over.**
+`SetAction` is a mapped type distributed over control id → the model's own field type, so
+each member pairs one literal `control` with one concrete `value` type. Severing the
+correlation (`value: ControlValues[K]` → `unknown`) turns **exactly six of eleven**
+`@ts-expect-error` directives "unused" — the six value-type claims — while the five
+structural ones still bite. That is the measurement proving the wall is neither inert nor
+double-counted.
+
+**But clause 2 is true of the `set` path and false of the `Action` union.** The legacy
+keyed arms survive because `main.ts` consumes them, and `{type:'stereo', patch:{[key]:…}}`
+still compiles clean **with no sensor on it**. Escalated. Clause 1 likewise: 52 of 63
+writable, 11-entry preset residue derived and sensored by `unwritableControls()`.
+Both rulings are in `c0a6b36`'s message.
+
+### My error, caught by the worker, and it is a new shape
+
+**I read the dead agent's last transcript line as the frontier of its work. It was not.**
+H-1 had **already finished** the parser cross-check; "Now extend the parser cross-check…"
+was written *before* doing it. H-1b added no code there — it verified by re-establishing
+the RED and proving the extension fails closed three ways. The task *was* killed
+mid-flight (no report, no commit), but the specific deliverable I named as unfinished was
+done. **A self-instruction in a transcript is a statement of intent, not a record of
+state**, and I inferred backwards from the last line without asking whether the work after
+it existed. Twenty-two for twenty-two.
+
+**Also corrected: V-BC's `hashprojection.test.ts:153` is wrong — the table is at `:144`**,
+both at `febb020` and now. The brief's figure was right. V-BC's one measurable error, in a
+report that was otherwise exact.
+
+### H-1b's carried UNCERTAINs
+
+1. `controls.test.ts`'s `expect(new Set(pairs.map(…)).size).toBe(17)` is **a self-count of
+   a hand-written table**, not a measurement of the registry. A new `Action` variant is
+   caught; an 18th control absorbed into an existing keyed arm is invisible. §9's
+   hand-written-list shape, small. Candidate for R-1's scope.
+2. **`'set'` is now an `Action` tag and a very short string**, and A-4's guard flags
+   value-position string literals equal to any tag. `site/store.ts` holds no `'set'`
+   literal today, so it is green on its merits — but the collision surface is far larger
+   for `'set'` than for `'depthView'`. Bears directly on R-1.
+3. RED is **reconstructed by mutation, not test-before-code** — the production half already
+   existed. H-1b said so plainly rather than letting it read as original TDD.
