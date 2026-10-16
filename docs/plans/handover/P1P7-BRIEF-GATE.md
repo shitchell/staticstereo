@@ -599,9 +599,36 @@ been degraded once by paraphrase, and the paraphrase is what makes them harmless
   the absence of a mechanism rather than the number five.
 - **Criterion 24 is CLOSED-WITH-RECORD, not an open finding.** Do not re-raise it, and do
   not list it among unresolved items.
-- **Criterion 25** (R22 obligation 1 has no criterion and no sensor) came from the same
-  NOT-COVERED sweep. Measured citation counts: obligation 2 nine times, obligation 4 three,
-  obligation 3 once, **obligation 1 zero.**
+- **Criterion 25 — OPEN, and REASSIGNED TO P3b.** R22 obligation 1 has no criterion and no
+  sensor; measured citation counts are obligation 2 nine times, obligation 4 three,
+  obligation 3 once, **obligation 1 zero.** It holds today only by a reviewer's census of
+  `site/*.ts`, and **nothing guards `site/*.ts` imports** — while this phase made
+  `site/legibility.ts` a bare `export *`. The orchestrator has reassigned it to **P3b,
+  which owns `site/`**. **Report it as open and OWNED ELSEWHERE** — that is the difference
+  between a routed item and a dropped one, and a gate report that simply omits it has
+  dropped it.
+
+### Two structural observations — carry them as observations, NOT as defects
+
+Both were found by the attribution census and both are ruled not-defects. They are recorded
+because **the shape recurs and is invisible unless named.**
+
+- **P7-6's clause was retired by V-4 itself** — a verifier amending the criterion it was
+  sent to check, on the grounds that the "named list fixed before dispatch" artefact never
+  existed. Well-measured and ratified afterwards at `94226e5`. Not a defect; worth naming
+  because a verifier that can edit its own target is a control with a degree of freedom.
+- **P7-8's verifier is the one that found the error in its own criterion** (orchestrator
+  error 28) **and also the one that passed it.** The implementing commit `9d0ea36`
+  additionally **predates its own correction by a day** — checked, and it is correctly
+  scoped anyway, so the stale paragraph did not mislead the implementer.
+
+### Case E — still with Shaun, still unresolved, keep it visible
+
+An all-flat-graphics `.stst` is **+27.4% stored**. This is a **pre-registered threshold that
+was crossed**, sitting underneath a criterion marked MET (P1-7). **The container format is
+frozen; do not recommend changing it.** It is the one open item on this phase that is
+genuinely not ours to close, so it must appear in the report rather than being resolved
+away — a crossed threshold that stops being mentioned has been silently accepted.
 
 ### §10.6 units — the reviewer's "three symbols deviate" is REFUTED, and this is §6 req 6
 
