@@ -1380,6 +1380,55 @@ file, the same mutation reddens and moves a measurement `487 vs 0 → 487 vs 487
 standing ruling against importing `INK_FRACTION` there is vindicated and the commit closed a
 real blind spot.** Both halves named, as the rule requires.
 
+### P3b shift 3 — criterion 22 complete, and the budget everyone cited was one sample
+
+**Landed:** `24392c3` the write path (adopted with RED attributed per claim) · `f8d931b` its
+clause-2 sensor · `5f11f93` six blind sensors closed. **Criteria 8, 9, 15 and 22 done.**
+Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23.
+
+**The "94s CI budget" was one sample of a varying quantity and every brief on this phase
+cited it, the orchestrator's included.** Measured instead of quoted: a 93s job of which
+`npm test` is **53s**, typecheck 6s, builds 4s — and **`apt-get install ffmpeg` 25s**. The
+last four runs span **93–108s**. **A quarter of the "budget" is apt, and it already varies
+by 15s**, so a figure cited to three significant figures was never that precise. The fourth
+harness landed against the real measurement, and **whole-suite wall-clock does not move at
+all**: summed test time rises 32s while the new file's 27s runs inside an existing harness's
+48s shadow. **Cite a measured range, and say what the number is made of.**
+
+**The cheaper route was refuted by one table row, and the refutation is worth keeping.** The
+PM proposed extending the eleven `@ts-expect-error` rows rather than building H-2's harness.
+**A directive is lexical and cannot be generated from `WRITABLE_CONTROL_IDS`**, so the wall
+covers **8 controls and 44 have no clause-2 coverage at all.** Erasing `SceneValues` to
+`unknown` — four controls losing exactly the correlation clause 2 forbids — leaves the wall
+**green at typecheck exit 0** while the generated sweep reddens 52 → 48 and names all four.
+**The two are complementary, not duplicative.**
+
+**Ruled: a PM may append a measured correction beside a tier-0 paragraph it has disproved.**
+R-1's +25-line block in this document stands. It **preserves** C-2's original paragraph
+rather than replacing it, which is §9's *correct beside the quote, never inside*; the
+substance is required because C-2's rationale names the wrong mechanism; and the code is
+independent of it, since the in-code `CLOCKS` docblock carries the full version. **The
+boundary: append beside, never rewrite or delete, always flag it in the report.** Routing
+every measured correction through tier 0 is how error 15 happened — the orchestrator adopted
+nine criteria in messages and wrote none of them down.
+
+**The debt, and it is the largest on the phase: none of the three commits has been verified
+by anyone who did not write it, and the three have never been run together.** A gate run is
+owed — serialised, announced, by a runner who implemented none of it. The arithmetic
+suggests 83 files / ~1967; **that is arithmetic, not a measurement**, and §6.3 compares
+against the branch's own baseline.
+
+**Latent and unmeasured, in two *merged* files:** both pre-existing harnesses unescape
+machine messages with `replace(/\\(.)/g,'$1')`, which **turns `\n` into a literal `n`** and
+welds a nested diagnostic's two lines together. H-2 maps escapes explicitly and did not touch
+theirs. **Nobody has audited whether either asserts across a line join.**
+
+**The pattern above any individual finding.** Four instruments this phase trusted for
+multiple shifts turned out blind: the skip glyph, `build` as evidence about `site/` types,
+`build:site` against three of four builtin spellings, and the `@ts-expect-error` wall over 44
+of 52 controls. **Each was caught only when someone planted a control against an instrument
+nobody had ever watched fire.**
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
@@ -1546,6 +1595,8 @@ Each already cost a correction. Hand this table to every worker.
 | an agent's last transcript line is the frontier of its work | **It is a statement of intent, not a record of state.** A PM read a killed agent's final self-instruction — *"Now extend the parser cross-check…"* — as the thing left undone, and briefed its replacement accordingly. The work had **already been finished**; the line was written *before* doing it. The adopting worker added no code there and verified instead. **Reasoning backwards from a last line infers a frontier that was never claimed** — ask whether the work after it exists rather than assuming the transcript stops where the work did. |
 | `npm run build` gives you a clean `dist/` | **It does not clean it.** A verifier contaminated its own run this way and caught it: a stale planted file left **4 reds where a wiped rebuild gives 2**, and the spurious extra red was *"emits no test file and no testing/ helper into dist/shared"* — which **reads exactly like a genuine finding**. Anyone planting into `src/shared/testing/**` must `rm -rf dist dist-site` first. A gate runner that rebuilds over a dirty tree can report a defect that does not exist, in the vocabulary of one that does. |
 | a test that derives its expectations from the constant is the robust kind | **It is robust against intentional change and blind to the constant moving at all** — which is the opposite of what you want from a *threshold* witness. Measured: `INK_FRACTION` 0.5 → 0.9 and `TIGHT_MULTIPLE` 2 → 3 each leave `src/shared/perception.test.ts` at **21 passed**, because every one of its boundary tests derives its budgets from the module's own constants. The only sensor that sees either move is the file that uses **literal** budgets. **The sharpest part: a docblock amended specifically to avoid a stale assertion now cites that derivation as its proof** — *"what witnesses that is … every one of which derives its budgets from the module's own constants"* — so **the cited mechanism is precisely the reason the claim fails.** Invariant 4 says assert on structure not values; a threshold is the narrow exception, and **every threshold needs at least one literal-pinned witness** or nothing can see it change. |
+| a plant quoted in a brief is a measurement | **It is a measurement with an expiry date, and the commit that expires it is usually one of your own.** A verifier's plant was quoted verbatim into a later brief; by the time it ran, `24392c3` had changed the types out from under it — and it failed **toward** *"the hole is closed"*, which is the direction nobody checks. **Re-establish a quoted plant against the current tree before trusting its verdict**, especially a reassuring one. |
+| a nonzero skip count means the same thing wherever you see it | **Two alarms in this repo mean opposite things.** A `beforeAll` rejection in any of the four `svelte-check` harnesses reports as **"N skipped" plus a file failure** — not fail-open, but the phase simultaneously teaches that a nonzero skip count is the alarm for a *stale or unreadable* run. Read the file-level result alongside the count; the count alone cannot tell you which alarm fired. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four.** `await import('node:fs')` on a *reachable* path in `site/fonts.ts` exits **0** with a warning, and the needle **ships** — found in `dist-site/assets/index-*.js` with a dedicated `__vite-browser-external-*.js` chunk emitted, which also defeats the constant-folding trap because the code is genuinely there. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
