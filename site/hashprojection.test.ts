@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
 import {
@@ -12,12 +13,20 @@ import { HASH_VERSION, encodeSceneHash, parseSceneHash } from './hash.js'
 import { createSceneStore } from './store.js'
 import { initialState } from './controls.js'
 import type { Action } from './controls.js'
+import {
+  BROWSER_GLOBALS as SHARED_BROWSER_GLOBALS,
+  CLOCKS as SHARED_CLOCKS,
+  REAL_FILES,
+  closureFrom,
+} from '../src/core/testing/sourceclosure.js'
+import type { Files, Rosters } from '../src/core/testing/sourceclosure.js'
 import type { Scene } from '../src/core/types.js'
 
 const ANIM: Scene = { size: [64, 32], fps: 12, duration: 2, layers: [{ type: 'text', text: 'A' }] }
 const OTHER: Scene = { size: [100, 50], layers: [{ type: 'text', text: 'B' }] }
 
-const SOURCE = readFileSync(new URL('./hashprojection.ts', import.meta.url), 'utf8')
+const MODULE = fileURLToPath(new URL('./hashprojection.ts', import.meta.url))
+const SOURCE = readFileSync(MODULE, 'utf8')
 
 /* --------------------------------------------------------------- the double */
 
@@ -187,7 +196,52 @@ const EVERY_SAMPLE: readonly Action[] = Object.values(SAMPLES).flat()
 
 /* ------------------------------------------------------------ AST sensors */
 
-const BROWSER_GLOBALS = ['location', 'history', 'window', 'document', 'globalThis'] as const
+/**
+ * ## These are rosters, and the walk that reads them is not in this file
+ *
+ * It is `closureFrom` in `src/core/testing/sourceclosure.ts`, and that is the
+ * correction rather than a tidy-up. This file used to carry its own
+ * `globalsNamedIn` — a **single-file** identifier scan over
+ * `hashprojection.ts`'s own text — while `site/store.test.ts` carried a walk
+ * over a real import closure. Neither was wrong about itself. The pair was
+ * wrong about the repository: `site/hash.ts`, this module's one runtime
+ * import, was in **neither** instrument's reach, and a verifier planted
+ *
+ * ```ts
+ *   void Date.now()
+ *   void (typeof location === 'undefined' ? '' : location.hash)
+ * ```
+ *
+ * into it for **99 files / 2227 passed / 0 skipped, exit 0**. A clock *and* a
+ * browser global, one hop from the module whose entire design rationale is
+ * injectability, invisible to every sensor in the repository.
+ *
+ * The module docblock's claim — that neither `location` nor `history` nor any
+ * timer is named below, *"and `hashprojection.test.ts` asserts both by parsing
+ * this file"* — was literally true as scoped. The scope was narrower than the
+ * property it stood in for, which §9 treats as the worse failure of the two:
+ * a reader who believed it stopped checking one file short.
+ *
+ * ## …and the rosters were narrower than the sibling's too, which was measured
+ *
+ * Putting this file on the shared walk was not enough on its own. Re-run with
+ * the closure walk in place, the plant above still only half-reddened: the
+ * `location` half was caught and **`Date.now()` was not**, because this file's
+ * two rosters were hand-kept beside `store.test.ts`'s and neither of its clock
+ * names — `Date`, `performance` — was on this one. That is the same defect in
+ * its other form: two lists someone has to keep in step, which §9 names
+ * directly. So both rosters are now the shared ones **plus** this module's own
+ * additions, and a name added to the shared roster reaches both sensors
+ * without anyone remembering to copy it.
+ */
+const BROWSER_GLOBALS = [
+  ...SHARED_BROWSER_GLOBALS,
+  // `globalThis` is reported by name here as well as through the receiver
+  // test, because the projector's whole contract is that the page's ambient
+  // objects arrive as `{read, write}` — a module in this closure touching the
+  // global object at all is the thing being refused, whatever it then reads.
+  'globalThis',
+] as const
 
 /**
  * The ways a module could make its own tick instead of being handed one.
@@ -199,50 +253,54 @@ const BROWSER_GLOBALS = ['location', 'history', 'window', 'document', 'globalThi
  * you almost nothing. `Promise` is on the list because
  * `Promise.resolve().then(flush)` is a microtask scheduler spelled without a
  * scheduler's name.
+ *
+ * **It carries the clocks as well as the schedulers now, and that was
+ * measured.** This list used to hold schedulers only, on the reading that the
+ * projector is handed a *tick* and not a *time*. The reading is right about
+ * `hashprojection.ts` and wrong about its closure: `Date.now()` planted in
+ * `site/hash.ts` walked straight past it even after this file was put on the
+ * closure walk, because `Date` was on the sibling's roster and not on this
+ * one. A codec that sampled a clock would make the fragment depend on when it
+ * was produced, and every behavioural test in this file injects the schedule
+ * and would never notice. Derived from the shared roster rather than restated,
+ * so this cannot drift again.
  */
 const TIMER_GLOBALS = [
-  'queueMicrotask',
-  'setTimeout',
-  'setInterval',
+  ...SHARED_CLOCKS,
+  // The two the shared roster does not carry. `setImmediate` is node's, and
+  // this module is exercised in plain node; `requestIdleCallback` is the
+  // browser's third queue and the one a "cheap" coalescer reaches for.
   'setImmediate',
-  'requestAnimationFrame',
   'requestIdleCallback',
-  'Promise',
-  'process',
 ] as const
 
 /**
- * Which browser globals `text` **names as code**.
+ * Both rosters in the shape `closureFrom` takes them.
+ *
+ * One object rather than two arguments at four call sites, because the two
+ * halves must stay paired: a reader of a failure has to be able to tell "it
+ * touched the DOM" from "it welded in a scheduler", and that separation is
+ * only worth anything if every call asks about both.
+ */
+const ROSTERS: Rosters = { globals: BROWSER_GLOBALS, clocks: TIMER_GLOBALS }
+
+/**
+ * The closure the two source sensors below are asked about.
  *
  * Parsed, not grepped, and the difference is the whole point: this module's
- * docblocks discuss `location.hash` and `history.replaceState` at length,
- * because explaining what it refuses to touch is most of its rationale. A grep
- * cannot tell a mention from a reference, so it would force the prose to be
- * written around the instrument. Comments and string literals are not
- * identifiers and a parser knows it — the same argument
- * `src/core/testing/imports.ts` makes for parsing import specifiers.
+ * docblocks discuss `location.hash`, `history.replaceState` and
+ * `queueMicrotask` at length, because explaining what it refuses to touch is
+ * most of its rationale. A grep cannot tell a mention from a reference, so it
+ * would force the prose to be written around the instrument. Comments and
+ * string literals are not identifiers and a parser knows it — the same
+ * argument `src/core/testing/imports.ts` makes for parsing import specifiers.
  *
- * Deliberately conservative: a *property* named `history` would be reported
- * too. A false positive costs one comment; a false negative is a DOM
- * dependency nobody notices.
- *
- * `names` is defaulted rather than fixed so {@link TIMER_GLOBALS} reuses the
- * walk without a second copy of it — the alternative is two parsers drifting
- * apart, and P3a's carried finding 4 already ruled that a defaulted table
- * parameter wins over a hard-wired one.
+ * **The real module is its own control for that discrimination**: the
+ * assertions below are green over a file whose prose names every one of those
+ * three, which no grep-based instrument could be.
  */
-function globalsNamedIn(text: string, names: readonly string[] = BROWSER_GLOBALS): string[] {
-  const file = ts.createSourceFile('x.ts', text, ts.ScriptTarget.ES2022, true)
-  const found = new Set<string>()
-  const walk = (node: ts.Node): void => {
-    if (ts.isIdentifier(node) && names.includes(node.text)) {
-      found.add(node.text)
-    }
-    ts.forEachChild(node, walk)
-  }
-  walk(file)
-  return [...found].sort()
-}
+const projectorClosure = (): ReturnType<typeof closureFrom> =>
+  closureFrom(MODULE, REAL_FILES, ROSTERS)
 
 /** The names of every module-scope `let`/`var` in `text`. */
 function mutableModuleBindingsIn(text: string): string[] {
@@ -405,18 +463,45 @@ describe('the partition between what a link carries and what it does not', () =>
 })
 
 describe('location and history are the caller’s', () => {
-  it('names no browser global anywhere in the module', () => {
-    expect(globalsNamedIn(SOURCE)).toEqual([])
+  it('reaches no browser global anywhere in its import closure', () => {
+    const closure = projectorClosure()
+    expect(closure.globals, 'a browser global is reachable from the projector').toEqual([])
+
+    // Vacuity floor by membership rather than by count, the form
+    // `store.test.ts` argues for: a resolver that silently resolved nothing
+    // would report a one-file closure with no DOM in it and look exactly like
+    // a pass. `site/hash.ts` leads the list because it is the module the
+    // single-file version of this assertion could not see — the measured
+    // plant went in there — and the `src/` entries say the walk crossed out of
+    // `site/` and went several levels deep.
+    for (const member of [
+      'site/hashprojection.ts',
+      'site/hash.ts',
+      'site/controls.ts',
+      'src/core/types.ts',
+    ]) {
+      expect(closure.files.some(file => file.endsWith(member)), `${member} is not in the closure`)
+        .toBe(true)
+    }
   })
 
-  it('…and the scan can see one, in code but not in prose', () => {
-    // Both halves of the control. The first proves the instrument fires; the
-    // second proves it fires on *references* and not on the docblocks this
-    // module is full of, which is the discrimination a grep cannot make.
-    expect(globalsNamedIn("const h = location.hash\nhistory.replaceState(null, '', h)\n"))
-      .toEqual(['history', 'location'])
-    expect(globalsNamedIn("// location.hash, then history.replaceState\nconst s = 'location'\n"))
-      .toEqual([])
+  it('…and the scan can see one a module deeper, in code but not in prose', () => {
+    // Both halves of the control, now over a graph rather than a string: the
+    // first proves the instrument fires *transitively*, which is the property
+    // the single-file version silently lacked; the second proves it fires on
+    // *references* and not on the docblocks this module is full of, which is
+    // the discrimination a grep cannot make.
+    const graph: Record<string, string> = {
+      '/plant/entry.ts': `import { b } from './b.js'\nexport const a = b\n`,
+      '/plant/b.ts': `const h = location.hash\nexport const b = history.replaceState(null, '', h)\n`,
+    }
+    const files: Files = { read: path => graph[path] }
+    expect(closureFrom('/plant/entry.ts', files, ROSTERS).globals)
+      .toEqual(['/plant/b.ts:1 location', '/plant/b.ts:2 history'])
+
+    graph['/plant/b.ts'] =
+      "// location.hash, then history.replaceState\nexport const b = 'location'\n"
+    expect(closureFrom('/plant/entry.ts', files, ROSTERS).globals).toEqual([])
   })
 
   it('holds no module-level mutable state, so two pages cannot share a fragment', () => {
@@ -993,20 +1078,35 @@ describe('what coalescing did not change', () => {
 })
 
 describe('the tick is the caller’s', () => {
-  it('names no timer or scheduler global anywhere in the module', () => {
+  it('reaches no timer or scheduler global anywhere in its import closure', () => {
     // Criterion 3's structural content, and the pair of the browser-global
     // scan above: a module that reached for `queueMicrotask` itself would
     // satisfy every behavioural test here while welding the editor's batching
     // policy into a file the composition root cannot override.
-    expect(globalsNamedIn(SOURCE, TIMER_GLOBALS)).toEqual([])
+    //
+    // Over the closure and not over this file, which is the half that was
+    // missing: `Date.now()` planted in `site/hash.ts` left the whole suite at
+    // 2227 passed. A codec that sampled a clock would make the projector's
+    // output depend on when it ran, and every behavioural test here injects
+    // the schedule and would never notice.
+    expect(projectorClosure().clocks, 'a clock or a timer is reachable from the projector')
+      .toEqual([])
   })
 
-  it('…and the scan can see one, in code but not in prose', () => {
-    expect(globalsNamedIn('queueMicrotask(flush)\nsetTimeout(flush, 0)\n', TIMER_GLOBALS)).toEqual([
-      'queueMicrotask',
-      'setTimeout',
-    ])
-    expect(globalsNamedIn("// queueMicrotask, or setTimeout\nconst s = 'Promise'\n", TIMER_GLOBALS))
-      .toEqual([])
+  it('…and the scan can see one a module deeper, in code but not in prose', () => {
+    const graph: Record<string, string> = {
+      '/plant/entry.ts': `import { b } from './b.js'\nexport const a = b\n`,
+      '/plant/b.ts': 'export const b = (flush: () => void): void => queueMicrotask(flush)\n',
+    }
+    const files: Files = { read: path => graph[path] }
+    expect(closureFrom('/plant/entry.ts', files, ROSTERS).clocks)
+      .toEqual(['/plant/b.ts:1 queueMicrotask'])
+
+    // The two sensors stay separable: a scheduler is not reported as a DOM
+    // reference, so a reader of either failure knows which rule was broken.
+    expect(closureFrom('/plant/entry.ts', files, ROSTERS).globals).toEqual([])
+
+    graph['/plant/b.ts'] = "// queueMicrotask, or setTimeout\nexport const b = 'Promise'\n"
+    expect(closureFrom('/plant/entry.ts', files, ROSTERS).clocks).toEqual([])
   })
 })

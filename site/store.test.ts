@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs'
-import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
@@ -15,7 +14,13 @@ import {
   snapTime,
   timeOfFrame,
 } from './transport.js'
-import { importSpecifiers } from '../src/core/testing/imports.js'
+import {
+  bindingRoot,
+  closureFrom,
+  lineIn,
+  unfollowableReferences,
+} from '../src/core/testing/sourceclosure.js'
+import type { Files } from '../src/core/testing/sourceclosure.js'
 import type { Scene } from '../src/core/types.js'
 
 const ANIM: Scene = { size: [64, 32], fps: 12, duration: 2, layers: [{ type: 'text', text: 'A' }] }
@@ -252,6 +257,13 @@ function tagOfReferencedAlias(
  * catches a per-arm decision that changes no state at all — a branch on the
  * discriminant whose body only logs, or counts, or notifies twice.
  *
+ * **…and all three are keyed to one source-text match, which is the fourth
+ * report's reason for existing.** Each of them fires only on a node whose left
+ * side reads exactly `self.state`, so a write through any other name for that
+ * object reaches none of them. {@link Delegation.aliased} is the complement:
+ * it says where a second name could have been made, rather than trying to
+ * enumerate what they might be called. See its docblock for the plant.
+ *
  * ## The hole the second half closed, and why there are three halves and not two
  *
  * There used to be two, and **a verifier measured that both could be evaded at
@@ -345,13 +357,30 @@ function tagOfReferencedAlias(
  *
  *  - {@link isSurface} asks *is there an in-module call site to check, or
  *    does this function leave the file?* and reports when it cannot tell.
- *  - {@link globalsIn}'s receiver test asks *does this expression evaluate
- *    to `globalThis`?* over the grammar's value-forwarding node kinds, which
- *    is a closed set rather than a list of spellings, and reports every
+ *  - `globalsIn`'s receiver test asks *does this expression evaluate to
+ *    `globalThis`?* over the grammar's value-forwarding node kinds, which is
+ *    a closed set rather than a list of spellings, and reports every
  *    `globalThis` whose fate it cannot follow.
  *
  * Both now fail **loud** where they used to fail silent. A false red is a
  * minute; a false green was a shift, twice.
+ *
+ * ## The fifth hole, which was underneath all four of them
+ *
+ * The four above are all about *where the write is*. The fifth was about
+ * **what the write is spelled**, and it defeated every one of them at once:
+ * `const box = self; box.state = {…}` is not a write to `self.state` by
+ * source text, so the duplicate reached no report at all — typecheck 0, 59
+ * passed, exit 0, with the honest write left in place to satisfy the vacuity
+ * floor. {@link Delegation.aliased} carries the measurement.
+ *
+ * **And it is the same rule a third time, so it got the same cure rather than
+ * a new one.** The sibling already reporting an unfollowable value is
+ * `globalsIn`'s receiver test, two bullets up — and that is now literally the
+ * same function: `unfollowableReferences` in
+ * `src/core/testing/sourceclosure.ts`, asked here of the storage receiver and
+ * there of `globalThis`. Two instruments that had to be kept in step is the
+ * defect that produced this round's findings; one asked twice cannot drift.
  *
  * **What is deliberately not constrained.** Construction. The guard is over
  * writes to the storage *after* it exists, never over building the initial
@@ -388,6 +417,56 @@ interface Delegation {
   readonly conditional: readonly string[]
   /** `Action` tags compared against a `.type` discriminant, `path:line tag`. */
   readonly tagsNamed: readonly string[]
+  /**
+   * References to the storage's receiver this walk cannot follow, `path:line …`
+   * — the fail-loud half, and the fifth hole's repair.
+   *
+   * ## The hole, measured, with a discriminating negative control
+   *
+   * Every field above is keyed off {@link storage}, and {@link storage} is
+   * matched by **source text**: `node.left.getText() === 'self.state'`. So a
+   * write through any other name for the same object was not a write at all to
+   * this instrument — it reached neither {@link writes}, nor
+   * {@link undelegated}, nor {@link conditional}. Planted into the real
+   * `site/store.ts`, an agreeing duplicate of the `depthView` arm:
+   *
+   * ```ts
+   * const next = reduce(self.state, action)
+   * self.state = next
+   * const box = self
+   * if ('value' in action && (action.value === 'composited' || action.value === 'encoded')) {
+   *   box.state = { ...self.state, depthView: action.value }
+   * }
+   * ```
+   *
+   * — **typecheck 0, 59 passed, exit 0.** Delete the two words
+   * `const box = self`, spell the identical write `self.state = …`, change
+   * nothing else, and this file reddens immediately. **The alias was the entire
+   * evasion**, and the vacuity floor did not save it because the honest write
+   * was left in place to satisfy it.
+   *
+   * ## Why this is a report and not a fourth matcher
+   *
+   * The repair that suggests itself is to teach the walk `box.state` — resolve
+   * aliases, or match a second spelling. That buys exactly one spelling, and
+   * the docblock above records three rounds of this guard having bought exactly
+   * the forms someone enumerated and then been defeated by one more. So this is
+   * keyed to the question — *can this walk follow every reference to the object
+   * that holds the state?* — and the complement of what it can follow is
+   * **reported**, which is the same posture {@link isSurface} and `globalsIn`'s
+   * receiver test already take and the same mechanism: `unfollowableReferences`
+   * in `src/core/testing/sourceclosure.ts`, asked here of the storage receiver
+   * and there of `globalThis`. One implementation, because these were one
+   * defect.
+   *
+   * The cost is a false **red** on a module that legitimately hands `self`
+   * somewhere — passes it to a helper, returns it, closes over it under another
+   * name. **The repair for that is to teach the walk the hop, never to drop the
+   * report**; the store's own `self` is read only as `self.<member>` at every
+   * one of its nine references, so the cost is nil today and will announce
+   * itself if it ever is not.
+   */
+  readonly aliased: readonly string[]
 }
 
 /**
@@ -436,7 +515,11 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
   // defect this whole file argues against, and deriving it means a rename of
   // the field or of the `self` object moves the guard with it instead of
   // quietly emptying it.
-  const storage = ((): string => {
+  // `text` is what a write is matched against; `receiver` is the binding that
+  // holds it, and is what {@link Delegation.aliased} follows. Both come out of
+  // the same extraction because they are two readings of one expression, and
+  // deriving the second separately is how they would come to disagree.
+  const storage = ((): { readonly text: string; readonly receiver: string } => {
     const factory = file.statements.find(
       (node): node is ts.FunctionDeclaration =>
         ts.isFunctionDeclaration(node) && node.name?.text === 'createSceneStore',
@@ -469,7 +552,18 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
         'tell which location holds the state',
       )
     }
-    return returned.getText()
+    // Refused rather than guessed, for the reason every other throw in this
+    // function is: a receiver that is not a plain identifier is one
+    // `unfollowableReferences` has no name to follow, and a guard that
+    // silently stopped following it would report clean over every alias — the
+    // exact failure {@link Delegation.aliased} exists because of.
+    if (!ts.isIdentifier(returned.expression)) {
+      throw new Error(
+        `${path}'s \`state()\` returns \`${returned.getText()}\`, whose receiver is not a plain ` +
+        'binding, so this guard cannot follow the object that holds the state',
+      )
+    }
+    return { text: returned.getText(), receiver: returned.expression.text }
   })()
 
   const isAssignment = (node: ts.Node): node is ts.BinaryExpression =>
@@ -583,7 +677,7 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
    * Declaration names, property names and import/export specifiers are not
    * reads of a local binding and are excluded; everything else is. File-wide
    * and not scope-aware, which is `fromReduce`'s posture one block up and
-   * `globalsIn`'s further down, and here the looseness **fails closed in the
+   * `globalsIn`'s in `sourceclosure.ts`, and here the looseness **fails closed in the
    * only direction it can**: a same-named binding somewhere else adds
    * references, and every reference has to clear the reachability test below,
    * so a collision can only make this guard stricter. It can produce a false
@@ -636,7 +730,7 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
    *
    * Parentheses, `as`, `satisfies`, `<T>x` and `!` are erased before anything
    * runs, so `return (api as SceneStore)` returns the literal. The inward
-   * spelling of the same family is {@link forwardedFrom} in `globalsIn`, and
+   * spelling of the same family is `forwardedFrom` in `sourceclosure.ts`, and
    * the two exist separately only because one walks up and one walks down.
    */
   const throughErasure = (node: ts.Node): ts.Node => {
@@ -874,7 +968,7 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
   const tagsNamed: string[] = []
 
   const walk = (node: ts.Node): void => {
-    if (isAssignment(node) && node.left.getText() === storage) {
+    if (isAssignment(node) && node.left.getText() === storage.text) {
       writes.push(at(node))
       // A compound assignment (`+=`) is never delegation whatever is on the
       // right, so the operator is part of the test and not just the shape.
@@ -912,592 +1006,41 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
   }
   walk(file)
 
-  return { storage, writes, undelegated, conditional, tagsNamed }
+  // The fail-loud half. Every field above is keyed to `storage.text` by source
+  // equality, so it can only see writes spelled that way; this says out loud
+  // where a second spelling could have been introduced. See
+  // {@link Delegation.aliased} for the plant that measured the need, and
+  // `sourceclosure.ts` for why the mechanism is shared with the `globalThis`
+  // receiver test rather than written twice.
+  const aliased = unfollowableReferences(file, storage.receiver, bindingRoot(storage.receiver)).map(
+    node =>
+      `${path}:${lineIn(file, node)} \`${storage.receiver}\` escapes to somewhere this walk ` +
+      `cannot follow, so a write to \`${storage.text}\` through it would be invisible`,
+  )
+
+  return { storage: storage.text, writes, undelegated, conditional, tagsNamed, aliased }
 }
 
 /* ------------------------------------------------------ the import closure */
 
 /**
- * A file reader, injected so the closure walk below can be run over a graph
- * whose answer is known.
+ * The closure walk, the globals sensor and the escape report are **not here**.
  *
- * `transportdriver.ts`'s header is the precedent and states the reason: with
- * the clock and the scheduler as arguments, "a whole playback session … is
- * expressible as a sequence of values in a test". The same move buys this
- * instrument a control. Without one, a resolver that silently resolved nothing
- * would report a one-file closure with no DOM in it and look exactly like a
- * pass — §9's "a check that cannot see reports fine", of which this repo has
- * eight recorded instances.
+ * They live in `src/core/testing/sourceclosure.ts`, which that module's header
+ * explains at length. The short reason is the one this file keeps recording
+ * about `site/store.ts` itself: a second implementation of a thing is this
+ * repo's signature defect, and it was measured here rather than inferred.
+ * `site/hashprojection.test.ts` had grown its own **single-file** identifier
+ * scan for the same two questions this closure walk answers, so `site/hash.ts`
+ * — the projector's one runtime import — was in neither instrument's reach. A
+ * clock and a browser global planted in it left the whole repository green at
+ * 99 files / 2227 passed / exit 0.
+ *
+ * Both files ask the shared walk now. The controls below still live here,
+ * because they are controls for the *claims this file makes*; the module they
+ * exercise is simply no longer private to it.
  */
-interface Files {
-  /** The text at `path`, or `undefined` if there is nothing readable there. */
-  read(path: string): string | undefined
-}
 
-const REAL_FILES: Files = {
-  read(path) {
-    // A directory throws EISDIR, which is the answer "not a module here" — so
-    // the candidate loop in `resolveModule` needs no separate stat.
-    try {
-      return readFileSync(path, 'utf8')
-    } catch {
-      return undefined
-    }
-  },
-}
-
-/** The file a relative specifier names, under this repo's `.js`-for-`.ts` convention. */
-function resolveModule(files: Files, from: string, specifier: string): string | undefined {
-  if (!specifier.startsWith('.')) return undefined
-  const base = resolve(dirname(from), specifier)
-  for (const candidate of [base.replace(/\.js$/, '.ts'), `${base}.ts`, base, `${base}/index.ts`]) {
-    if (files.read(candidate) !== undefined) return candidate
-  }
-  return undefined
-}
-
-/**
- * The browser globals a module in the editor's *state* layer may not reach.
- *
- * `location` and `history` are here because criterion 8's second half — the
- * hash projection — is a separate task with a separate owner, and a store that
- * had already reached for `history.replaceState` would have taken that
- * decision quietly.
- */
-const BROWSER_GLOBALS = ['document', 'window', 'location', 'history', 'navigator', 'localStorage']
-
-/**
- * The ways this layer could make its own tick instead of being handed one.
- *
- * Kept apart from {@link BROWSER_GLOBALS} and reported separately, because the
- * two fail for different reasons and a merged failure could not tell "it
- * reached the DOM" from "it welded in a clock" — the same separation
- * `hashprojection.test.ts` records for its own pair.
- *
- * This is criterion 3's sensor. `transportdriver.ts` states the property being
- * protected: *"Both the clock and the scheduler are arguments. Nothing here
- * reads a clock or creates a timer, so a whole playback session … is
- * expressible as a sequence of values in a test, in plain node, with no DOM and
- * no fake-timer plugin."* The transport actions carry `nowMs`, so the moment
- * any module in this closure could read the time for itself, that sentence
- * stops being true of the store and nothing else in the suite would say so.
- *
- * `Date` and `performance` are the clocks; the schedulers are here because a
- * module that can defer can also sample the clock by differencing its own
- * callbacks. `process` is neither, and is here because `process.hrtime` is the
- * node-shaped way to do the first one and `src/core` is shared with the CLI.
- *
- * ## What this roster's weakness actually is — corrected, with the measurement
- *
- * C-2 shipped this list knowingly weak and recorded the weakness as §9's
- * **hand-written-list** shape: *"a novel clock spelling passes it, and C-2
- * could not derive the list from anything."* **A verifier measured that this is
- * not the mechanism, and the misdiagnosis sends the next reader to the wrong
- * cure.** Planted into `site/transport.ts`, in the real import closure,
- * grep-confirmed, build first:
- *
- * | plant | before | after |
- * |---|---|---|
- * | `Date.now()` — positive control | **RED** | **RED** |
- * | `globalThis.Date.now()` | 24/24 green | **RED** |
- * | `Promise.resolve().then(f)` | 24/24 green | **RED** |
- *
- * `Date` **was** on the roster and `globalThis.Date` passed anyway, because
- * prefixing a global makes it the `name` of a `PropertyAccessExpression` and
- * {@link globalsIn} deliberately skipped those — so **every listed name was
- * evadable the same way**, and lengthening the roster could not have closed any
- * of it. That suppression is narrowed at its single `globalThis` receiver
- * rather than removed; see {@link globalsIn}, which records why removing it is
- * not available.
- *
- * `Promise` is the one genuine roster gap of the three, and it is an
- * inconsistency inside this list's own stated intent rather than a derivation
- * failure: `queueMicrotask` is listed, and `Promise.resolve().then(f)` is the
- * same microtask by its other spelling. It is added on that ground alone.
- *
- * **Adding it cost a second fix, and the second fix is the more general one.**
- * `Promise` on this roster reddened the real closure at nine sites, and **all
- * nine were type annotations** — `loadImage(src): Promise<DecodedImage>` and
- * `images: Map<string, Promise<DecodedImage>>` in
- * `src/core/{canvaslike,raster,render}.ts`, the image-decode path. A type
- * schedules nothing, so {@link globalsIn} now ignores type position for every
- * name on either roster. That was a latent false positive the whole time and
- * `Promise` is simply the first entry common enough in a type to expose it.
- *
- * **This list is still not derived and still not complete**, and that is
- * recorded here as an acceptance rather than a note, because §9 forbids a note:
- * the acceptance is sensored by the controls below, which fail the day one of
- * the three plants above stops being seen.
- *
- * ## The recorded residue was understated, and its stated reason was false
- *
- * This paragraph used to say the remainder was *"out of reach of any parser
- * that is not a type checker"*. **A verifier then measured five spellings of
- * `globalThis` walking straight past the sensor, none of which needs a type
- * checker** — `(globalThis).X`, `(globalThis as any).X`, `globalThis!.X`,
- * `globalThis.globalThis.X` and `(globalThis as any)['X']`. They are a
- * one-function parser fix and they are now caught; see {@link globalsIn}.
- *
- * **A residue whose stated reason is false is worse than an unstated one**,
- * because the reason is what the next reader uses to decide not to look. That
- * is how this gap survived a shift.
- *
- * ## …and the residue that replaced it read as exhaustive, and was not
- *
- * The table that went here listed four spellings and two reasons, and it was
- * short by at least three — `(Math.random(), globalThis).Date.now()`,
- * `(true ? globalThis : globalThis).Date.now()` and
- * `Reflect.get(globalThis, 'Date').now()`, all typecheck 0, all invisible,
- * **none needing a resolver or a type checker**. The comma operator is the
- * one that settles the argument: this file's own stated principle is that
- * *wrappers which cannot change the value are erased before anything runs*,
- * the comma operator's value **is** its right operand, and the implementation
- * did not cover it. The principle was right and the enumeration was short,
- * twice running — so a third enumeration was not the fix and is not what
- * shipped.
- *
- * ## What shipped instead: the complement, not a list
- *
- * {@link globalsIn} now answers its question in two halves that partition the
- * space between them, so the residue is a property of the partition rather
- * than of anyone's imagination:
- *
- *  - **Decided.** The receiver resolves to `globalThis` through the
- *    grammar's *value-forwarding* node kinds — erasure wrappers, the comma
- *    operator, `?:`, `&&`/`||`/`??`, and `globalThis`'s own self-reference —
- *    and the member is read by name or by a string literal. A hit is
- *    reported if the member is on a roster. This set is closed by the
- *    grammar: it is every node whose runtime value *is* the value of a named
- *    sub-expression, which is a finite list, not a finite sample.
- *  - **Undecided.** Every other `globalThis` reference in the file — handed
- *    to a binding, returned from a function, passed as an argument, indexed
- *    by anything that is not a string literal. These are now **reported**,
- *    not passed, and the controls pin all seven measured spellings including
- *    the four that used to be this table.
- *
- * So there is no longer a list of spellings that get through on the
- * `globalThis` path. There is a cost, and it is a false **red**: a module
- * that legitimately touches `globalThis` is reported. Measured at the time of
- * writing, the store's closure is **21 files containing zero occurrences of
- * the token**, so the cost is currently nil; the repair if one arrives is to
- * teach the walk that spelling, never to drop the report.
- *
- * ## What remains out of reach, and this list states its own boundary
- *
- * These are the ways a clock can still reach this closure unseen. Each is
- * labelled with what it would take to close it, which is separate from the
- * fact that it is open:
- *
- * | still invisible | why, and what would close it |
- * |---|---|
- * | a module that both declares and uses a listed name, off the `globalThis` path | the declaration suppression's stated price; needs scope-aware resolution, i.e. a type checker |
- * | a clock whose name is not on this roster — `Worker`, `Atomics.wait`, a vendored timer | this roster is not derived from anything and says so; the controls below fail the day a listed one stops being seen, but they cannot invent an unlisted one |
- * | a clock reached through text this walk never parses — `eval`, `new Function`, a template fed to either | not a parser limit and not a resolver limit: the code does not exist as code until it runs |
- * | a clock inside a module outside the closure — any non-relative specifier | `resolveModule` resolves relative paths only, so `node_modules` is outside this instrument by construction |
- *
- * **This table is the boundary, not a sample.** If a spelling is found that
- * is none of these four and is not reported as undecided, the partition above
- * has a gap and the gap is the defect — not the omission from a list.
- */
-const CLOCKS = [
-  'Date',
-  'performance',
-  'setTimeout',
-  'setInterval',
-  'clearTimeout',
-  'clearInterval',
-  'requestAnimationFrame',
-  'queueMicrotask',
-  // The other spelling of `queueMicrotask`, and the one a verifier measured
-  // walking straight past this list.
-  'Promise',
-  'process',
-]
-
-/**
- * References to `names` in `text`, parsed and not grepped.
- *
- * A grep cannot do this job here and that is measured, not assumed: a
- * word-boundary search over this exact closure returns six hits, and **all six
- * are prose** — `site/scene.ts:14` says a scene may arrive "from
- * `location.hash`", `src/core/analysis.ts:21` discusses a measurement
- * *window*, `src/core/anim/presets.ts:393` mentions a file's *history*. An
- * identifier node is never a comment and never the inside of a string, which
- * is the same argument `src/core/testing/imports.ts` records for parsing
- * imports rather than grepping them.
- *
- * **A name the file itself declares is not a global**, and that suppression is
- * file-wide rather than scope-aware. `site/present.ts` takes a parameter named
- * `location`, so a parser that ignored declarations would accuse it; a
- * resolver that got the scopes right is a type-checker and not worth building
- * here. The cost is a false *negative* for a file that both declares and uses
- * the same name — which is why the list leads with `document` and `window`,
- * the two no module shadows, and why the control below plants a file that
- * declares `location` and still gets caught on `document`.
- *
- * ## `globalThis.X` is the global, and that was the measured hole
- *
- * The member-name suppression below is the reason {@link CLOCKS}' recorded
- * weakness was diagnosed wrongly. `globalThis.Date.now()` planted in
- * `site/transport.ts` made `Date` the `name` of a `PropertyAccessExpression`,
- * which this function skipped, and the sensor stayed green over a clock it
- * lists by name — so **every entry in either roster was evadable by prefixing
- * it**, and no amount of adding names could have helped.
- *
- * **The suppression is narrowed rather than removed, and the narrowing is the
- * whole fix.** Removing it reddens `site/present.ts` and anything else with a
- * property called `window`; keeping it whole leaves the hole. The one receiver
- * for which `X.name` *is* the global is `globalThis`, by definition of
- * `globalThis`, so that single case is unskipped — and it is also exempted
- * from the declaration filter, because a file declaring its own `Date` does not
- * make `globalThis.Date` anything other than the clock. The index spelling
- * `globalThis['Date']` is matched beside it, since a string index is not an
- * identifier and the walk would never have reached it.
- *
- * **Type position is not a reach either**, and that one is not a trade: an
- * identifier under a type node cannot schedule or sample anything. It is
- * suppressed for the same reason comments and strings are, and it is what made
- * `Promise` addable to {@link CLOCKS} — nine of the closure's `Promise`
- * references are `Promise<DecodedImage>` and none of them is a microtask.
- *
- * ## The four it could not see are now the four it says it cannot see
- *
- * That paragraph used to end here with a list — a receiver laundered through
- * a variable, a receiver returned from a call, a computed member name, a
- * concatenated member name — each *"confirmed green"*, which is this file's
- * own word for invisible. **A list of spellings that pass is a list someone
- * has to keep complete, and it was measured short by three.** It is replaced
- * by the complement: every `globalThis` reference whose fate this walk cannot
- * follow is pushed to `escaped` and reported, so the four above now redden
- * along with every spelling nobody has thought of. {@link CLOCKS} states what
- * remains out of reach after that, and states it as a boundary rather than as
- * a sample.
- *
- * The cost is a false **red** on a legitimate `globalThis`, which is the
- * direction this instrument is allowed to be wrong in — the same posture
- * `delegationIn`'s `readsByName` records one function up. The store's closure
- * contained zero occurrences of the token when this was written, so the cost
- * was nil on the day it shipped and will announce itself loudly if it ever is
- * not.
- *
- * **If a clock slips past this, widen {@link isGlobalRoot} or the roster. Do
- * not re-narrow either to make a red go away** — every hole this function has
- * had was a narrowing that looked reasonable at the time.
- */
-function globalsIn(path: string, text: string, names: readonly string[]): readonly string[] {
-  const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true)
-  const declared = new Set<string>()
-  const hits: string[] = []
-  // Reached through `globalThis`, so neither the member-name suppression nor
-  // the declaration filter applies — these are the global whatever the file
-  // calls its own bindings.
-  const rooted: string[] = []
-  /**
-   * `globalThis` references that do not end in a member read this walk can
-   * name — reported rather than passed, which is the whole of the repair.
-   *
-   * Roster-independent on purpose: a receiver this walk has lost could be
-   * read for *any* global, so the report is the same for both rosters and
-   * appears in whichever one is being asked about.
-   */
-  const escaped: string[] = []
-  const lineOf = (node: ts.Node): number =>
-    file.getLineAndCharacterOfPosition(node.getStart()).line + 1
-  /**
-   * Whether `node` evaluates to `globalThis`, however it is spelled.
-   *
-   * **This used to be `ts.isIdentifier(node) && node.text === 'globalThis'`,
-   * and a verifier measured five spellings of the same receiver walking
-   * straight past it**, each planted in the real `site/transport.ts`,
-   * grep-confirmed, and restored between runs:
-   *
-   * | plant | before |
-   * |---|---|
-   * | `(globalThis).Date.now()` | 25/25 green |
-   * | `(globalThis as any).Date.now()` | 25/25 green |
-   * | `globalThis!.Date.now()` | 25/25 green |
-   * | `globalThis.globalThis.Date.now()` | 25/25 green |
-   * | `(globalThis as any)['Date'].now()` | 25/25 green |
-   *
-   * **None of the five needs a type checker to see**, which is why the gap was
-   * not covered by the recorded residue: that residue blamed "out of reach of a
-   * parser that is not a type checker", and the reason was false. A false
-   * reason is worse than no reason, because it sends the next reader past the
-   * thing they could have fixed in a line. The residue below is rewritten.
-   *
-   * ## Five node kinds was not the class either, and the docblock said why
-   *
-   * The five-kind version above was then measured against three more
-   * spellings and lost all three — `(Math.random(), globalThis).X`,
-   * `(true ? globalThis : globalThis).X` and `Reflect.get(globalThis,'X')`.
-   * **The comma operator is the one that settles it**: the principle stated
-   * in the next paragraph — *wrappers that cannot change the value are erased
-   * before anything runs* — covers `(x, globalThis)` exactly, because the
-   * comma operator's value **is** its right operand. The principle was right
-   * and the enumeration was short, for the second round running.
-   *
-   * So this is no longer keyed to a list of spellings. It is keyed to
-   * {@link forwardedFrom}, which is the grammar's **value-forwarding** node
-   * kinds: every node whose runtime value is the value of a named
-   * sub-expression. That is a closed set — the grammar has finitely many such
-   * productions and they are all here — where "spellings someone planted" is
-   * an open one. A node kind that forwards goes in `forwardedFrom`; nothing
-   * goes in this function.
-   *
-   * The families, and why each is `globalThis` rather than merely near it:
-   *
-   *  - **Wrappers that cannot change the value.** Parentheses, `as`,
-   *    `satisfies`, `<T>x` and `!` are all erased before anything runs, so the
-   *    receiver underneath is the one that is reached. `(globalThis as any).X`
-   *    is the *idiomatic* TypeScript spelling of this evasion and the one a
-   *    real one would be written in — the suite's own control put its cast
-   *    around the element access instead, `(globalThis['Date'] as
-   *    DateConstructor)`, which leaves `globalThis` a bare identifier and so
-   *    exercised the cast in the one position where it does not break this.
-   *    **Vary the position, not just the presence.**
-   *  - **Operators whose value is one of their operands.** The comma operator
-   *    yields its right; `?:` yields one branch; `&&`, `||` and `??` yield
-   *    one side. For the branching three, *every* value the expression can
-   *    take must be `globalThis` — `(c ? globalThis : other)` is not, and the
-   *    escape check reports it rather than letting it pass as neither.
-   *  - **`globalThis`'s own self-reference.** `globalThis.globalThis` *is*
-   *    `globalThis`, by the specification, and so is the index spelling of it,
-   *    to any depth. Recursing on the receiver covers the family rather than
-   *    the one rung someone thought to plant.
-   *
-   * Plain assignment is deliberately **not** forwarding, though its value is
-   * its right operand: `(g = globalThis).X` would be decided while leaving
-   * `g` holding the global unseen, so it is left to the escape check, which
-   * reports it. A forwarding rule that creates a laundered binding buys one
-   * spelling and sells a silent one.
-   *
-   * Optional chaining (`globalThis?.Date`) needs nothing here: it is already a
-   * `PropertyAccessExpression` whose `expression` is the bare identifier.
-   *
-   * `Reflect.get(globalThis, 'X')` is **not** here and is not a forwarding
-   * node — it is a member read spelled as a call, and the set of those
-   * (`Reflect.get`, a destructure, `Object.entries`, a `with` block) is open
-   * in exactly the way this function stopped enumerating. It is caught by the
-   * other half: `globalThis` in an argument position is a receiver this walk
-   * has lost, and a lost receiver is reported.
-   *
-   * **If this reddens because a receiver spelling was added rather than
-   * removed, widen {@link forwardedFrom} — do not narrow the call sites.** The
-   * cheapest way to make a clock-sensor failure go away is to put the
-   * bare-identifier test back, and that is the defect, not the fix.
-   *
-   * ---
-   *
-   * `forwardedFrom` is the first half of that: the sub-expressions `node`'s
-   * runtime value can be, or `undefined` if `node` is not value-forwarding
-   * syntax. The docblock above is written about the pair, because the pair is
-   * the answer and either alone is a node-kind list.
-   */
-  const forwardedFrom = (node: ts.Node): readonly ts.Expression[] | undefined => {
-    if (
-      ts.isParenthesizedExpression(node) || ts.isAsExpression(node) ||
-      ts.isSatisfiesExpression(node) || ts.isTypeAssertionExpression(node) ||
-      ts.isNonNullExpression(node)
-    ) {
-      return [node.expression]
-    }
-    if (ts.isConditionalExpression(node)) return [node.whenTrue, node.whenFalse]
-    if (ts.isBinaryExpression(node)) {
-      const kind = node.operatorToken.kind
-      if (kind === ts.SyntaxKind.CommaToken) return [node.right]
-      if (
-        kind === ts.SyntaxKind.AmpersandAmpersandToken ||
-        kind === ts.SyntaxKind.BarBarToken ||
-        kind === ts.SyntaxKind.QuestionQuestionToken
-      ) {
-        return [node.left, node.right]
-      }
-    }
-    return undefined
-  }
-
-  /** Whether `node` evaluates to `globalThis` — the docblock three up. */
-  const isGlobalRoot = (node: ts.Expression): boolean => {
-    const forwarded = forwardedFrom(node)
-    if (forwarded !== undefined) return forwarded.every(isGlobalRoot)
-    if (ts.isIdentifier(node)) return node.text === 'globalThis'
-    if (ts.isPropertyAccessExpression(node)) {
-      return node.name.text === 'globalThis' && isGlobalRoot(node.expression)
-    }
-    if (ts.isElementAccessExpression(node)) {
-      return ts.isStringLiteral(node.argumentExpression) &&
-        node.argumentExpression.text === 'globalThis' && isGlobalRoot(node.expression)
-    }
-    return false
-  }
-
-  /**
-   * The outermost expression whose value is `node`'s — {@link forwardedFrom}
-   * walked upwards, which is the direction the escape check below needs.
-   */
-  const topOfForwarding = (node: ts.Expression): ts.Expression => {
-    let at: ts.Expression = node
-    for (;;) {
-      const parent: ts.Node | undefined = at.parent
-      if (parent === undefined) return at
-      const forwarded = forwardedFrom(parent)
-      if (forwarded === undefined || !forwarded.includes(at)) return at
-      at = parent as ts.Expression
-    }
-  }
-
-  /** Whether `node` is the receiver of a member read this walk can name. */
-  const isDecidedReceiver = (node: ts.Expression): boolean => {
-    const parent = node.parent
-    if (ts.isPropertyAccessExpression(parent)) return parent.expression === node
-    if (ts.isElementAccessExpression(parent)) {
-      return parent.expression === node && ts.isStringLiteral(parent.argumentExpression)
-    }
-    return false
-  }
-
-  /**
-   * Whether this `globalThis` is a *reference to the value*, not a name.
-   *
-   * `globalThis.globalThis` has two identifiers spelling it and only the
-   * receiver is a reference; the member one is handled by the recursion in
-   * {@link isGlobalRoot}. A type position references nothing at runtime.
-   */
-  const isValueReference = (node: ts.Identifier): boolean => {
-    const parent = node.parent
-    if (ts.isTypeNode(parent)) return false
-    if (ts.isPropertyAccessExpression(parent) && parent.name === node) return false
-    if (ts.isQualifiedName(parent) && parent.right === node) return false
-    if (ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)) return false
-    if (
-      (ts.isVariableDeclaration(parent) || ts.isParameter(parent) ||
-        ts.isBindingElement(parent) || ts.isFunctionDeclaration(parent) ||
-        ts.isClassDeclaration(parent) || ts.isMethodDeclaration(parent) ||
-        ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) ||
-        ts.isPropertyDeclaration(parent) || ts.isMethodSignature(parent)) &&
-      parent.name === node
-    ) {
-      return false
-    }
-    return true
-  }
-
-  const walk = (node: ts.Node): void => {
-    if (
-      (ts.isVariableDeclaration(node) || ts.isParameter(node) || ts.isFunctionDeclaration(node) ||
-        ts.isBindingElement(node) || ts.isImportSpecifier(node) || ts.isImportClause(node) ||
-        ts.isClassDeclaration(node)) &&
-      node.name && ts.isIdentifier(node.name)
-    ) {
-      declared.add(node.name.text)
-    }
-    // The complement of everything above: a reference to `globalThis` that
-    // does not end in a member read this walk can name. See {@link escaped}.
-    if (ts.isIdentifier(node) && node.text === 'globalThis' && isValueReference(node)) {
-      const top = topOfForwarding(node)
-      if (!(isGlobalRoot(top) && isDecidedReceiver(top))) {
-        escaped.push(`${path}:${lineOf(node)} globalThis escapes to somewhere this walk cannot follow`)
-      }
-    }
-    if (
-      ts.isElementAccessExpression(node) && isGlobalRoot(node.expression) &&
-      ts.isStringLiteral(node.argumentExpression) && names.includes(node.argumentExpression.text)
-    ) {
-      rooted.push(`${path}:${lineOf(node)} ${node.argumentExpression.text}`)
-    }
-    if (ts.isIdentifier(node) && names.includes(node.text)) {
-      const parent = node.parent
-      // `a.window` is a property named `window`, not the global — but
-      // `globalThis.window` is, and that exception is the measured fix.
-      const viaGlobalThis =
-        ts.isPropertyAccessExpression(parent) && parent.name === node &&
-        isGlobalRoot(parent.expression)
-      const isMemberName =
-        // A *type* is not a reach: `Promise<DecodedImage>` schedules nothing
-        // and `images: Map<string, Promise<T>>` is a cache's declared shape.
-        // Measured, and it is the difference between `Promise` being usable on
-        // this roster and not: the store's closure holds nine `Promise`
-        // references and **all nine are type annotations** on the image-decode
-        // path in `src/core/{canvaslike,raster,render}.ts`.
-        ts.isTypeNode(parent) ||
-        (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
-        (ts.isPropertySignature(parent) && parent.name === node) ||
-        (ts.isPropertyAssignment(parent) && parent.name === node) ||
-        (ts.isPropertyDeclaration(parent) && parent.name === node) ||
-        (ts.isMethodSignature(parent) && parent.name === node) ||
-        (ts.isQualifiedName(parent) && parent.right === node) ||
-        ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)
-      if (viaGlobalThis) {
-        rooted.push(`${path}:${lineOf(node)} ${node.text}`)
-      } else if (!isMemberName) {
-        hits.push(`${path}:${lineOf(node)} ${node.text}`)
-      }
-    }
-    ts.forEachChild(node, walk)
-  }
-  walk(file)
-  return [
-    ...hits.filter(hit => !declared.has(hit.slice(hit.lastIndexOf(' ') + 1))),
-    ...rooted,
-    ...escaped,
-  ]
-}
-
-interface Closure {
-  /** Every file reachable from the entry by a static or dynamic specifier. */
-  readonly files: readonly string[]
-  /** Every browser-global reference in them, `path:line name`. */
-  readonly globals: readonly string[]
-  /** Every {@link CLOCKS} reference in them, `path:line name`. */
-  readonly clocks: readonly string[]
-  /** Every Svelte specifier in them. */
-  readonly svelte: readonly string[]
-}
-
-/**
- * Walk the whole import graph from `entry`, not just `entry` itself.
- *
- * Criterion 1 says "nothing **it imports** reaches `document`", which is a
- * claim about the closure. `site/transport.test.ts:484` makes the one-file
- * version of this claim over `transport.ts`, and that is the right shape for a
- * leaf module; a store's whole purpose is to pull `controls.ts`'s graph in
- * behind it, so the one-file version would be silent about the only way this
- * criterion can actually fail.
- *
- * Specifier extraction is `src/core/testing/imports.ts`'s, deliberately: it
- * already covers static, bare side-effect, `import type`, `import('x').T`,
- * dynamic `import()` and `require()`, and a fourth hand-rolled copy in this
- * repo is the defect `transport.test.ts:91` exists to talk about.
- */
-function closureFrom(entry: string, files: Files = REAL_FILES): Closure {
-  const seen = new Set<string>()
-  const globals: string[] = []
-  const clocks: string[] = []
-  const svelte: string[] = []
-  const pending = [entry]
-  while (pending.length > 0) {
-    const path = pending.pop()
-    if (path === undefined || seen.has(path)) continue
-    const text = files.read(path)
-    if (text === undefined) continue
-    seen.add(path)
-    globals.push(...globalsIn(path, text, BROWSER_GLOBALS))
-    clocks.push(...globalsIn(path, text, CLOCKS))
-    for (const specifier of importSpecifiers(text, ts.ScriptKind.TS)) {
-      if (specifier === 'svelte' || specifier.startsWith('svelte/') || specifier.endsWith('.svelte')) {
-        svelte.push(`${path} imports ${specifier}`)
-      }
-      const next = resolveModule(files, path, specifier)
-      if (next !== undefined) pending.push(next)
-    }
-  }
-  return {
-    files: [...seen].sort(),
-    globals: globals.sort(),
-    clocks: clocks.sort(),
-    svelte: svelte.sort(),
-  }
-}
 
 /* ------------------------------------------------------------------ tests */
 
@@ -1585,6 +1128,15 @@ describe('createSceneStore', () => {
       'deciding something per-arm. Selecting or suppressing one arm is the same defect as ' +
       're-implementing it.',
     ).toEqual([])
+
+    expect(
+      found.aliased,
+      'the object holding the store\'s state is referenced somewhere this walk cannot follow, ' +
+      'so the three reports above — all of which match a write by its source text — can no ' +
+      'longer be trusted to have seen every write. `const box = self; box.state = {…}` was ' +
+      'measured invisible to all three. The repair is to teach the walk the hop, never to ' +
+      'drop this report: see `Delegation.aliased`.',
+    ).toEqual([])
   })
 
   it('would see an agreeing second implementation of a reducer arm, which is the control', () => {
@@ -1612,6 +1164,7 @@ describe('createSceneStore', () => {
     expect(honest.undelegated).toEqual([])
     expect(honest.conditional).toEqual([])
     expect(honest.tagsNamed).toEqual([])
+    expect(honest.aliased).toEqual([])
 
     // REASSIGNED, and this is the plant that was measured invisible: a name
     // declared from `reduce` and then overwritten from an object literal, with
@@ -1816,7 +1369,7 @@ describe('createSceneStore', () => {
      * Three arms, because the boundary has three ways to be wrong and only
      * one of them is "too wide". The second pins that a `return` through an
      * erasure wrapper is still a `return` — `as` changes no value, which is
-     * the same principle {@link globalsIn}'s receiver test is keyed to. The
+     * the same principle `globalsIn`'s receiver test is keyed to. The
      * third is what makes the narrowness safe rather than merely narrow: a
      * factory spelled any other way is refused **upstream**, by the `storage`
      * extractor, with a message naming what moved — so the surface test never
@@ -1862,7 +1415,7 @@ describe('createSceneStore', () => {
      * produce a false red. It cannot produce a false green."*
      *
      * It is **in reach and not taken**, which is the honest label and the one
-     * {@link CLOCKS}' residue table uses for the same situation: following
+     * `CLOCKS`' residue table uses for the same situation: following
      * `handlers.apply()` needs the climb to key call sites on
      * `<binding>.<member>` rather than on a bare identifier, which is a parser
      * change and not a type-checker one. It is left because a store that
@@ -1917,6 +1470,142 @@ describe('createSceneStore', () => {
     // And the instrument refuses rather than reporting clean when the module
     // moves under it — an empty `storage` would sweep nothing and pass.
     expect(() => of('export const nothing = 1\n')).toThrow(/no longer declares `createSceneStore`/)
+  })
+
+  it('reports a second name for the storage rather than trying to recognise one', () => {
+    /*
+     * ## The plant this exists for, and why it is not an enumeration
+     *
+     * Every assertion in the control above is keyed to a write whose left side
+     * reads exactly `self.state`. `const box = self; box.state = {…}` is the
+     * same write with a different source text, and it was measured against the
+     * real `site/store.ts` at **typecheck 0, 59 passed, exit 0** — reaching
+     * none of `writes`, `undelegated` or `conditional`, with the honest write
+     * left in place so the vacuity floor stayed satisfied.
+     *
+     * The three previous repairs of this guard each taught it one more
+     * spelling and each was defeated by one more, so this one does not try to
+     * recognise `box.state`. It asks whether every reference to the object
+     * holding the state is one the walk can follow, and reports the ones that
+     * are not — the sibling mechanism `globalsIn` already uses for
+     * `globalThis`, which is now literally the same function.
+     *
+     * **The rows below are hops, not alias spellings.** Each is a different
+     * *grammatical* way to lose the receiver; none of them is a name anybody
+     * has to keep a list of, which is the whole difference from the three
+     * repairs that came before.
+     */
+    const tags = actionKindsDeclaredIn(readFileSync(CONTROLS, 'utf8'))
+    const module = (dispatchBody: string): string =>
+      'import { reduce } from \'./controls.js\'\n' +
+      'export function createSceneStore(initial: UiState): SceneStore {\n' +
+      '  const self = { state: initial }\n' +
+      '  return {\n' +
+      '    state(): UiState { return self.state },\n' +
+      `    dispatch(action: Action): void {\n${dispatchBody}\n    },\n` +
+      '  }\n}\n'
+    const of = (source: string): Delegation => delegationIn('/plant/store.ts', source, tags)
+
+    // THE MEASURED PLANT. An agreeing duplicate of the `depthView` arm written
+    // through an alias, which is invisible to all three reports above.
+    const aliased = of(module(
+      '      const next = reduce(self.state, action)\n' +
+      '      self.state = next\n' +
+      '      const box = self\n' +
+      "      if ('value' in action && (action.value === 'composited' || action.value === 'encoded')) {\n" +
+      '        box.state = { ...self.state, depthView: action.value }\n' +
+      '      }'))
+    expect(aliased.aliased.length, 'an alias of the storage receiver must be reported').toBe(1)
+    expect(aliased.aliased[0]).toBe(
+      '/plant/store.ts:9 `self` escapes to somewhere this walk cannot follow, so a write to ' +
+      '`self.state` through it would be invisible',
+    )
+    // …and the message names the **hop**, not the name the hop was given. A
+    // report that said `box` would be a report someone could satisfy by
+    // picking a different word, which is the defect this replaces.
+    expect(aliased.aliased[0], 'the report must not be keyed to the alias name')
+      .not.toContain('box')
+    // The other three stay silent, which is the point: this is the only
+    // instrument in the file that can see this plant.
+    expect(aliased.undelegated).toEqual([])
+    expect(aliased.conditional).toEqual([])
+    expect(aliased.tagsNamed).toEqual([])
+
+    /*
+     * ## The hops, and the negative half beside them
+     *
+     * Each row loses the receiver a different way. The last three are the same
+     * families `globalsIn`'s escape check reports for `globalThis`, which is
+     * the evidence that sharing the mechanism shared the coverage and not just
+     * the code.
+     */
+    for (const [body, why] of [
+      ['      const box = self\n      void box', 'bound to a second name'],
+      ['      let box = self as typeof self\n      box = self\n      void box', 'assigned to a binding'],
+      ['      const take = (o: typeof self): void => { void o }\n      take(self)',
+        'passed as an argument'],
+      ['      const give = (): typeof self => self\n      void give()', 'returned from a function'],
+      ['      const k = \'state\' as string\n      void (self as never as Record<string, unknown>)[k]',
+        'indexed by something that is not a string literal'],
+      ['      const pair = (c: boolean): typeof self => (c ? self : self)\n      void pair(true)',
+        'forwarded through a conditional and then returned'],
+    ] as const) {
+      const found = of(module(`      self.state = reduce(self.state, action)\n${body}`))
+      expect(found.aliased.length, `\`${why}\` must be reported, not passed`).toBeGreaterThan(0)
+      for (const line of found.aliased) {
+        expect(line, `\`${why}\``).toMatch(
+          /^\/plant\/store\.ts:\d+ `self` escapes to somewhere this walk cannot follow, /,
+        )
+      }
+    }
+
+    /*
+     * ## The negative half, and it is the load-bearing one
+     *
+     * A receiver the walk **can** follow must not be reported, or this
+     * degenerates into "this module says `self`" and its cheapest satisfying
+     * action becomes deleting it. The real module reads `self` nine times and
+     * every one is `self.<member>`; these rows are the member spellings the
+     * walk is required to accept, including the erasure wrappers that change
+     * no value.
+     */
+    for (const [body, why] of [
+      ['      void self.registrations', 'a member that is not the storage at all'],
+      ['      void self[\'state\']', 'the string-index spelling of a member read'],
+      ['      void (self).state', 'a parenthesised receiver'],
+      ['      void (self as typeof self).state', 'a cast receiver'],
+      ['      void (self as typeof self)!.state', 'a non-null-asserted receiver'],
+      ['      void ((0, self) as typeof self)!.state', 'forwarding composed'],
+    ] as const) {
+      const found = of(
+        'import { reduce } from \'./controls.js\'\n' +
+        'export function createSceneStore(initial: UiState): SceneStore {\n' +
+        '  const self = { state: initial, registrations: [] as unknown[] }\n' +
+        '  return {\n' +
+        '    state(): UiState { return self.state },\n' +
+        '    dispatch(action: Action): void {\n' +
+        `      self.state = reduce(self.state, action)\n${body}\n` +
+        '    },\n' +
+        '  }\n}\n',
+      )
+      expect(found.aliased, `\`${why}\` is followable and must stay silent`).toEqual([])
+      expect(found.writes.length, `\`${why}\`: the real write is still seen`).toBe(1)
+    }
+
+    // And the receiver is refused upstream rather than guessed at when it is
+    // not a plain binding — the same fail-closed posture the factory and the
+    // accessor extractors already take, because a receiver with no name is one
+    // this report could not follow and must not silently stop following.
+    expect(() => of(
+      'import { reduce } from \'./controls.js\'\n' +
+      'export function createSceneStore(initial: UiState): SceneStore {\n' +
+      '  const box = { self: { state: initial } }\n' +
+      '  return {\n' +
+      '    state(): UiState { return box.self.state },\n' +
+      '    dispatch(action: Action): void { box.self.state = reduce(box.self.state, action) },\n' +
+      '  }\n}\n',
+    ), 'a receiver that is not a plain binding is refused, not followed blindly')
+      .toThrow(/whose receiver is not a plain binding/)
   })
 
   it('does not touch the state it was handed, so a subscriber may hold on to one', () => {
@@ -2128,7 +1817,7 @@ describe('the store runs in plain node', () => {
 
   it('sees the two spellings that walked past it, and still not a property of that name', () => {
     /**
-     * The three plants from {@link CLOCKS}' corrected rationale, as a sensor.
+     * The three plants from `CLOCKS`' corrected rationale, as a sensor.
      * Two of them were measured green on this exact instrument before the
      * narrowing — in `site/transport.ts`, in the real closure, with the build
      * run first and the plant grep-confirmed — so the acceptance that the
@@ -2169,7 +1858,7 @@ describe('the store runs in plain node', () => {
      * `(globalThis as any).X`: it is what a real evasion gets written as,
      * because it is what silences the compiler.
      *
-     * **If one of these reddens after a refactor, widen {@link isGlobalRoot}.
+     * **If one of these reddens after a refactor, widen `isGlobalRoot`.
      * Deleting the row is wrong and narrowing the receiver test to make it
      * pass is the original defect.** The one legitimate reason to remove a row
      * is that the spelling has stopped being valid TypeScript.
@@ -2192,7 +1881,7 @@ describe('the store runs in plain node', () => {
       // that cannot change the value are erased before anything runs —
       // covers `(x, globalThis)` exactly, because the comma operator's value
       // *is* its right operand. The principle was right and the enumeration
-      // was short, twice running. {@link isGlobalRoot} is now keyed to the
+      // was short, twice running. `isGlobalRoot` is now keyed to the
       // grammar's value-forwarding node kinds, which is a closed set, rather
       // than to whichever spellings someone thought to plant.
       '(Math.random(), globalThis).Date.now()',
@@ -2213,7 +1902,7 @@ describe('the store runs in plain node', () => {
     /*
      * ## What the sensor cannot decide, it now says so about
      *
-     * The rows below are the whole of {@link CLOCKS}' old residue table plus
+     * The rows below are the whole of `CLOCKS`' old residue table plus
      * the one spelling that defeated the second repair, and **not one of them
      * is caught by name** — the walk genuinely cannot tell what is read off
      * the receiver. What changed is the *direction of the failure*: each used

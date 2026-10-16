@@ -26,9 +26,17 @@ import type { AssertNever } from '../src/core/index.js'
  * module inherits: with the ambient thing injected, a whole editing session is
  * expressible as a sequence of values in a test, in plain node, with no DOM.
  * Neither `location` nor `history` nor any timer is named anywhere below, and
- * `hashprojection.test.ts` asserts both by parsing this file — so the
- * paragraphs here are free to discuss them, which they must, since what this
- * module refuses to touch is most of its rationale.
+ * `hashprojection.test.ts` asserts both by parsing **this module's whole
+ * import closure** — so the paragraphs here are free to discuss them, which
+ * they must, since what this module refuses to touch is most of its rationale.
+ *
+ * That sentence used to end *"by parsing this file"*, and the scope was the
+ * defect. It was literally true and narrower than the property it stood in
+ * for: `hash.ts` is this module's one runtime import, it was outside the scan,
+ * and a `Date.now()` and a `location.hash` planted in it left the whole
+ * repository green at 99 files / 2227 passed / exit 0. A projector whose codec
+ * samples a clock has a fragment that depends on when it was produced, and
+ * every behavioural test here injects the schedule and would never notice.
  *
  * **The guard reads the fragment rather than remembering its last write.**
  * Both answer "has anything changed?", and they differ exactly when something
