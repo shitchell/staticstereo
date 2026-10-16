@@ -67,6 +67,45 @@ cross-check, so **a row added to either side without the other reddens**, and
 credited.** And there was a **fifth** "7 of 20" citation at `perception.stops.test.ts:45`;
 the count of four was short.
 
+## Dispositions, 2026-10-16
+
+**F7 — DISCHARGED AS WORDED, and the new concern is a DIFFERENT finding.** The finding was
+*"a magic number with no recorded derivation"*; the derivation is now written above it
+(shortest reason 27 chars, longest 310, median ~70). **That is discharged on its own terms.**
+Keeping F7 "open" would assert *"no recorded derivation"*, which is now false — so the
+replacement concern is logged separately rather than folded in: **the margin is 1.35× and
+the author calls it thin.** A documented constant with a thin margin is a different object
+from an undocumented one, and conflating them makes the record less precise, not more
+cautious. **New item, not blocking.**
+
+**NOT-COVERED 6 — PARKED AGAINST CASE E, because they are the same question.** The writer's
+`deflate` path — design §6.2's **named mechanism** — has no production consumer and is
+test-only. **Nobody has measured it: not the reviewer, not V-5, not the gate.** It was the
+one item with no disposition at all. **It resolves whichever way case E resolves:** if Shaun
+rules for deflate the path gains a consumer; if he rules for `store` the path should be
+removed **or design §6.2 amended**, since a named mechanism with no consumer is a design
+document describing something that is not there. **Not blocking; now owned rather than
+unowned.**
+
+**The `src/node` half of the `yuv444p` question is UNANSWERED, not answered.** Arm A could
+not reach `LOSSLESS_MP4` because the build dies first on `@napi-rs`'s native binary, so **no
+`src/node` leak was constructed that both builds and avoids that binary.** The arm-B
+blindness is proven **for `src/cli`**; whether a buildable `src/node` leak exists that the
+probe would miss is **open.** *"The build catches it"* is true only of leaks that import the
+native path.
+
+**Requirement 1 — I am merging on V-5's word, and that is stated rather than implied.** The
+gate runner never saw V-5's report and said so: *"if the orchestrator merges on requirement
+1, it merges on V-5's word, not on mine."* **Correct, and legitimate** — V-5 is a verifier
+that implemented none of it, which is what §6.1 asks for. **What the gate corroborated is
+narrower:** the delta is 17 commits, `26d1f2d` is an ancestor of the gated sha, and the two
+commits behind V-5's pin are the two harness fixes, both covered by its green run and by CI.
+**The gate's green is not corroboration of requirement 1 and must not be read as it.**
+
+**Carried unexplained: V-5's worktree was present in `git worktree list` at step 0 and absent
+at the end**, with the runner having removed only its own. Consistent with V-5 cleaning up;
+**not verified, other causes not excluded.**
+
 ## NOT-COVERED, ranked — the gaps no criterion asks about
 
 1. **`site/dist.test.ts`'s `yuv444p` needle** — top item, and **the one inference in the
