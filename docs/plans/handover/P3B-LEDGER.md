@@ -1446,3 +1446,207 @@ cold.
 H-2 owns the primary worktree and merging would move the tree under a live worker. Both
 new §9 rows were relayed inline instead (§1.2n: a brief carries the content of anything
 added mid-phase, not a section number). **Merge `main` once H-2 and R-1 have landed.**
+
+## R-1 DONE — all six closed. Branch `worktree-agent-a5e982cfa6bd027e8` @ `5f11f93`. NOT MERGED.
+
+Based on `972dc02` (an ancestor of the current tip). Touches **three files**:
+`site/store.test.ts` (+532/−40), `site/controls.test.ts` (+323/−8),
+`docs/plans/2026-10-14-editor-execution-plan.md` (+25). **No production edit** — A-4's
+constraint held. **1955 → 1959 passed, +4 tests, zero removals**, four exit codes 0,
+typecheck 0 both with and without `CLAUDECODE`, skips by `grep -c 'skipped'` throughout.
+`dist` wiped before the A1 null and the final gate, and R-1 stated per item where it did
+not wipe and why — the six REDs are judged by source-reading sensors, never built output.
+
+**DO NOT MERGE WHILE H-2 IS LIVE.** Merging moves `site/controls.test.ts` and
+`site/store.test.ts` under a working implementer.
+
+### C1 was fixable after all — V-BC's "may not be fixable" was wrong in the good direction
+
+`globalThis.Date.now()` and `Promise.resolve().then(f)` both now redden; the positive
+control still fires; the false positive the suppression exists for (`a.window`,
+`{Date:1}.Date`) is asserted still suppressed. **The suppression was narrowed at its one
+`globalThis` receiver rather than removed.** Two things fell out that nobody asked for:
+
+1. **`Promise` is a genuine roster gap** — an inconsistency *inside* the roster's own
+   intent, since `queueMicrotask` was already listed.
+2. **Adding it exposed a latent false positive affecting EVERY entry.** `Promise` reddened
+   the real closure at **nine sites, all nine type annotations** (`Promise<DecodedImage>`,
+   `Map<string, Promise<…>>`) in `src/core/{canvaslike,raster,render}.ts`. **Type position
+   is now ignored for both rosters.** R-1's framing is the keeper: *"that was always wrong
+   and `Promise` is simply the first entry common enough in a type to expose it."*
+
+### V-BC's A1 plant had gone STALE, and R-1 caught it
+
+**The literal plant in my brief no longer typechecks at `24392c3`**: `SetAction` members
+carry plain-`string` values (`layer.text.text`), so `typeof action.value === 'string'`
+narrows to `string`, not `DepthView`. **The hole is real; the spelling moved.** R-1
+re-derived a tag-free, type-correct version and confirmed invisibility on a wiped build.
+New shape worth keeping: **a plant quoted in a brief is a measurement with an expiry date,
+and the commit that expires it is one of your own.**
+
+### R-1 went beyond both of V-BC's proposals, and argued why — three in a row now
+
+- **A1: adopted `bind`-extension for the reassignment hole, then added a THIRD half**
+  rather than widening `tagsNamed`, because `'set'` makes `tagsNamed` unmaintainable
+  (§2a). `conditional` — *a write to storage must be reachable on every path through its
+  own function*, no tag involved. Proof it is not a restatement: a **dormant**
+  `if (Object.keys(action).length > 99) return` in the real `dispatch` — no tag literal,
+  no behavioural divergence — reddens, and `conditional` is the only sensor in the suite
+  that sees it.
+- **C2: the floor is PER VARIANT, not one total.** A single total survives the same
+  mutation as long as one arm anywhere still works. Measured every variant commits ≥1
+  sample today, so the per-variant floor is satisfiable *and* total over the vocabulary.
+
+**Three verifier-proposed designs in a row have now been corrected by the implementers
+that built them.** That is the tier working, not a defect in verifiers.
+
+### ⚠️ ESCALATION — R-1 edited a tier-0 document
+
+`docs/plans/2026-10-14-editor-execution-plan.md`, +25 lines: a **dated correction block
+under *Known weakness shipped knowingly*** that preserves C-2's original paragraph rather
+than deleting it. R-1 flagged it itself and offered the revert. **Tier 0's file, tier 0's
+call** — error 14 is a PM editing one of these rather than reporting it.
+**My recommendation: keep it.** It matches §9's *correct beside the quote, never inside*,
+and the substance is required — C-2's recorded rationale names the wrong mechanism and
+would send the next reader to the wrong cure. **The code is independent of it**: the
+in-code `CLOCKS` docblock carries the full version, so reverting the doc hunk loses
+nothing operational. Decide before merging the branch.
+
+### The worktree defect is SEVEN FOR SEVEN and is systematic, not bad luck
+
+R-1's isolated worktree was **again cut from `main` (`d51a9f7`), not the phase branch**;
+`69abca9` was an ancestor but **`62696ae` was not**. It reset to `972dc02` inside its own
+branch. **This is now two for two on my own dispatches and seven for seven across the
+project.** `isolation: worktree` does not cut from the current branch. **Any future
+isolated-worktree brief must say so as a fact, not a caution.**
+
+R-1 also declined my `cp -al` recipe for a better one: **full `cp -a` from
+`staticstereo-main`**, not a hardlink copy from the primary — 129 MB is trivially cheap, a
+full copy guarantees zero shared inodes instead of requiring the write-prone directories
+to be enumerated correctly, and sourcing from `-main` avoids a torn copy out of a tree H-2
+is running tests in. **Adopt that recipe; mine was the fragile one.**
+
+### Merge sequencing — R-1 gave the collision map
+
+`site/controls.test.ts` is the only file H-2 could also touch; as of R-1's report the
+primary's copy was **unmodified at 853 lines**. R-1's hunks: an import at `:34`, the
+`KEYED_ARM_COVERAGE` derivation at `:633`, one new `it` at `:846`, the `toBe(17)`
+replacement at `:916`, and **the G-3 tripwire appended at `:1034`, after the clause-2
+`describe`**. **That last one is the risk** — H-2's harness is most likely to land in
+exactly that place. Both sides are pure additions touching none of the other's assertions,
+so a textual conflict there is semantically trivial.
+
+### R-1's carried UNCERTAINs
+
+1. `conditional`'s `canExitBefore` is **positional, not control-flow** — any
+   `return`/`throw` textually before the write in the same function marks it. Nothing in
+   the real module has one; a future `dispatch` with early validation would. Fails
+   **closed** (noisy, not silent), which is the right direction, but it will annoy someone.
+2. The narrowed `tagsNamed` cannot see `const arm = action.type; if (arm === 'set')`.
+   Argued acceptable because `conditional` covers it whenever it affects stored state —
+   but a tag-laundered per-arm **side effect that writes nothing** is now invisible to all
+   three halves.
+3. `Promise` on `CLOCKS` is a judgement R-1 could not derive; defensible only because
+   `queueMicrotask` was already listed. The type-position suppression is not in doubt.
+4. The tripwire's compile half **asserts a line still compiles** — the inverse of every
+   other compile-time claim in the repo, with no runtime failure mode and `typecheck` as
+   its only witness. The runtime half exists because of this but covers a different
+   retirement.
+5. **Line pointers in the handover docs are stale by roughly 100 lines** after `24392c3`.
+   My brief's `store.test.ts:277` was actually `:356`; R-1 found it by content. Assume the
+   same of every other line number in these documents.
+
+## H-2 DONE — `f8d931b`. Criterion 22's clause-2 sensor. Harness landed, budget measured not inherited.
+
+New file `site/setrejection.test.ts`; **`site/controls.test.ts` untouched**, so R-1 merged
+with zero conflict. **83 files / 1963 passed / 0 skipped**, +8, zero removals, four exit
+codes 0, typecheck 0 both with and without `CLAUDECODE` (456 FILES).
+
+### It refuted my cheaper-route suggestion by measurement — twenty-three for twenty-three
+
+I told H-2 the existing `@ts-expect-error` wall might discharge clause 2 at a fraction of
+the cost and invited an argument for it. **The argument goes the other way and it is one
+table row.** A directive is **lexical** — it cannot be generated from
+`WRITABLE_CONTROL_IDS` — so the wall is eleven rows over **eight** controls and the other
+**44 have no clause-2 coverage at all**:
+
+| mutation to `site/controls.ts` | the wall | the sweep |
+|---|---|---|
+| `value: ControlValues[K]` → `unknown` | red (exactly 6 of 11 unused) | red, 52 → 0 |
+| → the whole value union | red (the same six) | red, 52 → 0 |
+| **`SceneValues` → `unknown` (4 controls erased)** | **GREEN, typecheck exits 0** | red, 52 → 48, names all four |
+| `layer.*.at` → `unknown` | **GREEN** | red, 52 → 48 |
+
+**Row 3 is the whole argument: the exact erasure clause 2 forbids, and the gate is green.**
+H-1b's six-of-eleven figure reproduced independently. **The wall was not duplicated; it
+stays.** My suggestion was cheap and wrong, and it was refuted the only way it could be.
+
+**The probe design, and the plausible wrong one beside it.**
+`Exclude<AnyControlValue, ControlValues[K]>` collapses to `never` exactly when the
+correlation breaks, so the sensor's failure mode *is* the criterion's. H-2's first attempt
+used a `symbol` and **stays red under a correlation severed to the whole value union** —
+i.e. it reports the criterion met over a type that has lost it. Recorded because it is the
+design a reasonable person reaches for first.
+
+### The CI budget was one sample of a varying quantity, and H-2 measured it instead
+
+`gh api .../jobs` on the last green `ci`: whole job **93s**, of which `npm test` is **53s**,
+typecheck 6s, both builds 4s, and **`apt-get install ffmpeg` 25s**. The last four `ci` runs
+span **93–108s**. So the "94s budget" every brief on this phase has cited — mine included —
+is **one sample of something that already varies by 15s**, and a quarter of it is apt.
+The runner's `npm test` matches this host's **unconstrained** 53s, so the runner is not
+CPU-starved relative to here.
+
+**Wall-clock, alternated runs to cancel drift from the concurrent R-1 worktree:** before
+49.96 / 52.10 / 53.00s; after 50.73 / 52.66 / 51.24 / 50.29s. **No measurable change.**
+Summed test time rises 165s → 197s and wall-clock does not move — the critical path is
+`bindingregistration.test.ts` at ~48s and the new file's ~27s runs inside its shadow
+(9.6s alone; 27–29s in-suite, the difference being four `svelte-check` processes
+contending). A 4-core proxy gives +8.1s median, which H-2 treats as an **upper bound, not
+a prediction**, because this host sat at load 9–18 throughout.
+
+### Instrument discipline worth copying
+
+**One gate spawn, not two.** The accepting and rejecting sweeps are two generated files in
+**one** tree, so no difference between the halves can be an artefact of two
+differently-configured runs. And the **parse-failure path was measured, not asserted**:
+forcing `--output human-verbose` made `runGate` reject in **10.4 seconds, not a timeout** —
+the `reject`-never-`throw` condition demonstrated rather than claimed. The harness also
+proves its own plant arrived: dropping the sentinel yields *"the gate never checked the
+generated plant and the clean result below measures nothing."*
+
+All four mandatory conditions discharged in code with reasons in the docblock, which also
+states the scope is the `set` path only, names the tripwire as cover for the legacy hole,
+and points at G-3.
+
+### H-2's carried UNCERTAINs — two matter beyond this task
+
+1. **A `beforeAll` rejection reports as "N skipped" plus a file failure.** Not fail-open
+   (exit 1), but **a future red in any of the four harnesses will show a nonzero skip
+   count** — and this phase has just finished teaching everyone to read skips as an alarm.
+   Whoever runs the gate must not mistake one for the other.
+2. **Both existing harnesses unescape machine messages with `replace(/\\(.)/g,'$1')`,
+   which turns `\n` into a literal `n`** and welds a nested diagnostic's two lines
+   together. H-2's maps escapes explicitly. **It did not touch theirs and did not audit
+   whether either asserts across a line join** — so this is a *candidate* latent defect in
+   two merged harnesses, unmeasured.
+3. `typecheckCommand()` is duplicated from `fitregistration.test.ts` rather than extracted;
+   extracting means editing two working harnesses on a task that did not authorise it.
+4. The sweep proves rejection of an *unrelated* type, not of every *plausible* wrong value.
+   The wall covers the plausible cases for eight controls. **Complementary; neither alone
+   discharges the clause.**
+
+## MERGED AND UNVERIFIED — the state a successor inherits
+
+`5dffba3`. R-1's branch merged clean (no conflict — H-2 never touched
+`site/controls.test.ts`), then `main` @ `7fda4b0` merged clean, the execution plan
+auto-merging R-1's correction block against tier 0's new §9 rows.
+
+**Three commits have never been run together: `24392c3`, `f8d931b`, `5f11f93`.** Expected
+83 files / ~1967 if the deltas are additive, but **that is arithmetic, not a measurement**,
+and §6.3 compares against the branch's own recorded baseline. **A gate run is owed**, by a
+gate runner who implemented none of it, announced and serialised against P1/P7.
+
+**Verification is owed on all three** — H-1b, H-2 and R-1 have been seen by nobody who did
+not write them. That is §6.1's requirement and it is the largest outstanding debt on the
+phase.
