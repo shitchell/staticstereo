@@ -359,10 +359,29 @@ describe('writeStst', () => {
    * there are only two: **length** and **compressibility**. Lengths run from 0
    * to 512 KiB across six orders of magnitude, crossing 64 KiB (the classic
    * chunk boundary) and 100 KiB; each length appears twice, once as
-   * incompressible pseudo-random bytes and once as a single repeated byte that
+   * `notAPng` pseudo-random bytes and once as a single repeated byte that
    * deflates to roughly 0.1% of itself. "Every entry stored" over that matrix
    * is a statement about the writer. Over one fixture it is a statement about
    * the fixture.
+   *
+   * **The `notAPng` arm was described as "incompressible" and only the 1 KiB
+   * one is.** Measured with `zlib.deflateRawSync`: 1 KiB → 1029 bytes (1.0:1,
+   * incompressible as claimed), 64 KiB + 1 → 7142 (9.2:1), 512 KiB → 12,049
+   * (43.5:1). The generator is the reason — `x * 1103515245` exceeds 2^53
+   * once `x` is past ~8.2e6, so the product is rounded before `>>> 0` and the
+   * recurrence is not the modular LCG it reads as; the state falls into a
+   * cycle of period **6063** after a 2415-step tail, and deflate's 32 KiB
+   * window sees that cycle in anything longer than the tail.
+   *
+   * Left as it is, deliberately. `notAPng`'s contract is "not a PNG and could
+   * not survive a codec", which it still satisfies, and changing the bytes
+   * would move every length and method assertion in this file for a reason
+   * unrelated to what they check. What it costs is narrower than it looks but
+   * is real: the compressible/incompressible contrast is genuine only at the
+   * 1 KiB pair, and at 64 KiB + 1 and 512 KiB both arms are compressible. So
+   * the **length** axis is swept as described and the **compressibility**
+   * axis is swept at one length rather than three. A content rule keyed on
+   * compressibility alone, at a threshold above 1 KiB, is the gap.
    *
    * ## The size relation, which does not read the method field at all
    *
@@ -372,10 +391,15 @@ describe('writeStst', () => {
    * immune to that. With every entry stored, growing one member by *n* bytes
    * grows the archive by exactly *n*, so `archive.length - payload.length` is
    * one constant across the whole matrix — whatever the payload is. Deflate
-   * anything, by any rule, and that number moves: by ~524,000 on the
-   * compressible 512 KiB member, and by a few bytes on the incompressible ones.
-   * It is a single number, derived from no literal of the module's, and it is
-   * checked for every arm.
+   * anything, by any rule, and that number moves: measured under the planted
+   * `> 100_000` rule, by **523,763** on the repeated 512 KiB member and by
+   * **512,239** on the `notAPng` one. (This said "a few bytes on the
+   * incompressible ones", which was the same mistake as above: the 512 KiB
+   * `notAPng` member is not incompressible and moves by half a megabyte. The
+   * members that genuinely move by a few bytes are the sub-100 KiB ones, and
+   * under *this* rule they do not move at all, because it does not deflate
+   * them.) It is a single number, derived from no literal of the module's,
+   * and it is checked for every arm.
    *
    * Nothing here greps `container.ts` for `'store'`. A source grep is satisfied
    * by the word appearing in a comment, which is the cheapest wrong action of
@@ -459,6 +483,24 @@ describe('writeStst', () => {
     // Half two: the size relation moves, and it moves on the *values*, not on
     // a pass/fail. Under the forbidden rule the excess-over-payload figure
     // spans a range of hundreds of kilobytes instead of being one number.
+    //
+    // **Where 400_000 comes from**, measured over this exact payload list and
+    // this exact rule rather than chosen to clear today's number. The six
+    // members at or below 100,000 bytes are untouched by the rule and sit at
+    // a constant excess of **+230**; the two 512 KiB members are deflated,
+    // to **-512,009** (`notAPng`) and **-523,533** (the repeated byte). So
+    // `max - min` is **523,763**, and the floor has ~124 KB of headroom.
+    //
+    // The headroom is the part that needed a reason, because the floor is
+    // *not* independent of zlib: clearing 400,000 requires the repeated 512
+    // KiB member to deflate to under ~124 KB, i.e. better than **4.2:1** on a
+    // run of 524,288 identical bytes. Measured, zlib gets 525 bytes — about
+    // 1000:1 — so the margin is three orders of magnitude, and no deflate
+    // implementation that emits a compressed block at all comes near 4.2:1 on
+    // a constant run. A floor nearer 523,000 would instead redden on an
+    // engine or level change, which is §9's "a numeric floor chosen from
+    // today's count is a check". The floor's job is to exclude 0 — the spread
+    // `flat` asserts on the next line — not to pin a ratio.
     expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)
     expect(Math.max(...flat) - Math.min(...flat)).toBe(0)
   })
