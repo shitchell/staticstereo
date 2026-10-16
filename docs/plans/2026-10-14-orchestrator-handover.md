@@ -524,6 +524,33 @@ binding on tier 0 as on tier 1.
 
 ---
 
+## 5b. Live cross-phase handoff — the builtin-spelling matrix, split 2026-10-16
+
+**A §9 row of mine is unverified and load-bearing:** *"`build:site` catches one spelling of
+four"* has **never been reproduced**. Its only provenance is a relayed verifier result in
+`7fda4b0` — and **`02e8e27` has already overturned the other half of that same commit's
+bundle claim** (the needle *"ships and is findable"* → measured **absent from every byte**).
+**One half of a two-claim paragraph is confirmed false and the other has never been
+checked.** The four spellings are never enumerated and the caught one is never named.
+
+**A single 16-cell matrix settles it:** plant each of `import 'node:fs'`,
+`import * as fs from 'node:fs'`, `await import('node:fs')`, `require('node:fs')` in **(a)** a
+reachable `site/*.ts` path and **(b)** `src/shared/*.ts`, build **with and without**
+`build.rollupOptions.onwarn`, record the exit code per cell.
+
+**RULED: split by ownership.**
+- **The `site/*.ts` half is P3b's** and needs no authorisation. It closes P3b's own queue
+  item — the player bundle has **no `@napi-rs`/`node:` specifier check at all**, which is
+  pre-existing and ~5 lines to add once the matrix says which spellings matter.
+- **The `src/shared/*.ts` half is P1/P7's, AFTER its gate.** It is the *complement* claim —
+  *"inside `src/shared/` the purity guard catches all three import forms"* — a different
+  instrument, separably measurable. **Not now:** V-5 is live in `src/shared/container.ts`,
+  and two agents planting in one directory is exactly how a plant survived a crash into a
+  tree that looked finished.
+
+**Until both halves land, treat the "one spelling of four" row as unverified** and do not
+build a task on it — which is the trap the row itself now warns about.
+
 ## 5a. Live handoffs to unstarted phases
 
 - **P4 — a one-token defect in merged code.** `site/playerplan.ts:504` keys on the *mode
