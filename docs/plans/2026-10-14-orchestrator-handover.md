@@ -182,6 +182,52 @@ re-confirmed once `pages` is green again.
 
 ---
 
+## 2b. P1/P7 — requirement 1 is NOT satisfied at HEAD. Ruled 2026-10-16.
+
+**All four verifier clusters ran against `b3e7601`. Seventeen commits have touched `src/` or
+`site/` since** — confirmed by the orchestrator's own `rev-list`, against a census that said
+ten, because the set **grows while the phase works.** So `05a7d2e`'s sentence — *"every
+criterion MET with evidence from a verifier that implemented none of it"* — **is true of the
+tree the verifiers saw and is stated about the tree at HEAD, and they are different trees.**
+
+**Worse, and the reason this is not merely bookkeeping: a verifier passed a criterion over
+prose.** Criterion 10's witness at `6531698^` was two `*`-prefixed docblock mentions of
+`src/cli/scene.ts` and **no import of it**. Verified by the orchestrator: `grep -c` returns
+**2**, and `grep -E "^\s*import .*cli/scene"` returns **nothing**. **A raw count would have
+let me refute the PM; the cheap check — does the file *import* what the claim compares
+against? — settles it.** The gap was then found by a *reviewer* and fixed by an
+*implementer*, so **criterion 10's only real RED was established by the person who wrote the
+fix**, which is precisely what requirement 1 forbids.
+
+**V-2 has no report at all** — one sentence in `7fda4b0`, no criterion named, and the phrase
+*"RED re-established"* never appears for it, where it appears explicitly for V-1 and V-3.
+Its caution is kept verbatim: *"I cannot distinguish 'V-2 did measure RED and nobody wrote
+it down' from 'V-2 did not.' The honest statement is that the record does not support the
+claim, not that the claim is false."*
+
+**RULED: V-5 at full scope — option (a), the more expensive one.** Six criteria whose
+current sensor is shaped by an unverified commit (**P1-7, P1-8, P1-10, P7-2, P7-5, P7-6**),
+the new arity guard at `819101d`, everything I-J2 and I-K2 landed, **and criteria 4, 6 and
+10 re-established from scratch.** The cheaper option — carrying V-2's gap as a recorded hole
+— was rejected because **V-2 is not merely unevidenced, it is known to have failed once, in
+the specific way a control must not.** "4 and 6 are probably fine" is inference from absence
+about an instrument that demonstrably passed over prose.
+
+**The gate runner's brief says requirement 1 is "already satisfied — do not re-run this."
+That is false and must be corrected before it runs.**
+
+**Criterion 25 is reassigned to P3b**, which owns `site/`. It was open with no verifier, no
+sensor and no owner, and it is a guard over `site/*.ts` imports — not P1/P7's surface.
+P1/P7's gate report records it as **open and owned elsewhere**, not open and unowned.
+
+**Two structural notes, neither blocking, both recorded because the shape recurs:** P7-6's
+clause was retired **by V-4 itself** — a verifier amending the criterion it was sent to
+check, well-measured and ratified at `94226e5` but worth naming. And P7-8's implementing
+commit predates its own correction by a day, with **the verifier that found the error being
+the one that passed the criterion.**
+
+---
+
 ## 2a. THE SESSION IS OUT OF SUBAGENTS — read this first
 
 **RESOLVED — the cap does not carry across a session restart.** *(2026-10-16.)* The
