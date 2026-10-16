@@ -1404,6 +1404,63 @@ multiple shifts turned out blind: the skip glyph, `build` as evidence about `sit
 of 52 controls. **Each was caught only when someone planted a control against an instrument
 nobody had ever watched fire.**
 
+### A1 — the two-discriminant bag, measured. Rulings, 2026-10-16
+
+A reviewer converted a derivation into a measurement on one authorised single-file run. An
+`anim` carrying **both** discriminants — `{kind:'move', from, to, keys:[…]}` — gives:
+
+```
+CLI  validateScene : ACCEPTED, keeps the preset and carries keys along
+SITE validateScene : ACCEPTED, silently drops kind/from/to, keeps only the track
+writeScene(CLI out): THREW  — "kind" is not in the keyframe-track key roster
+CONTROL (kind only): accepted/accepted/written — so it is the second discriminant talking
+```
+
+**Two defects with different owners. They must not travel as one item.**
+
+**A1-c — the comment. This phase's, fix before the gate.** `src/shared/sceneWrite.ts:216-221`
+asserts all three discriminators use *"the same discrimination, in the same order … a bag
+carrying both would otherwise be written as one shape and read back as the other."* The CLI
+is **kind-first**; the other two are **keys-first**. **The comment names the exact failure
+that occurs and claims it is prevented.** That is the ASSERTION class at its worst and it is
+cheap to fix.
+
+**A1-b — the divergence. NOT blocking this phase's merge, and it gets a criterion rather
+than a note.** *"The same file renders as a `move` preset on one side and a keyframe track
+on the other"* is a real violation of R17's promise. But the honest scoping is the
+reviewer's: **the input is malformed and neither validator rejects it**, the CLI's
+`kind !== undefined` laxity is **pre-existing**, and the render divergence was simply never
+observable because nothing compared the two sides. **What this phase added is the save-time
+refusal and the false comment** — and `writeScene`'s throw is arguably *correct*: it refuses
+rather than drops, by design, and says so in its message. **The defect is the disagreement,
+not the refusal.**
+
+> **Criterion 24: a bag carrying both discriminants is rejected by both validators, and the
+> two validators agree on acceptance for every input.** *(Added 2026-10-16.)* Making the
+> malformed input fail on both sides is what makes `writeScene`'s throw unreachable for this
+> case, which is the right outcome — and it makes A1-c's comment true rather than merely
+> corrected.
+
+**And criterion 10's witness is vacuous for exactly the case that matters — my criterion,
+my defect.** `site/project.test.ts:42-46` asserts CLI/site parity **absolutely**, over a
+fixture carrying **three of five layer types and none of the disagreeing one** (`draw`,
+excluded by design §9.5). A1-b proves the same seam one layer down for *animators*, so the
+parity claim is false for both and the test cannot see either. **Criterion 10 is not met
+until its assertion either covers at least one construct the two sides disagree on, or is
+narrowed to claim only what it tests.** This is the "test that cannot fail" shape inside a
+criterion I added to catch asymmetry.
+
+**R22 obligation 1 has no criterion and no sensor — plan §3's lesson, third firing, same
+requirement.** Measured citation counts: obligation 2 nine times, obligation 4 three times,
+obligation 3 once, **obligation 1 zero**. Nothing asserts *"perceptual predicates live in
+the model, not in any view."* It **holds today** — the reviewer censused `site/*.ts` — but
+this phase made it cheaper to break, since `site/legibility.ts` is now a bare `export *` and
+**nothing guards `site/*.ts` imports.**
+
+> **Criterion 25: no perceptual predicate is evaluated in a view.** *(Added 2026-10-16.)*
+> Pairs with the unguarded `site/*.ts` import hole, which is the same gap from the other
+> side.
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
@@ -1588,6 +1645,7 @@ Each already cost a correction. Hand this table to every worker.
 | the same mistake at two tiers is two mistakes | **It is one operation.** Tier 0's errors 27, 29, 30 and 31 are four relayed *numbers*; a PM's five brief defects are four dropped *clauses* and a misattribution. **No wrong facts on either side.** PM-SHELL-P3b-4's statement of it: *"the same operation at both tiers — compressing a source into a restatement, then treating the restatement as the source. The remedy is identical: go to the thing itself, which for me is the commit body and for you is the command."* **And the reason it persists rather than being learned once:** *"the restatement is **usually** faithful, so the habit gets reinforced far more often than it gets punished."* That is why re-deriving must be a rule rather than a judgement call — the judgement is trained by the common case and the common case is safe. |
 | an unpushed commit is cheap to amend, so improve it | **Not once it has been spot-checked.** PM-SHELL-P3b-4 declined to amend `c6b575c` after the orchestrator verified that sha, on the grounds that **rewriting a verified artifact silently invalidates the verification** — the next reader sees a sha that was confirmed and a commit that is not the one confirmed. *Correct beside, never inside*, applied to a commit rather than a quote. The fix ships as a **findability index in the next commit**: additive, nothing rewritten, and it repairs the actual defect. **Cheapness is not the test; whether anyone has relied on it is.** |
 | a phrase in a record can be found later | **Only if it lives on one line.** grep is line-oriented and wrapped prose puts every claim one reflow away from being unsearchable. **This is a property of the artifact, not of the searcher**, and therefore the writer's to fix: **a phrase intended to be found must be written on a single line.** Discovered when a zero-hit grep over a complete record nearly got it reported as missing content. |
+| `git stash list | wc -l` tells you whether the stash is empty | **Not with the `git` wrapper on this machine, which writes its two identity banner lines to *stdout*.** So an empty stash reports **2**, and `2>/dev/null` does not clean it because the lines are not on stderr. **Filter on `^stash@`.** A reviewer nearly filed a phantom stash against its own cleanup check. Anything scripting this repo's `git` must assume stdout carries banner lines. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four.** `await import('node:fs')` on a *reachable* path in `site/fonts.ts` exits **0** with a warning, and the needle **ships** — found in `dist-site/assets/index-*.js` with a dedicated `__vite-browser-external-*.js` chunk emitted, which also defeats the constant-folding trap because the code is genuinely there. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
