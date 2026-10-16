@@ -42,8 +42,11 @@ export function sirdsFromDepth(
  * *exactly*. The alternative was to write `Math.round(sepFar - z·range)` over
  * there as well, which is the second-copy failure `angle.ts` names in this
  * repo's own words — and here it is not hypothetical: the closed form design
- * §10.1 quotes, `sepFar - sepNear + 1`, disagrees with this function in 7 of
- * 20 measured configurations. It is wrong wherever a separation is fractional
+ * §10.1 quotes, `sepFar - sepNear + 1`, disagrees with this function in 8 of
+ * 20 measured configurations — **8, not the 7 this read until 2026-10-16;
+ * recomputed over the sweep in `src/shared/perception.capacity.test.ts`,
+ * whose own eight-row discriminator table was the refutation sitting next to
+ * the number.** It is wrong wherever a separation is fractional
  * (`110.5/92` → 19.5, this mapping → 20) and wherever the clamps below bite
  * (`110/1` → 110, this mapping → 109, because `sepNear` 1 encodes as 2). A
  * caller that restated the arithmetic would be restating the unclamped,

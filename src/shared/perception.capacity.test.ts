@@ -7,14 +7,22 @@ import { disparityBudget, encodableDepths, quantisationStep } from './perception
  * `encodableDepths` and `quantisationStep` — the objective half of design §10.1.
  *
  * Its own file rather than an addition to `perception.test.ts` or
- * `perception.fusion.test.ts`, for the reason the latter records about the
- * former: those two files are unmodified by this task, and keeping them that
- * way is what lets them say anything about it.
+ * `perception.fusion.test.ts`. The reason given when this file was written
+ * was *"those two files are unmodified by this task, and keeping them that
+ * way is what lets them say anything about it"*, by reference to
+ * `perception.fusion.test.ts`. **That reason is spent and the thing it was a
+ * reference to was itself wrong**; the correction is at
+ * `perception.fusion.test.ts`'s docblock, and the measurement is that
+ * `perception.test.ts` was modified at `b3e7601` and `f352b99`, both later
+ * than `4e41934`, which created this file. The separation stands on its own
+ * merits; it proves nothing about either neighbour.
  *
  * **What this file exists to prevent is one specific bug.** Design §10.1 gives
  * capacity as `sepFar − sepNear + 1`, and that closed form is *not* the
  * function — it is the unclamped, unrounded half of `sepAt`, and it is wrong
- * in 7 of the 20 configurations swept below. An implementation that wrote the
+ * in 8 of the 20 configurations swept below — **8, not the 7 this read until
+ * 2026-10-16; recomputed row by row against {@link CONFIGS}, and the eight
+ * are exactly {@link CLOSED_FORM_CASES}' eight rows.** An implementation that wrote the
  * closed form would pass every assertion taken at the defaults, so the pinned
  * cases are paired with discriminators that only the `sepAt`-derived answer
  * survives. A pin both implementations pass is not a pin.
@@ -76,6 +84,30 @@ const CONFIGS: readonly StereoOpts[] = [
   at(110, 1), at(110, 0), at(50, -10), at(2, 2),
 ]
 
+/**
+ * The rows of {@link CONFIGS} where the closed form `sepFar − sepNear + 1`
+ * and the encoder disagree, with the level count written out rather than
+ * computed — the one instrument in this file that does not go through
+ * `sepAt`.
+ *
+ * At module scope and under this name because the docblock above referred to
+ * `CLOSED_FORM_CASES` twice while the array was an unnamed local inside the
+ * test, so neither reference resolved to anything. Naming it is also what
+ * lets `names every disagreeing row of CONFIGS, and no other` state the
+ * relation between the two tables instead of leaving a reader to count.
+ */
+const CLOSED_FORM_CASES: readonly (readonly [number, number, number])[] = [
+  // sepFar, sepNear, levels      closed form, for contrast
+  [110.5, 92, 20],             // 19.5 — not even an integer
+  [110, 92.5, 18],             // 18.5
+  [110.4, 92.3, 19],           // 19.1
+  [99.7, 2.2, 99],             // 98.5
+  [110, 1, 109],               // 110 — sepNear 1 encodes as 2
+  [110, 0, 109],               // 111
+  [50, -10, 49],               // 61
+  [92, 110, 19],               // −17, a negative count
+]
+
 describe('encodableDepths counts what the encoder can actually produce', () => {
   it('equals the number of distinct separations sepAt yields, across every regime', () => {
     // Criterion 2: agreement with `sepAt` across a sweep, not at the defaults.
@@ -115,32 +147,58 @@ describe('encodableDepths counts what the encoder can actually produce', () => {
       .toBe(DEFAULT_STEREO.sepFar - DEFAULT_STEREO.sepNear + 1)
   })
 
-  it('is not the closed form — seven configurations tell them apart', () => {
+  // Titled "seven configurations tell them apart" until 2026-10-16, beside a
+  // table of eight rows. The figure was also prose in three other places —
+  // this file's docblock, `src/shared/perception.ts` and `src/core/sirds.ts`,
+  // the last two production — and nothing read any of them, which is why one
+  // wrong count survived in four places with its own refutation adjacent.
+  // `names every disagreeing row of CONFIGS, and no other` below is what
+  // makes the number a measurement instead of a sentence.
+  it('is not the closed form — eight configurations tell them apart', () => {
     // The discriminator proper, and the only instrument in this file that does
     // not go through `sepAt`. `sepFar − sepNear + 1` is the unclamped,
     // unrounded half of the mapping: it is wrong wherever a separation is
     // fractional, wherever `sepNear` falls under the encoder's floor of 2, and
     // it returns a negative "count" when the pair is inverted. Each expected
-    // value below is written out rather than computed, so an implementation
+    // value is written out rather than computed, so an implementation
     // that quietly became the closed form cannot satisfy both columns.
-    const cases: readonly (readonly [number, number, number])[] = [
-      // sepFar, sepNear, levels      closed form, for contrast
-      [110.5, 92, 20],             // 19.5 — not even an integer
-      [110, 92.5, 18],             // 18.5
-      [110.4, 92.3, 19],           // 19.1
-      [99.7, 2.2, 99],             // 98.5
-      [110, 1, 109],               // 110 — sepNear 1 encodes as 2
-      [110, 0, 109],               // 111
-      [50, -10, 49],               // 61
-      [92, 110, 19],               // −17, a negative count
-    ]
-    for (const [sepFar, sepNear, levels] of cases) {
+    for (const [sepFar, sepNear, levels] of CLOSED_FORM_CASES) {
       const s = at(sepFar, sepNear)
       expect(encodableDepths(s), `${sepFar}/${sepNear}`).toBe(levels)
       // And the closed form really does disagree here, so the case above is
       // discriminating rather than merely correct.
       expect(sepFar - sepNear + 1, `closed form at ${sepFar}/${sepNear}`).not.toBe(levels)
     }
+  })
+
+  it('names every disagreeing row of CONFIGS, and no other', () => {
+    // "8 of 20" is cited in four places, two of them production
+    // (`src/shared/perception.ts` and `src/core/sirds.ts`), and until this
+    // assertion existed it was cited in **none** of them by measurement. It
+    // read 7 in all four while the table above carried eight rows — a number
+    // wrong next to its own refutation, which is what a figure nothing reads
+    // decays into. §9's row on hand-written lists in numeric form.
+    //
+    // The relation, not the number: `CLOSED_FORM_CASES` is exactly the subset
+    // of `CONFIGS` on which the two formulations differ. Stated that way a
+    // row added to either table without the other reddens, and so does a row
+    // that stops discriminating because the function changed — neither of
+    // which a count could see. The prose figures are then `CONFIGS.length`
+    // and `CLOSED_FORM_CASES.length`, both checked here.
+    const disagreeing = CONFIGS
+      .filter(s => encodableDepths(s) !== s.sepFar - s.sepNear + 1)
+      .map(s => `${s.sepFar}/${s.sepNear}`)
+      .sort()
+    expect(disagreeing).toEqual(
+      CLOSED_FORM_CASES.map(([sepFar, sepNear]) => `${sepFar}/${sepNear}`).sort(),
+    )
+
+    // Vacuity floors, because `[] === []` would satisfy the line above: the
+    // sweep has to be the twenty-row one the prose claims, and the
+    // discriminating subset has to be non-empty or the test above is pinning
+    // nothing.
+    expect(CONFIGS.length, 'the swept configurations the prose counts against').toBe(20)
+    expect(disagreeing.length, 'the figure cited in four places').toBe(8)
   })
 
   it('is invariant under noiseScale, while the same instrument moves under sepNear', () => {

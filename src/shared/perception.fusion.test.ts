@@ -11,10 +11,27 @@ import {
 /**
  * `fusionComfort` — the axis the findings document separates from legibility.
  *
- * Its own file rather than an addition to `perception.test.ts`, because that
- * file is the behaviour-preservation proof for the legibility move: it is
- * unmodified by this task, and keeping it that way is what lets it say
- * anything about the move at all.
+ * Its own file rather than an addition to `perception.test.ts`. The reason
+ * given when this file was written was: *"that file is the
+ * behaviour-preservation proof for the legibility move: it is unmodified by
+ * this task, and keeping it that way is what lets it say anything about the
+ * move at all."* **Both halves of that are now false, and the second was
+ * false when written.** It is kept and corrected beside rather than deleted,
+ * because four other files in this package chained off it and a reader
+ * meeting one of them needs to find the correction here.
+ *
+ * *Spent.* `perception.test.ts` was modified at `b3e7601` and again at
+ * `f352b99`, both later than `96dceb6`, which created this file. "Unmodified"
+ * is past tense; the separation below stands on its own merits now and not as
+ * anybody's proof.
+ *
+ * *Misattributed.* `perception.test.ts` was never the move's
+ * behaviour-preservation proof. Its own docblock says it is **deliberately
+ * not** a second copy of `site/legibility.test.ts` and names that file as the
+ * witness — which was correct, and is also spent, since P7 criteria 2 and 5
+ * modified `site/legibility.test.ts` on purpose. What pins the thresholds now
+ * is `perception.test.ts`'s `pins every threshold to a literal, over a set
+ * the compiler enumerates`, swept over a roster the compiler derives.
  *
  * **What this file exists to prevent is one specific bug**, and every
  * assertion below is chosen so that the bug reddens it. The rule keys on the

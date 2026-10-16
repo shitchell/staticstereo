@@ -10,10 +10,14 @@ import {
  * `collidingPairs` and `restingDepth` — the consumer half of design §10.1,
  * "layer pairs closer than one step, which encode identically".
  *
- * Its own file, for the reason `perception.capacity.test.ts` records about
- * `perception.test.ts` and `perception.fusion.test.ts`: those files are
- * unmodified by this task, and keeping them that way is what lets them say
- * anything about it.
+ * Its own file. The reason given when this file was written was the one
+ * `perception.capacity.test.ts` records — *"those files are unmodified by
+ * this task, and keeping them that way is what lets them say anything about
+ * it"* — and **that reason is spent**: `perception.test.ts` was modified at
+ * `b3e7601` and `f352b99`, both later than `8d08ef1`, which created this
+ * file. The chain it was quoting was also wrong about which file ever
+ * witnessed the move; the correction is at `perception.fusion.test.ts`'s
+ * docblock. The separation stands on its own merits.
  *
  * **Three things this file exists to prevent.**
  *

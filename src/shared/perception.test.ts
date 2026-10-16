@@ -164,10 +164,26 @@ describe('measureInk, at the new path', () => {
   })
 
   it('still refuses a depth map that does not match its dimensions', () => {
-    // The argument guard is the needle `site/dist.test.ts` greps for to prove
-    // the player bundle left the editor's legibility code out. Exercised here
-    // so that a move which kept the function and lost the guard is red at the
-    // module as well as in the bundle check.
+    // This read: *"The argument guard is the needle `site/dist.test.ts` greps
+    // for to prove the player bundle left the editor's legibility code out.
+    // Exercised here so that a move which kept the function and lost the guard
+    // is red at the module as well as in the bundle check."* **The pairing it
+    // claims exists in neither direction**, measured 2026-10-16:
+    // `site/dist.test.ts`'s only `measureInk` needle is `'measureInk: the ink
+    // fraction must be in (0, 1], got'` at line 1344 — the **fraction** guard,
+    // thrown from `src/shared/perception.ts:171`. The guard annotated here is
+    // the **dimension** guard, and no bundle check names it.
+    //
+    // Corrected rather than deleted because the assertion is worth keeping on
+    // its own terms: the dimension guard is the one that turns a caller's
+    // width/height mix-up into a message instead of a silently wrong median,
+    // and nothing else in the suite exercises it. It simply is not the
+    // module-side half of a bundle check, and a reader must not infer that
+    // losing it would redden one.
+    //
+    // Reported and deliberately not fixed, because `site/dist.test.ts` is
+    // P3b's: that row still carries `source: 'site/legibility.ts'`, which is
+    // now a 46-line re-export shim containing no such string.
     expect(() => perception.measureInk(new Float32Array(10), 4, 4)).toThrowError(/4×4/)
   })
 })

@@ -287,7 +287,11 @@ const UNBOUNDED_PLATE = Number.POSITIVE_INFINITY
  * **Derived from `sepAt`, not from `sepFar - sepNear + 1`.** Design §10.1
  * gives the closed form and it is right at the defaults — 19 at 110/92 — but
  * it is the unclamped, unrounded half of the mapping and disagrees with the
- * encoder in 7 of 20 swept configurations: at fractional separations
+ * encoder in 8 of 20 swept configurations (**8, not the 7 this read until
+ * 2026-10-16 — recomputed over `perception.capacity.test.ts`'s `CONFIGS`,
+ * whose own discriminator table has carried eight rows all along, and now
+ * asserted there by `names every disagreeing row of CONFIGS, and no
+ * other`**): at fractional separations
  * (`110.5/92` is 20 levels, not 19.5), below the encoder's floor (`110/1` is
  * 109, not 110, because `sepNear` 1 encodes as 2), and it returns a negative
  * count when the pair is inverted. Writing the arithmetic again here is the

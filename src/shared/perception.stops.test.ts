@@ -10,10 +10,15 @@ import {
  * `depthStops` — design §10.4's "named stops spaced across the encodable
  * separations, recomputed when `sepFar`/`sepNear` change".
  *
- * Its own file, for the reason `perception.capacity.test.ts` records about
- * `perception.test.ts` and `perception.fusion.test.ts` and
- * `perception.collisions.test.ts` repeats: those files are unmodified by this
- * task, and keeping them that way is what lets them say anything about it.
+ * Its own file. The reason given when this file was written was the one
+ * `perception.capacity.test.ts` records and `perception.collisions.test.ts`
+ * repeats — *"those files are unmodified by this task, and keeping them that
+ * way is what lets them say anything about it"* — and **that reason is
+ * spent**: `perception.test.ts` was modified at `b3e7601` and `f352b99`, both
+ * later than `76c5976`, which created this file. The chain was also wrong
+ * about which file ever witnessed the legibility move; the correction is at
+ * `perception.fusion.test.ts`'s docblock. The separation stands on its own
+ * merits.
  *
  * **Four things this file exists to prevent.**
  *
@@ -37,8 +42,11 @@ import {
  *
  * 3. *A restated encoder.* Every separation in this file is read off `sepAt`
  *    (orchestrator ruling E-7), never off `sepFar − z·range`. `6214ec5`
- *    measured the closed form for capacity disagreeing with the encoder in 7
- *    of 20 configurations, and `CONFIGS` below carries the fractional, clamped
+ *    measured the closed form for capacity disagreeing with the encoder in 8
+ *    of 20 configurations — **8, not the 7 this read until 2026-10-16; the
+ *    recount is `perception.capacity.test.ts`'s `names every disagreeing row
+ *    of CONFIGS, and no other`, which is also what stops the figure being
+ *    prose again** — and `CONFIGS` below carries the fractional, clamped
  *    and inverted regimes that produced those disagreements.
  *
  * 4. *A refusal.* R22 obligation 2 and P7 criterion 7: advisory only, never
