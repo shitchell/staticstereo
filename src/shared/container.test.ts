@@ -338,6 +338,131 @@ describe('writeStst', () => {
     expect(methodsOf(deflated).central).toEqual([METHOD_STORE, METHOD_DEFLATE])
   })
 
+  /**
+   * The same claim as the test above, but about the **writer** rather than
+   * about one fixture — and the two are not the same claim.
+   *
+   * The test above reads the method fields of an archive built from
+   * `straight()`, whose members are four 300-byte pseudo-random blobs. That is
+   * "all-store holds for this fixture". Criterion 7 asks for something
+   * stronger: that the method is never *chosen* — that it is a property of the
+   * module and not of the bytes handed to it. The difference is measurable.
+   * `method: p.data.length > 100000 ? 'deflate' : 'store'` — a textbook content
+   * dependence, and the exact class criterion 7 exists to remove — leaves the
+   * test above green, because no member in `straight()` reaches 100,000 bytes.
+   * It was planted and measured: **13 of 13 green in this file**, 26 files /
+   * 421 tests green across the shared suite. A fixture-scoped assertion cannot
+   * see a threshold the fixture does not cross, and nothing says a future
+   * threshold would be 100,000.
+   *
+   * So this sweeps the two axes a content-dependent rule could key on, since
+   * there are only two: **length** and **compressibility**. Lengths run from 0
+   * to 512 KiB across six orders of magnitude, crossing 64 KiB (the classic
+   * chunk boundary) and 100 KiB; each length appears twice, once as
+   * incompressible pseudo-random bytes and once as a single repeated byte that
+   * deflates to roughly 0.1% of itself. "Every entry stored" over that matrix
+   * is a statement about the writer. Over one fixture it is a statement about
+   * the fixture.
+   *
+   * ## The size relation, which does not read the method field at all
+   *
+   * Reading method fields and asserting they are 0 has a cheapest-wrong
+   * satisfying action (plan §6.5a): write 0 into the header while deflating the
+   * payload, and every assertion above still passes. The archive **length** is
+   * immune to that. With every entry stored, growing one member by *n* bytes
+   * grows the archive by exactly *n*, so `archive.length - payload.length` is
+   * one constant across the whole matrix — whatever the payload is. Deflate
+   * anything, by any rule, and that number moves: by ~524,000 on the
+   * compressible 512 KiB member, and by a few bytes on the incompressible ones.
+   * It is a single number, derived from no literal of the module's, and it is
+   * checked for every arm.
+   *
+   * Nothing here greps `container.ts` for `'store'`. A source grep is satisfied
+   * by the word appearing in a comment, which is the cheapest wrong action of
+   * all, and it goes blind the moment the literal moves behind a helper.
+   */
+  it('stores every entry whatever the payload is, not merely for this fixture', async () => {
+    // Deliberately **not** derived from `notAPng`'s seed list or from
+    // `straight()`: these exist to be unlike the fixture. The repeated-byte
+    // arms are the ones a size-and-compressibility rule would deflate.
+    const payloads: readonly (readonly [string, Uint8Array])[] = [
+      ['empty', new Uint8Array(0)],
+      ['1 byte', new Uint8Array([0x5a])],
+      ['1 KiB random', notAPng(101, 1024)],
+      ['1 KiB repeated', new Uint8Array(1024).fill(0x5a)],
+      ['64 KiB + 1 random', notAPng(102, 65537)],
+      ['64 KiB + 1 repeated', new Uint8Array(65537).fill(0x00)],
+      ['512 KiB random', notAPng(103, 512 * 1024)],
+      ['512 KiB repeated', new Uint8Array(512 * 1024).fill(0xff)],
+    ]
+
+    // One member, one name, one scene, so that archive length varies with the
+    // payload and with nothing else. A varying name would change the header
+    // overhead and make the size relation below unreadable.
+    const overheads = new Map<string, number>()
+    for (const [label, data] of payloads) {
+      const archive = await writeStst(hostileScene(), [{ name: 'p.bin', role: 'mask', data }])
+      const { local, central, names } = methodsOf(archive)
+      expect(local, `local methods · ${label}`).toEqual(new Array(names.length).fill(METHOD_STORE))
+      expect(central, `central methods · ${label}`).toEqual(local)
+      overheads.set(label, archive.length - data.length)
+    }
+
+    // The size relation. Reported as a label→value map rather than as a set
+    // size, so a failure names *which* payload was treated differently
+    // instead of only saying that one of eight was.
+    const flat = [...overheads.values()]
+    expect(Object.fromEntries(overheads), 'archive bytes in excess of the payload')
+      .toEqual(Object.fromEntries([...overheads.keys()].map(k => [k, flat[0]])))
+
+    // The scene is a payload too. `writeStst` serialises it itself, so a rule
+    // keyed on `sceneText.length` would never touch a member — and the member
+    // sweep above would stay green. A layer whose text is 200,000 repeated
+    // characters makes `scene.json` both the largest entry in the archive and
+    // by far the most compressible one.
+    const fat = { ...hostileScene() } as unknown as Scene
+    const layers = (fat as unknown as { layers: { text: string }[] }).layers
+    layers[0] = { ...(layers[0] as { text: string }), text: 'я'.repeat(200_000) }
+    const fatArchive = await writeStst(fat, straight())
+    const fatMethods = methodsOf(fatArchive)
+    expect(fatMethods.local, 'local methods · 200k-character scene')
+      .toEqual(new Array(EXPECTED_NAMES.length).fill(METHOD_STORE))
+    expect(fatMethods.central, 'central methods · 200k-character scene').toEqual(fatMethods.local)
+
+    // The control (§6.5a), both halves. Every assertion above is a null —
+    // "nothing read 8, nothing moved" — and a null is indistinguishable from
+    // an instrument that cannot move. So the same two instruments are run over
+    // archives built one layer down with the methods chosen from the content,
+    // and both must report the difference rather than merely failing to be 0.
+    const asWritten: number[] = []
+    const asChosen: number[] = []
+    const lengths: number[] = []
+    for (const [, data] of payloads) {
+      const chosen = await writeZip([
+        { name: 'mimetype', data: te.encode(STST_MIMETYPE), method: 'store' },
+        // The rule the criterion forbids, in its most plausible form: deflate
+        // the big ones. 100,000 is V-1's planted threshold, reused so the
+        // control is the mutation and not a different thing that also moves.
+        { name: 'masks/p.bin', data, method: data.length > 100_000 ? 'deflate' : 'store' },
+      ])
+      asChosen.push(methodsOf(chosen).local[1] as number)
+      asWritten.push(METHOD_STORE)
+      lengths.push(chosen.length - data.length)
+    }
+
+    // Half one: the method-field reader moves. 0,0,0,0,0,0,8,8 against the
+    // all-zero vector the writer produces — so the zeros above are a reading
+    // and not a constant.
+    expect(asChosen).not.toEqual(asWritten)
+    expect(asChosen.filter(m => m === METHOD_DEFLATE)).toHaveLength(2)
+
+    // Half two: the size relation moves, and it moves on the *values*, not on
+    // a pass/fail. Under the forbidden rule the excess-over-payload figure
+    // spans a range of hundreds of kilobytes instead of being one number.
+    expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)
+    expect(Math.max(...flat) - Math.min(...flat)).toBe(0)
+  })
+
   it('passes /usr/bin/unzip -t', async () => {
     expect(unzip(['-t', onDisk(await writeStst(hostileScene(), straight()))]).status).toBe(0)
   })
