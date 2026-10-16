@@ -200,9 +200,36 @@ purity sensor and it is not a type sensor either; it is a bundling sensor.
 ## What `ready-to-merge` requires — all six, and two are not exit codes
 
 1. **Every exit criterion met, evidenced by verifiers who implemented none of it, each
-   having re-established RED itself.** ✅ **Already satisfied — do not re-run this.** Four
-   clusters covered P1 criteria 1–10 and P7 criteria 1–8, all MET. Your job is to *record*
-   that, not to reproduce it.
+   having re-established RED itself.**
+
+   **⚠ THIS BRIEF PREVIOUSLY SAID "Already satisfied — do not re-run this." THAT WAS
+   FALSE, AND IT WAS FALSE IN THE MOST EXPENSIVE DIRECTION: it told you not to look.**
+
+   **All four verifier clusters ran against `b3e7601`** — V-1 and V-3 say so in the
+   ledger, and V-2's record at `7fda4b0` and V-4's at `94226e5` both say "reproduced … at
+   96 files / 2110 passed". **No verifier has seen a single finding-fix commit.**
+   `git log --oneline b3e7601..HEAD -- src/ site/` returned **17 commits** when this was
+   written and the number grows with each fix. So requirement 1 is satisfied **about
+   `b3e7601`**, a tree that no longer exists, and the claim in `05a7d2e` is true of the
+   tree the verifiers saw while being stated about the tree at HEAD.
+
+   **Re-run that `git log` yourself.** If it is non-empty, say in your report exactly how
+   many commits sit between the verified baseline and the tree you measured, and **do not
+   report requirement 1 as satisfied on the strength of `05a7d2e`'s sentence.** Ask your
+   PM whether a V-5 cluster has closed the delta and cite its record if so.
+
+   **Worse, one verifier is known to have passed a criterion over a witness that did not
+   exist.** At `6531698^`, `site/project.test.ts` had no `src/cli/scene.js` import and
+   lines 42–46 were `*`-prefixed docblock prose. **V-2 held criterion 10 and returned
+   all-MET over that.** The gap was found by a reviewer and closed by an *implementer*, so
+   criterion 10's only real RED was re-established by the author of the fix — which is the
+   precise arrangement requirement 1 exists to forbid. **V-2 also has no report of any
+   kind**; its entire durable record is one sentence, no criterion named, and the phrase
+   "RED re-established" never appears for it, where it appears explicitly for V-1 and V-3.
+
+   The honest statement, and the one to carry: **the record does not support the claim for
+   criteria 4, 6 and 10 — that is not the same as the claim being false.** Report the gap,
+   not a verdict on V-2.
 2. **All four exit codes 0.**
 3. **Counts compared against the branch's own recorded baseline** — see the section below,
    which has a trap in it.
