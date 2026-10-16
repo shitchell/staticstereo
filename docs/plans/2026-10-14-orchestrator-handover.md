@@ -525,6 +525,44 @@ binding on tier 0 as on tier 1.
 
 ---
 
+## 5c. `166b6da`'s removal — ratification wording, 2026-10-16
+
+**Ratified, but NOT in the words I was about to use.** I escalated this as *"replace-in-place,
+not a coverage loss"*; V-D0b measured that wrong. **Use this wording verbatim, which is
+V-D0b's:**
+
+> **replace-in-place with two declared real-reference coverage losses (computed specifier;
+> non-script emitted file), both inside the file's stated boundary, traded for one
+> real-reference gain (externalised builtin)**
+
+**Measured, needle grep-confirmed in the artifact before each verdict:** a non-foldable
+`await import(location.hash.slice(1) || '@napi-rs/canvas')` — **old exit 1, new 37 passed
+exit 0, silent**, over a bundle literally containing the call. And a real import inside
+`dist-site/index.html` — **old exit 1 naming the offender, new silent**, because the file is
+not a script chunk and is never visited. **Against one genuine gain**, the externalised
+builtin, old 34-passed-exit-0 → new exit 1.
+
+**`166b6da` stands — repair, not revert.** It closes a real hole and **declares both losses
+accurately under its own BOUNDARY heading.** Its *summary* sentence does not, and a
+ratification quotes the summary — see §9's new row.
+
+**Two follow-ups fold into S-2, not a separate task**, since both are *the fix was
+enumeration-complete, not class-complete*:
+- **Restore coverage for the computed-specifier and non-script-file classes**, and **pin the
+  emitted extension set** — *"both builds emit only css html js woff2"* exists **only in
+  prose**, which is the unpinned premise underneath the second loss.
+- **The `__vite-browser-external` gap must get a real sensor, and the fix is this table's own
+  pattern: make the note be the test.** Assert the stub name is present in the build output,
+  so a vite upgrade that renames it **reddens loudly** instead of going silent. Two lines.
+  **I am not accepting an unsensored gap here** — the standing ruling is that a gap ships
+  with a sensor, never a note, and this one currently ships with a note that calls itself a
+  sensor.
+
+**Settled and closed: `dist-player` is wholly pre-existing and NOT created by `166b6da`.**
+The deleted test ran over `dist-site` only and the player block is **byte-identical before
+and after** (md5 `b04bfab3…`). The ownership question is answered; the player gap stays
+queued as pre-existing P3b work.
+
 ## 5b. Live cross-phase handoff — the builtin-spelling matrix, split 2026-10-16
 
 **A §9 row of mine is unverified and load-bearing:** *"`build:site` catches one spelling of
