@@ -1583,6 +1583,25 @@ how.
 
 ---
 
+## 8a. Which range answers which question
+
+**This project has had a range direction wrong five times, in five different spellings, and
+each new spelling defeated the procedure written for the last one.** Patching a sixth time
+would fail the same way. So: the table, not the procedure. `B` is your branch, `M` is
+`origin/main`, `MB` is `$(git merge-base M B)`.
+
+| question | correct form | what the tempting wrong form gives |
+|---|---|---|
+| **What commits does my branch add?** | `git rev-list --count --no-merges M..B` | `M...B` (three dots) is the **symmetric difference** and roughly doubles it while `M` moves — measured **58 vs 30** |
+| **What changes does my branch add?** | `git diff M...B` (**three dots**) | `M..B` on a *diff* is the same as `M B` and shows `M`'s commits in reverse too |
+| **What commits am I missing from `main`?** | `git log --oneline B..M` | `M..B` is **your own work**, which is *supposed* to touch `src/` — a stop-rule on it fires on every healthy branch |
+| **What files do those missing commits touch?** | `git diff --name-only MB M` | **`git diff --name-only B M` is the trap.** It diffs *trees*, so it surfaces your branch's own commits in reverse. **Measured: `log B..M` = 2 docs commits; `diff --name-only B M` = 16 files, 10 under `src/`/`site/`; the merge-base form = 1 file, 0 under either.** A runner applying "touches `site/` ⇒ STOP" would have **halted a healthy docs-only merge.** |
+
+**The generalisation, which is the only durable part: `log`/`rev-list` take a *commit range*;
+`diff` takes *two endpoints*. They accept the same syntax and mean different things, and
+`A..B` is the one that silently changes meaning between them.** When the question is "what
+do these commits touch", the two-dot form is never the answer.
+
 ## 9. Known traps
 
 > ### The generalisation that covers every row below
@@ -1723,6 +1742,7 @@ Each already cost a correction. Hand this table to every worker.
 | "verified" means the criterion held | **It means the criterion held *as the verifier was able to leave it* — and a verifier that can edit its own target can pass by narrowing.** This phase has three instances with a degree of freedom nobody granted on purpose: a verifier that **amended the criterion it was sent to check** (well-measured, ratified), one that **found the error in its criterion and then passed it**, and one that **passed a criterion whose witness was docblock prose.** All three were ruled not-defects; naming them was the action. **The guard is a brief that says in terms: you fix nothing, you report defects rather than touching them, and a criterion you believe unsatisfiable is a refusal with proof, not an amendment.** *"Verified" is only as strong as the verifier's inability to move the goalposts.* |
 | tier 0 can amend a document while agents are briefed against it | **Not without pushing the correction, and the section you amend is reliably the one a live brief names.** **Three consecutive shifts:** the amended section was the one the brief specifically cited, most recently a §9 audit dispatched at one sha while two commits amending §9 — including one of the audit's own subjects — landed underneath it. **This is not coincidence: tier 0 writes about whatever the live phase is working on, which is what its briefs name.** So when tier 0 amends a section, it must **check whether a live brief cites it and push the correction with a resolution procedure**, exactly as a sha requires one. |
 | a census taken in a scratch tree measures the same thing as one taken in the primary | **Prove it on a known-common point before trusting it on the unknown one.** GATE-P3b-2 ran `vitest list` at the merge-base and at the tip in scratch trees, then **diffed its scratch-tip census against the primary-tip census under `LC_ALL=C sort`** — establishing the scratch harness was faithful *before* believing either number — with `test -s` non-empty guards on both. **This is §1.2o applied to one's own instrument, unprompted, and it is the exact check whose absence produced orchestrator error 34** ("zero removals" accepted from a census nobody had shown could see a removal). **The general form: when you measure somewhere other than where the answer will be used, first measure something both places already agree on.** |
+| `vitest list` can tell a deletion from a skip | **It cannot — the two produce *byte-identical* census deltas, measured.** This cuts both ways at **§6.4**, the requirement this project has staked its strongest claims on: **a silently skipped test reads as a removal, and a real deletion can be waved off as "probably a skip."** Only the suite's own summary line separates them. Third measured limit of that instrument, alongside *omits skipped tests* and *cannot distinguish a retitle from a delete-plus-add*. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
