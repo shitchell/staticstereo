@@ -14,9 +14,23 @@ timed out a merged-phase test on this box**, and the count just went from three 
 **Do not infer the slot from a quiet `ps`** — the other phase's run may not have started
 when you look. Wait to be told.
 
-Read first, in full:
+Read first, in full — **its §§0, 3, 4, 6, 7, 8 bind you; ignore §1, §2, §9.**
+
+**Durable source, use this one:**
+
+```sh
+git show main:docs/plans/handover/VERIFIER-COMMON-BRIEF.md
+```
+
+**Fallback only, and note the ordering wrinkle.** The scratchpad copy is at
 `/tmp/claude-1000/-home-guy-code-git-github-com-shitchell-staticstereo/8b54946b-39f3-4e41-bb67-886b9d8bd96a/scratchpad/VERIFIER-COMMON-BRIEF.md`
-— its §§0, 3, 4, 6, 7, 8 bind you. Ignore §1, §2, §9.
+(verified present, 22359 bytes). It is **session-scoped and does not survive the session**,
+so it is a fallback and not the citation target. The wrinkle: this file is **not in the
+branch's working tree** — it lives on `main` and only arrives in your tree *after* step 1's
+`git merge main`. Since you read it *before* the merge, `git show main:…` is how you reach
+it without waiting, and it works whether or not the scratchpad is still alive. Do not
+`cat` the working-tree path pre-merge; it is not there, and an empty read is not a signal
+you will notice.
 
 ---
 
