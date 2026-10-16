@@ -41,8 +41,11 @@ Work **in `/home/guy/code/git/github.com/shitchell/staticstereo-p1p7`** on
 PM if in doubt).
 
 ```sh
+# step 0 — tree MUST be clean; both must print nothing
+git status --porcelain; git diff --stat HEAD
+
 rm -rf dist dist-site dist-player                         # THREE dirs — SEE BELOW, not optional
-git merge main                                            # conflict ⇒ STOP, escalate
+git merge main || { echo "MERGE CONFLICT — STOP, ESCALATE, DO NOT RESOLVE"; exit 1; }
 npm run typecheck > /tmp/tc.log 2>&1; echo "typecheck=$?"
 npm run build      > /tmp/b1.log 2>&1; echo "build=$?"
 npm run build:site > /tmp/b2.log 2>&1; echo "buildsite=$?"
