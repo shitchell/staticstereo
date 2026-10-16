@@ -36,7 +36,7 @@ them. Their value is the *reasoning* and the *briefs*, not the status tables.
 | `P3B-SURVEY-S1.md` | P3b's survey digest | *"~25 agents' worth of repo facts"* — the highest-leverage artefact either phase produced. **Caveat: its `transport.ts` line count (274) is wrong; it is 318.** |
 | `P3B-TASKS-DEF.md` | P3b's eight remaining task definitions | A copy. **`git show 62696ae` is the authority**; this file says so itself. |
 | `P3B-LEDGER.md` | P3b's running ledger across three shifts | Escalations with their reasoning, and every carry-forward. |
-| `P3B-WORKER-BOILERPLATE.md` | The text every P3b worker received | Its §0 branch-point rule **has been wrong three times running** — reconstruct it, do not inherit it. |
+| `P3B-WORKER-BOILERPLATE.md` | The text every P3b worker received | Its §0 branch-point rule **has been wrong three times running** — reconstruct it, do not inherit it. **Its skip-instrument section is *correct* and was wrongly impugned**: a §9 row claimed `grep -c 'skipped'` was blind too, which was orchestrator error 30; the boilerplate's `grep -c 'skipped'` guidance measures sound. Prefer vitest's summary line anyway — it counts, where grep only detects. |
 | `P1P7-LEDGER.md` | P1/P7's ledger across four shifts | The case-E measurements, the thirteen refutations, and the full open-hazard list. |
 | `VERIFIER-COMMON-BRIEF.md` | The common verifier brief for P1/P7 | **Directly reusable.** Carries both completed verifiers' cross-cluster findings as binding addenda. |
 | `BRIEF-V2.md`, `BRIEF-V4.md` | The two undispatched verifier clusters | **Ready to dispatch as written** in a fresh session. This is the next action on P1/P7. |

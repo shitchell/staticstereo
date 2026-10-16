@@ -43,8 +43,8 @@ orchestrator has produced its own list (§5 below) and nothing structural preven
 | **P0b** endpoints | **merged** | 60 files / 1356; freshness verified positively |
 | fractional-viewport fix | **merged** | 60 files / 1358 |
 | **P3a** shell, additive half | **merged** `7cd5599` | 80 files / 1881 / 0 skipped, typecheck 0 over 451, freshness positive. **Criteria 0, 1, 2, 3, 4, 5, 6, 12, 13, 17, 18, 20 met — twelve, not ten.** +523 tests, zero removals |
-| **P3b** store, undo, scene time, teardown | **in progress, third PM (PM-SHELL-P3b-3) live** | `feat/p3b-store` @ `c0a6b36`. **Criteria 8, 9, 15 and 22 done**; 9 verified by V-BC, 22 adopted at `24392c3` with fourteen mutation-backed claims. Gate 82 files / **1955 passed / 0 skipped**, four exit codes 0, typecheck clean **with and without `CLAUDECODE` stripped**. **Never seen by CI.** Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23 |
-| **P1** `.stst` · **P7** perception | **in progress, fourth PM (PM-SHARED-4) live** | `feat/p1p7-shared` @ `b3e7601`. **All 13 implementation tasks complete.** **Three of four verifier clusters returned all-MET**; V-4 running. Baseline **96 files / 2110 passed / 0 skipped** — reproduced **three times independently**, and zero net test removals established by **three different instruments**. Remaining: V-4, five named findings, a reviewer at two rounds, a gate runner, and a green `ci` run. **The branch is 26 non-merge commits + 2 merges — see error 27; scope any review with `main...HEAD`, three dots** |
+| **P3b** store, undo, scene time, teardown | **in progress, fourth PM (PM-SHELL-P3b-4) live · GATE GREEN** | **`f84b5da` — four local exit codes 0 AND `ci` green on GitHub (run `38858032393`, draft PR #3).** `Test Files 83 passed (83)` · `Tests 1967 passed (1967)` · 0 skipped · zero removals. **The predicted 83/1967 was confirmed by measurement and never used as the baseline** — the comparison ran against the recorded `24392c3` 82/1955/0, and CI re-running on a fresh checkout on a different machine returned byte-identical counts, which is the strongest disconfirmation available for a number that matches something already written down. Two verifiers (V-22, V-SENSORS) now running, pinned to `f84b5da`. Earlier row, for history: `feat/p3b-store` @ `c0a6b36`. **Criteria 8, 9, 15 and 22 done**; 9 verified by V-BC, 22 adopted at `24392c3` with fourteen mutation-backed claims. Gate 82 files / **1955 passed / 0 skipped**, four exit codes 0, typecheck clean **with and without `CLAUDECODE` stripped**. **Never seen by CI.** Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23 |
+| **P1** `.stst` · **P7** perception | **in progress, fourth PM (PM-SHARED-4) live** | `feat/p1p7-shared` @ `b3e7601`. **All 13 implementation tasks complete.** **Three of four verifier clusters returned all-MET**; V-4 running. Baseline **96 files / 2110 passed / 0 skipped** — reproduced **three times independently**, and zero net test removals established by **three different instruments**. Remaining: V-4, five named findings, a reviewer at two rounds, a gate runner, and a green `ci` run. **Scope the *diff* with `main...HEAD` (three dots) and the *count* with `main..HEAD` (two) — see errors 27 and 31.** Three dots on a count gives the symmetric difference and roughly doubles it while `main` keeps moving |
 | **P4** canvas · **P6** timeline · **P5** assets · **P8** polish | not started | see plan §3 |
 
 **CI IS RED AND HAS BEEN SINCE `7cd5599`, THE P3a MERGE — nine hours and eight commits.**
@@ -438,6 +438,8 @@ orchestrator.
 | 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
 | 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
 | 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
+| 31 | **Told reviewers to scope with `main...HEAD`, three dots — right for the diff, wrong for the count.** `rev-list --count` over three dots is the **symmetric difference**, so it adds every commit `main` gained since the merge-base: measured **58** against the true **30**. A reviewer reported 54 and re-derived it rather than quoting me. **It shipped inside the correction for error 27, which was itself a commit count** — I fixed a wrong count by handing out a command that produces a different wrong count, and both numbers were plausible | the reviewer re-derived instead of quoting |
+| 30 | **Misread a relayed "gives 0 vs 4" as evidence an instrument was blind, and wrote that into §9 as fact** — where it meant the opposite: 0 at baseline, 4 on the skipped run, i.e. the instrument discriminating correctly. A PM then applied my false row faithfully, concluded a committed document was defective, declined to cite it to workers, and flagged a landed commit's evidence as resting on an unshown instrument. **All three conclusions were sound reasoning from a premise I got wrong.** Measured over four real logs: `grep -c 'skipped'` gives 2, 2, 3 on 22/22/26-skip runs and 0 on a zero-skip run | caught by re-measuring my own row when a PM acted on it |
 | 29 | **Quoted "94s" as the CI budget in brief after brief, when it was a single sample of a quantity that varies 93–108s** — and a quarter of which is `apt-get install ffmpeg`, not the suite at all. I cited a three-significant-figure number for a thing I had measured once and never decomposed, and every PM inherited it | H-2 measured the job's composition instead of quoting mine |
 | 28 | **Attached criterion 6's "scoped to a named list … is this *constant* perceptual?" sentence to criterion 8**, which is about *parameters*, not constants — and criterion 6 already carried its own copy. A reader scoping criterion 8 from that paragraph scoped the wrong criterion entirely | a verifier read the two criteria against each other |
 | 27 | **Recorded P1/P7 as "13 commits" in this document; the branch is 26 non-merge commits and 2 merges.** The figure named a merge as the phase's base, so **twelve criterion-bearing commits sit *below* it** — every P1 criterion 1/2/3/4/5/8 and P7 criterion 1/2/3/4 commit. **A reviewer or gate runner scoping to that range would have skipped the entire evidence base for eight criteria** and reported clean. One `git rev-list --count --no-merges main..HEAD` settles it, which is why it is the §1.2e shape exactly; I have now run it and confirm 26/2. No completed measurement is contaminated — all three verifier clusters independently used merge-base `69abca9`. **The whole-phase range is `main...HEAD`, three dots** | the PM re-derived the range instead of inheriting it, after relaying it once |
@@ -534,6 +536,13 @@ binding on tier 0 as on tier 1.
   `npm test`. So workers running single files are fine; it is concurrent *full suites* that
   must not overlap.
 
+  **The 4079 ms figure is EXPIRED and must not be used for sizing — 2026-10-16.** It
+  describes a test that has since been superseded. GATE-P3b-1 observed the heaviest
+  individual test at **15,515 ms**, and the four `svelte-check` harnesses at **133.7s of
+  201.2s summed test time (66%)**, which is consistent with the ">60%" above but is a
+  different world from a 4-second test against a 5-second timeout. **Anyone sizing a fifth
+  harness against 4079 ms is sizing against a number with no referent.**
+
   **The raise costs real regression sensitivity and both comments say so:** a 5× encoder
   slowdown would no longer redden these six, and nothing else in the suite watches their
   runtime. Getting that back needs a separate perf assertion — a timeout cannot be both a
@@ -547,6 +556,22 @@ binding on tier 0 as on tier 1.
 - **Spot-check before merging and before standing a PM down.** `git log` against claimed
   shas, plus an independent gate run. Every merge so far reproduced exactly; the value is
   that it would not have, silently, if something were wrong.
+- **A smooth PM report is not reassuring — it is unexamined.** PM-SHELL-P3b-4's
+  consequence of the restatement habit, and it inverts how a report should be read: *"the
+  common case is safe, so a smooth report is precisely what a PM coasting on restatements
+  produces. All five defects in my own briefs this shift surfaced because a worker went to
+  the source, not because anything looked wrong. **Nothing looked wrong.**"* So **the signal
+  to want from a PM is not an absence of corrections but a steady supply of them**, and a
+  shift that produces none deserves more scrutiny than one that produces several. Every
+  error on this project — thirty-one at tier 0, nineteen-plus at tier 1 — was caught from
+  below, and **not one was caught by something looking wrong from above.**
+- **An absence claim from a zero-result instrument is the most seductive failure there
+  is.** The orchestrator grepped five phrases out of a verified commit body, got zero hits
+  on two, and was a step from reporting a complete record as missing content — **minutes
+  after committing the row that an absence claim is exactly as unverified as a presence
+  claim, and more seductive because it asks you to add rather than to skip.** The row was
+  minutes old and it fired on its author. **A zero-hit search is a claim about your
+  instrument before it is a claim about the artefact.**
 - **A local gate is not the gate. Check CI after every merge to `main`, before doing
   anything else.** `gh run list --limit 3` is one command. Error 24: P3a merged on a green
   local run and left `main` red for nine hours and eight commits, with the deploy stopped
@@ -563,10 +588,15 @@ binding on tier 0 as on tier 1.
   criteria identified only by a local label; the correct response is to ask what it is.
 - **Record decisions in commit messages.** They are the durable record; the scratchpad is
   not, and a committed source file must never cite it.
-- **Brief with a sha, never a section number alone.** Error 12: a PM was told to read
-  plan sections its branch did not contain. Hand over `main`'s sha and the instruction to
-  check it; the receiving agent's `git log --oneline -1 main` has caught this five times
-  out of five.
+- **Brief with a sha, and attach the sha's resolution procedure.** Error 12: a PM was told
+  to read plan sections its branch did not contain. **Refined 2026-10-16, because the sha
+  alone proved insufficient twice in one hour** — `main` moves every few minutes while
+  agents are being written briefs, so both the gate runner and an audit worker read shas
+  that had already moved. The one that carried *"verify it rather than trusting me; if the
+  count is nonzero, merge"* resolved and continued; the one carrying a bare assertion could
+  only flag it and stop. **A sha is a claim; the procedure is what makes it checkable.**
+  The receiving agent's own `git log --oneline -1 main` has now caught this **seven times
+  out of seven**.
 - **Dispatching a worker to answer one question is normal and cheap.** Say so explicitly
   in PM briefs — three of five shifts crossed the source prohibition, and the cause is a
   PM between tasks with nobody to ask (plan §1.2l).
