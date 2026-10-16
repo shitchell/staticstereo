@@ -194,6 +194,31 @@ clean working trees, and the session's scratchpad artefacts — which would have
 — are committed under **`docs/plans/handover/`**, with a README explaining that they are
 **frozen snapshots, outranked by this document and by commit messages.**
 
+**A third PM was killed mid-shift by an expired login, and left 782 green but unverified
+insertions.** Salvaged to **`salvage/p3b-criterion-22`** (`b27a315`, pushed) rather than
+onto the phase branch, which stays clean at `febb020`. Measured by the orchestrator on the
+tree as found: typecheck 0 over 455, build 0, build:site 0, test 0, **82 files / 1955
+passed / 0 skipped**, +7 tests over `62696ae`.
+
+From added exports and test titles only — **inference, not a reading of the source** — it is
+**H-1 and most of H-2, criterion 22**: `WritableControlId`, `SetAction`,
+`WRITABLE_CONTROL_IDS`, `unwritableControls`, a writable/residue partition over
+`CONTROL_IDS`, and a second-clause pair asserting a wrong-typed write fails to compile.
+**If that reading holds, it answers the question briefed as permitted-to-fail** — H-1 was
+explicitly allowed to return *"this shape cannot be typed in TypeScript"*, because SPIKE-1
+had measured the counter-example and nobody had measured a solution.
+
+**Nothing about it is established.** No RED was observed by anyone, so every new test needs
+its RED re-established individually; "the residue is exactly the preset family" is an
+unchecked claim about 46 of 63 controls; a worker killed mid-flight can leave a coherent,
+passing, **half-scoped** tree; and a fails-to-compile assertion that cannot be made to
+compile-and-fail is the paired-control problem in its purest form. **Adopt it through a
+verifier that implemented none of it, or discard it and rebuild — discarding is a
+legitimate outcome, not a waste.**
+
+A stale 134M agent worktree under `.claude/worktrees/` was checked for unique commits and
+uncommitted work (**none**) and removed.
+
 **The next three actions, in order:**
 1. **P1/P7: dispatch verifier clusters V-2 and V-4.** Briefs are written and ready as
    `docs/plans/handover/BRIEF-V2.md` and `BRIEF-V4.md`, with
