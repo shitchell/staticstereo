@@ -1441,14 +1441,33 @@ not the refusal.**
 > case, which is the right outcome — and it makes A1-c's comment true rather than merely
 > corrected.
 
-**And criterion 10's witness is vacuous for exactly the case that matters — my criterion,
-my defect.** `site/project.test.ts:42-46` asserts CLI/site parity **absolutely**, over a
-fixture carrying **three of five layer types and none of the disagreeing one** (`draw`,
-excluded by design §9.5). A1-b proves the same seam one layer down for *animators*, so the
-parity claim is false for both and the test cannot see either. **Criterion 10 is not met
-until its assertion either covers at least one construct the two sides disagree on, or is
-narrowed to claim only what it tests.** This is the "test that cannot fail" shape inside a
-criterion I added to catch asymmetry.
+**And criterion 10's witness was worse than any of us said. MET again at `6531698`.**
+The reviewer reported that `site/project.test.ts:42-46` *"asserts parity absolutely over a
+weak fixture"*, and the orchestrator relayed that to the PM. **Measured by the implementer:
+those lines are docblock prose, the file never imported `src/cli/scene.ts`, and only the
+site validator ever ran. The parity claim was discharged by nothing at all.** The fixture
+gap was real and additional. **Reviewer claim → orchestrator relay → implementer
+refutation, with the true state worse than the reported one** — in the direction nobody
+checks.
+
+**The orchestrator offered a false choice and the measurement forced a third answer.** The
+ruling had been *"cover a disagreeing construct **or** narrow the claim."* Neither is
+sound: **parity over the disagreeing case cannot be asserted as *agreement*, because the
+site's refusal is a deliberate design decision** (design §9.5). The only correct assertion
+**covers the disagreeing construct and asserts the disagreement.**
+
+**And the container-reachable divergence was not the animator — it is `draw`.** The
+`{kind, keys}` bag **cannot reach a `.stst` in either direction**, because
+`containerRead.ts:325` runs `writeScene` on the way in, making the write roster the read
+gate too; the divergence is real between the two functions and unreachable through a
+container. But `LAYER_KEYS` carries a `draw` roster, so `writeStst` writes one and
+`readStst` returns it — **the CLI accepts and the site refuses, by design.** The old
+fixture carried three of five types and **neither of the two that mattered.**
+
+**The tripwire wording is the part to copy.** Both characterisation tests say, in the test:
+*"if this reddens because the two sides were unified, delete the row — do not flip the
+expectation."* **That is §6.5a's rule written where the person tempted to flip it will read
+it**, rather than in a document they will not open.
 
 **R22 obligation 1 has no criterion and no sensor — plan §3's lesson, third firing, same
 requirement.** Measured citation counts: obligation 2 nine times, obligation 4 three times,
