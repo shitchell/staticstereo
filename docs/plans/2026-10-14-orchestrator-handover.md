@@ -556,6 +556,22 @@ binding on tier 0 as on tier 1.
 - **Spot-check before merging and before standing a PM down.** `git log` against claimed
   shas, plus an independent gate run. Every merge so far reproduced exactly; the value is
   that it would not have, silently, if something were wrong.
+- **A smooth PM report is not reassuring — it is unexamined.** PM-SHELL-P3b-4's
+  consequence of the restatement habit, and it inverts how a report should be read: *"the
+  common case is safe, so a smooth report is precisely what a PM coasting on restatements
+  produces. All five defects in my own briefs this shift surfaced because a worker went to
+  the source, not because anything looked wrong. **Nothing looked wrong.**"* So **the signal
+  to want from a PM is not an absence of corrections but a steady supply of them**, and a
+  shift that produces none deserves more scrutiny than one that produces several. Every
+  error on this project — thirty-one at tier 0, nineteen-plus at tier 1 — was caught from
+  below, and **not one was caught by something looking wrong from above.**
+- **An absence claim from a zero-result instrument is the most seductive failure there
+  is.** The orchestrator grepped five phrases out of a verified commit body, got zero hits
+  on two, and was a step from reporting a complete record as missing content — **minutes
+  after committing the row that an absence claim is exactly as unverified as a presence
+  claim, and more seductive because it asks you to add rather than to skip.** The row was
+  minutes old and it fired on its author. **A zero-hit search is a claim about your
+  instrument before it is a claim about the artefact.**
 - **A local gate is not the gate. Check CI after every merge to `main`, before doing
   anything else.** `gh run list --limit 3` is one command. Error 24: P3a merged on a green
   local run and left `main` red for nine hours and eight commits, with the deploy stopped
