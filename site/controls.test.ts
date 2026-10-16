@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import * as ts from 'typescript'
 import {
+  BROWSER_LAYER_VARIANTS,
   CUSTOM_TRACK,
+  WRITABLE_CONTROL_IDS,
   coerceInt,
   coerceNumber,
   currentFrame,
@@ -16,9 +18,18 @@ import {
   reduce,
   sceneError,
   timeOfFrame,
+  unwritableControls,
 } from './controls.js'
+import type { Action, SetAction, UiState, WritableControlId } from './controls.js'
+import {
+  CONTROL_IDS,
+  CONTROL_SPECS,
+  browserReachableLayerTypes,
+  controlInfo,
+} from './controlspec.js'
+import type { ControlInfo } from './controlspec.js'
 import { initialTransport, pause, play, seek } from './transport.js'
-import { CHANNELS, PRESETS, compilePreset, stillTime } from '../src/core/index.js'
+import { CHANNELS, PRESETS, STEREO_KEYS, compilePreset, stillTime } from '../src/core/index.js'
 import { CTX } from '../src/core/testing/ctx.fixture.js'
 import type { Preset, Scene, Track } from '../src/core/types.js'
 
@@ -525,6 +536,318 @@ describe('the transport is consumed, not re-implemented', () => {
     const s = reduce(initialState(ANIM), { type: 'time', seconds: 1.3 })
     for (const nowMs of [0, 1, 1_000, -5_000, 86_400_000]) {
       expect(currentTime(s, nowMs), `nowMs=${nowMs}`).toBe(s.time)
+    }
+  })
+})
+
+/* -------------------------------------- criterion 22: writable, not merely
+ * reachable
+ *
+ * Criterion 6 (`reachability.test.ts`) proves a `CONTROLS` entry resolves to a
+ * mounted panel. It is structurally incapable of noticing that the panel has
+ * nothing to dispatch: ESC-7 measured 17 of 63 entries with a keyed `Action`
+ * and 46 with none, whose only write path was handing `reduce` a whole
+ * rebuilt `Scene` — which `store.ts`'s header says the store must not own.
+ *
+ * The second clause is the one with teeth. A computed string key **erases the
+ * field type**, measured here and reproduced at the top of this phase:
+ * `{type: 'stereo', patch: {[key]: Number(raw)}}` compiles clean where
+ * `{type: 'stereo', patch: {cross: 1}}` is `TS2322`, so a generic renderer can
+ * write a number into a boolean with nothing to stop it. Narrowing the key to
+ * `keyof StereoOpts` does **not** restore the check — also measured. A
+ * path-addressed action that reintroduces that hole satisfies the first clause
+ * and fails the criterion.
+ */
+
+const WRITABLE_SCENE: Scene = {
+  size: [64, 32],
+  fps: 12,
+  duration: 2,
+  layers: [
+    { type: 'text', text: 'A' },
+    { type: 'image', src: 'a.png' },
+    { type: 'gif', src: 'a.gif' },
+    { type: 'shape', shape: 'circle', r: 4 },
+  ],
+}
+
+/** Where each variant's specimen sits in {@link WRITABLE_SCENE}. */
+const VARIANT_INDEX: Readonly<Record<string, number>> = { text: 0, image: 1, gif: 2, shape: 3 }
+
+/**
+ * A value this control would accept, derived from its own `ControlInfo`.
+ *
+ * Derived rather than tabulated, for §9's reason: a table of 52 sample values
+ * is a hand-written list of the places that do X, and it would go stale one
+ * control at a time as the rosters move. The only per-control special case is
+ * the discriminant, which is not a free value — see the sweep below.
+ */
+function sampleFor(spec: ControlInfo, current?: unknown): unknown {
+  if (spec.owner === 'layer' && spec.key === 'type') return spec.scope
+  if (spec.shape === 'structured') {
+    return spec.key === 'anim' ? { kind: 'push', to: 0.2 } : { luma: 0.5 }
+  }
+  switch (spec.unit) {
+    case 'boolean': return true
+    // The first option that is not the one already there. A fixed choice
+    // would silently make `stereo.algorithm` (resolved to `linked`) and
+    // `layer.shape.shape` (the specimen is a circle) into no-op writes, and a
+    // sweep whose write happens to be a no-op cannot tell an applied edit
+    // from a dropped one — the failure mode this whole project is about.
+    case 'enum': return spec.values?.find(value => value !== current) ?? spec.values?.[0]
+    case 'text': case 'identity': return 'sample'
+    case 'depth': return 0.25
+    default: return spec.shape === 'pair' ? [3, 5] : 7
+  }
+}
+
+/** What the model holds for `control` right now, by the id's own grammar. */
+function readControl(state: UiState, control: string): unknown {
+  const [owner, a, b] = control.split('.')
+  if (owner === 'scene') return (state.scene as unknown as Record<string, unknown>)[a!]
+  if (owner === 'stereo') return (state.scene.stereo as Record<string, unknown> | undefined)?.[a!]
+  const layer = state.scene.layers[VARIANT_INDEX[a!]!]
+  return (layer as unknown as Record<string, unknown>)[b!]
+}
+
+/**
+ * The `set` action that writes `value` into `spec`'s field.
+ *
+ * The cast is the sweep's own price and it is worth naming: a test iterating
+ * `CONTROL_IDS` holds an id as a `string`, which is exactly the position the
+ * type map refuses to serve — that refusal is the criterion's second clause
+ * working. So the sweep buys totality over the registry by giving up the
+ * correlation, and the correlation is proved separately, by the compiler,
+ * in `wrongTypedWritesDoNotCompile`. Neither half is sufficient alone: this
+ * one cannot see a type hole and that one cannot see a missing control.
+ */
+function setFor(spec: ControlInfo, value: unknown): SetAction {
+  if (spec.owner !== 'layer') {
+    return { type: 'set', control: spec.control, value } as unknown as SetAction
+  }
+  return {
+    type: 'set', control: spec.control, value, index: VARIANT_INDEX[spec.scope!]!,
+  } as unknown as SetAction
+}
+
+describe('criterion 22 — every CONTROLS entry is writable', () => {
+  it('partitions CONTROL_IDS into the writable set and a declared residue', () => {
+    // Total over the registry's own population, never over a number: §9's
+    // *"a total in a document is a count of something — not necessarily"*, and
+    // the control population was once given as 64 under two arity conventions
+    // at once where the answer is 63 under one and 68 under the other.
+    const residue = unwritableControls().map(entry => entry.control)
+    expect([...WRITABLE_CONTROL_IDS, ...residue].sort()).toEqual([...CONTROL_IDS].sort())
+
+    // The vacuity floor. A partition is trivially satisfiable by declaring
+    // everything unwritable, so both halves are pinned non-empty and the
+    // residue is pinned a minority — a sweep that could go green over an empty
+    // writable set is the "check that cannot see" shape this project is
+    // organised around.
+    expect(WRITABLE_CONTROL_IDS.length).toBeGreaterThan(0)
+    expect(residue.length).toBeGreaterThan(0)
+    expect(residue.length).toBeLessThan(WRITABLE_CONTROL_IDS.length)
+    expect(CONTROL_IDS.length).toBe(WRITABLE_CONTROL_IDS.length + residue.length)
+  })
+
+  it('derives controls for exactly the variants the validator will load', () => {
+    // The half the compiler cannot make. `BROWSER_LAYER_VARIANTS` is a tuple
+    // tied by `AssertNever` to `Exclude<Layer['type'], 'draw'>`, which is a
+    // claim about the *model*; whether the browser loads a variant is the
+    // validator's answer and only a probe can ask it. Ruling R-q's reasoning,
+    // one level down: writing the four names and leaving it there would be
+    // correct today and a silent lie the day `site/scene.ts` changes its mind
+    // in either direction.
+    expect([...BROWSER_LAYER_VARIANTS].sort()).toEqual([...browserReachableLayerTypes()].sort())
+    expect(Object.keys(VARIANT_INDEX).sort()).toEqual([...BROWSER_LAYER_VARIANTS].sort())
+  })
+
+  it('names the residue by disposition, and it is exactly the preset family', () => {
+    // `Preset` is `{kind: string; [param: string]: unknown}`, so a verb
+    // parameter's declared type in the model IS `unknown` and no write into
+    // one can be wrong-typed. The criterion's second clause is therefore
+    // *vacuously* satisfiable there, which is worse than unmet: a compile-error
+    // sensor would report it green. The residue is derived from the same
+    // roster `controlspec.ts` derives the controls from, so a sixth verb joins
+    // it rather than escaping the partition above.
+    const residue = unwritableControls()
+    const fromRegistry = CONTROL_SPECS.filter(spec => spec.owner === 'preset').map(s => s.control)
+    expect(residue.map(entry => entry.control).sort()).toEqual([...fromRegistry].sort())
+    for (const entry of residue) {
+      expect(entry.disposition, entry.control).toBe('untyped-in-model')
+      expect(entry.reason.length, entry.control).toBeGreaterThan(40)
+    }
+  })
+
+  it('writes every writable control through reduce, and reads the value back', () => {
+    const start = initialState(WRITABLE_SCENE)
+    let changed = 0
+    let inert = 0
+    for (const control of WRITABLE_CONTROL_IDS) {
+      const spec = controlInfo(control)
+      expect(spec, `${control} is not in CONTROLS`).toBeDefined()
+      const before = readControl(start, control)
+      const sample = sampleFor(spec!, before)
+      const after = readControl(reduce(start, setFor(spec!, sample)), control)
+      expect(after, control).toEqual(sample)
+      // The discriminant is the one control whose only type-correct value is
+      // the one already there: `LayerOf<'text'>['type']` is the literal
+      // `'text'`, so a variant change is an `OPERATIONS` affordance (design
+      // §5.6) and not a field write. Counted rather than skipped, because a
+      // sweep where every write could be inert is a sweep that proves nothing
+      // — this is the vacuity floor for the reads above.
+      if (Object.is(after, before)) inert += 1
+      else changed += 1
+    }
+    expect(inert, 'exactly the four layer discriminants are inert writes').toBe(4)
+    expect(changed).toBe(WRITABLE_CONTROL_IDS.length - 4)
+  })
+
+  it('refuses a layer write addressed at the wrong variant, by name', () => {
+    const start = initialState(WRITABLE_SCENE)
+    expect(() => reduce(start, {
+      type: 'set', control: 'layer.shape.r', value: 9, index: VARIANT_INDEX['text']!,
+    })).toThrow(/layer 0/)
+    expect(() => reduce(start, {
+      type: 'set', control: 'layer.text.text', value: 'x', index: 99,
+    })).toThrow(/99/)
+  })
+
+  it('agrees with every keyed arm that already covered one of these controls', () => {
+    // The overlap is the duplication this task creates, declared rather than
+    // hidden: 17 controls now have two write paths. `store.test.ts` records
+    // that an *agreeing* duplicate is invisible to a behavioural sweep, so the
+    // agreement is pinned here instead of assumed — the channel list agreed on
+    // the day it was written too.
+    const start = initialState(WRITABLE_SCENE)
+    const pairs: readonly (readonly [SetAction, Action])[] = [
+      [{ type: 'set', control: 'scene.size', value: [80, 40] }, { type: 'size', value: [80, 40] }],
+      [{ type: 'set', control: 'scene.fps', value: 24 }, { type: 'fps', value: 24 }],
+      [{ type: 'set', control: 'scene.fps', value: undefined }, { type: 'fps', value: undefined }],
+      [{ type: 'set', control: 'scene.duration', value: 3 }, { type: 'duration', value: 3 }],
+      [{ type: 'set', control: 'scene.duration', value: undefined }, { type: 'duration', value: undefined }],
+      [{ type: 'set', control: 'scene.freezeNoise', value: true }, { type: 'freezeNoise', value: true }],
+      ...STEREO_KEYS.map(key => [
+        { type: 'set', control: `stereo.${key}`, value: sampleFor(controlInfo(`stereo.${key}`)!) },
+        { type: 'stereo', patch: { [key]: sampleFor(controlInfo(`stereo.${key}`)!) } },
+      ] as unknown as readonly [SetAction, Action]),
+      ...Object.keys(VARIANT_INDEX).map(variant => [
+        {
+          type: 'set', control: `layer.${variant}.anim`,
+          value: { kind: 'push', to: 0.2 }, index: VARIANT_INDEX[variant]!,
+        },
+        { type: 'layerAnim', index: VARIANT_INDEX[variant]!, anim: { kind: 'push', to: 0.2 } },
+      ] as unknown as readonly [SetAction, Action]),
+      [
+        { type: 'set', control: 'layer.text.size', value: 48, index: 0 },
+        { type: 'layerText', index: 0, patch: { size: 48 } },
+      ],
+      [
+        { type: 'set', control: 'layer.text.weight', value: '700', index: 0 },
+        { type: 'layerText', index: 0, patch: { weight: '700' } },
+      ],
+    ]
+    // 17 is the count ESC-7 measured as *already keyed*, arrived at here from
+    // the other direction — one row per keyed control rather than one per
+    // action variant. The extra rows are the `undefined` outcomes of `fps` and
+    // `duration`, which are a different edit from a number.
+    expect(new Set(pairs.map(([set]) => set.control)).size).toBe(17)
+    for (const [set, keyed] of pairs) {
+      expect(reduce(start, set), `${set.control} vs {type:'${keyed.type}'}`)
+        .toEqual(reduce(start, keyed))
+    }
+  })
+})
+
+/**
+ * The wrong-typed writes, in a function nothing calls.
+ *
+ * **These are assertions made by `npm run typecheck`, not by `npm test`.**
+ * An `@ts-expect-error` is itself an error when the line below it stops being
+ * one, so the day the type map loses a field's type the gate goes red naming
+ * the line and the file. That is the cheapest available sensor for a
+ * compile-time claim and it spawns no `svelte-check` process — whether this
+ * phase also wants a fourth harness is H-2's question, not this file's.
+ *
+ * Never called, because several of these are not merely ill-typed but
+ * ill-formed at run time: `anyId` is the generic renderer's variable and has
+ * no value. A `describe` block below references it so it is not dead code.
+ *
+ * The paired control is {@link wellTypedWritesCompile}: the same writes, with
+ * the right value types, compile. Without it this wall is satisfiable by a
+ * type that rejects everything, which is §6.5a's rule applied to a
+ * compile-time instrument — an `@ts-expect-error` that can never be wrong is
+ * an instrument with no failure mode.
+ */
+function wrongTypedWritesDoNotCompile(anyId: WritableControlId): readonly unknown[] {
+  return [
+    // a number into a boolean — the exact write the computed-key form admits
+    // @ts-expect-error
+    { type: 'set', control: 'stereo.cross', value: 1 } satisfies SetAction,
+    // a boolean into a number
+    // @ts-expect-error
+    { type: 'set', control: 'stereo.sepFar', value: true } satisfies SetAction,
+    // a name outside the enum's vocabulary
+    // @ts-expect-error
+    { type: 'set', control: 'stereo.algorithm', value: 'nope' } satisfies SetAction,
+    // a string into a scene-pixel length
+    // @ts-expect-error
+    { type: 'set', control: 'layer.shape.r', value: 'big', index: 3 } satisfies SetAction,
+    // a variant change dressed as a field write: `LayerOf<'text'>['type']` is
+    // the literal `'text'`, so creating an image layer stays `OPERATIONS`' job
+    // @ts-expect-error
+    { type: 'set', control: 'layer.text.type', value: 'image', index: 0 } satisfies SetAction,
+    // a key that belongs to another variant
+    // @ts-expect-error
+    { type: 'set', control: 'layer.shape.text', value: 'x', index: 3 } satisfies SetAction,
+    // a layer write naming no layer
+    // @ts-expect-error
+    { type: 'set', control: 'layer.shape.r', value: 4 } satisfies SetAction,
+    // a singleton write carrying a layer index
+    // @ts-expect-error
+    { type: 'set', control: 'scene.fps', value: 12, index: 0 } satisfies SetAction,
+    // omitting the value entirely, which is a different edit from clearing it
+    // @ts-expect-error
+    { type: 'set', control: 'layer.shape.r', index: 3 } satisfies SetAction,
+    // clearing a field the model declares required
+    // @ts-expect-error
+    { type: 'set', control: 'layer.text.text', value: undefined, index: 0 } satisfies SetAction,
+    // and the generic-renderer path: an id held in a *variable* cannot be
+    // paired with a value the checker has not correlated to it. This is
+    // exactly the hole SPIKE-1 measured, closed — a renderer must narrow
+    // before it writes, and the compile error is the feature.
+    // @ts-expect-error
+    { type: 'set', control: anyId, value: 1 } satisfies SetAction,
+  ]
+}
+
+/** §6.5a's paired half for the wall above: these must compile. */
+const wellTypedWritesCompile: readonly SetAction[] = [
+  { type: 'set', control: 'stereo.cross', value: true },
+  { type: 'set', control: 'stereo.sepFar', value: 110 },
+  { type: 'set', control: 'stereo.algorithm', value: 'linked' },
+  { type: 'set', control: 'scene.size', value: [2, 2] },
+  { type: 'set', control: 'scene.fps', value: undefined },
+  { type: 'set', control: 'layer.shape.r', value: 4, index: 3 },
+  { type: 'set', control: 'layer.shape.r', value: undefined, index: 3 },
+  { type: 'set', control: 'layer.text.text', value: 'hi', index: 0 },
+  { type: 'set', control: 'layer.text.type', value: 'text', index: 0 },
+  { type: 'set', control: 'layer.image.mask', value: { luma: 0.5 }, index: 1 },
+]
+
+describe('criterion 22, second clause — a wrong-typed write fails to compile', () => {
+  it('has a well-typed control that does compile, and a rejection wall that does not', () => {
+    // The runtime half of this pair can only witness that both lists exist and
+    // that the compiling one is not empty. The claim itself — that the eleven
+    // writes in `wrongTypedWritesDoNotCompile` are errors — is `typecheck`'s,
+    // and it is checked on every run of the gate rather than once by hand.
+    expect(wellTypedWritesCompile.length).toBeGreaterThan(0)
+    expect(typeof wrongTypedWritesDoNotCompile).toBe('function')
+    // Every well-typed write really is applicable, so the control is not a
+    // list of expressions that happen to typecheck and do nothing.
+    const start = initialState(WRITABLE_SCENE)
+    for (const action of wellTypedWritesCompile) {
+      expect(() => reduce(start, action), action.control).not.toThrow()
     }
   })
 })

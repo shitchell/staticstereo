@@ -87,6 +87,22 @@ const SAMPLES: { readonly [K in Action['type']]: readonly Extract<Action, { type
     // Rejected at the edit by `patchText`, so this one throws too.
     { type: 'layerText', index: 0, patch: { size: 0 } },
   ],
+  // Criterion 22's write path, and the one variant that is itself a union —
+  // one member per writable control, so `Extract<Action, {type: 'set'}>` is
+  // 52 members rather than one. The samples below are chosen by *outcome*
+  // shape and not by control, which is what the rest of this table does: the
+  // arm branches on the owner, on whether the value is a removal, and on two
+  // refusals that must leave the store untouched.
+  set: [
+    { type: 'set', control: 'stereo.cross', value: true },
+    { type: 'set', control: 'scene.fps', value: undefined },
+    { type: 'set', control: 'layer.text.weight', value: '700', index: 0 },
+    { type: 'set', control: 'layer.text.anim', value: undefined, index: 0 },
+    // Out of range, and addressed at the wrong variant. Both are refused by
+    // name, so the store rethrows and commits nothing.
+    { type: 'set', control: 'layer.text.text', value: 'B', index: 4 },
+    { type: 'set', control: 'layer.shape.r', value: 3, index: 0 },
+  ],
 }
 
 /**
@@ -102,28 +118,91 @@ const SAMPLES: { readonly [K in Action['type']]: readonly Extract<Action, { type
  */
 function actionKindsDeclaredIn(source: string): readonly string[] {
   const file = ts.createSourceFile('controls.ts', source, ts.ScriptTarget.ES2022, true)
-  const alias = file.statements.find(
-    (node): node is ts.TypeAliasDeclaration =>
-      ts.isTypeAliasDeclaration(node) && node.name.text === 'Action',
-  )
+  const aliasNamed = (name: string): ts.TypeAliasDeclaration | undefined =>
+    file.statements.find(
+      (node): node is ts.TypeAliasDeclaration =>
+        ts.isTypeAliasDeclaration(node) && node.name.text === name,
+    )
+  const alias = aliasNamed('Action')
   if (!alias) throw new Error('controls.ts no longer declares `type Action`; this sweep is blind')
   if (!ts.isUnionTypeNode(alias.type)) {
     throw new Error('`Action` is no longer a union of object types; this sweep cannot enumerate it')
   }
   return alias.type.types.map(member => {
+    if (ts.isTypeReferenceNode(member)) return tagOfReferencedAlias(member, aliasNamed)
     if (!ts.isTypeLiteralNode(member)) {
       throw new Error(`an \`Action\` member is not an object type: ${member.getText()}`)
     }
-    const tag = member.members.find(
-      (property): property is ts.PropertySignature =>
-        ts.isPropertySignature(property) && property.name.getText() === 'type',
-    )
-    const literal = tag?.type
-    if (!literal || !ts.isLiteralTypeNode(literal) || !ts.isStringLiteral(literal.literal)) {
-      throw new Error(`an \`Action\` member has no string-literal \`type\`: ${member.getText()}`)
-    }
-    return literal.literal.text
+    return tagOfTypeLiteral(member)
   })
+}
+
+/** The string-literal `type` of one object-shaped `Action` member. */
+function tagOfTypeLiteral(member: ts.TypeLiteralNode): string {
+  const tag = member.members.find(
+    (property): property is ts.PropertySignature =>
+      ts.isPropertySignature(property) && property.name.getText() === 'type',
+  )
+  const literal = tag?.type
+  if (!literal || !ts.isLiteralTypeNode(literal) || !ts.isStringLiteral(literal.literal)) {
+    throw new Error(`an \`Action\` member has no string-literal \`type\`: ${member.getText()}`)
+  }
+  return literal.literal.text
+}
+
+/**
+ * The tag of an `Action` member written as a reference to a named alias.
+ *
+ * **Added rather than worked around, and the distinction matters.** Criterion
+ * 22's write path cannot be a type literal: it is one member per writable
+ * control, distributed out of a mapped type, which is the shape that stops a
+ * computed key erasing the field type. Spelling it inline is not available, so
+ * the choice was between teaching this parser one more shape and deleting the
+ * cross-check — and deleting it would remove the only instrument that can see
+ * an `as`/`satisfies` escape in the sample table above.
+ *
+ * **It stays fail-closed.** The search is for string-literal `type` properties
+ * anywhere under the alias, and it throws unless it finds exactly one distinct
+ * value: a referenced alias with no tag, or with two, means the union has
+ * grown a shape this reader cannot enumerate, and §1.2k says an instrument
+ * whose wrong answer is silent should throw rather than guess. It does not
+ * follow references out of this file, which is deliberate — `Action` is
+ * declared here and a member defined elsewhere would be a different problem.
+ */
+function tagOfReferencedAlias(
+  member: ts.TypeReferenceNode,
+  aliasNamed: (name: string) => ts.TypeAliasDeclaration | undefined,
+): string {
+  const name = member.typeName.getText()
+  const referenced = aliasNamed(name)
+  if (!referenced) {
+    throw new Error(
+      `an \`Action\` member references \`${name}\`, which controls.ts does not declare; ` +
+      'this sweep cannot enumerate it',
+    )
+  }
+  const tags = new Set<string>()
+  const visit = (node: ts.Node): void => {
+    if (ts.isTypeLiteralNode(node)) {
+      const found = node.members.find(
+        (property): property is ts.PropertySignature =>
+          ts.isPropertySignature(property) && property.name.getText() === 'type',
+      )
+      const literal = found?.type
+      if (literal && ts.isLiteralTypeNode(literal) && ts.isStringLiteral(literal.literal)) {
+        tags.add(literal.literal.text)
+      }
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(referenced.type)
+  if (tags.size !== 1) {
+    throw new Error(
+      `\`${name}\` declares ${tags.size} string-literal \`type\` tags ` +
+      `(${[...tags].sort().join(', ') || 'none'}); an \`Action\` member must declare exactly one`,
+    )
+  }
+  return [...tags][0]!
 }
 
 /* ---------------------------------------------------- the delegation guard */
