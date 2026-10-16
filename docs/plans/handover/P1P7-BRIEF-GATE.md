@@ -391,6 +391,42 @@ purity sensor and it is not a type sensor either; it is a bundling sensor.
    rubbish, delete it. It lands in the **project root**, not your cwd — it resolves
    against the project root even when invoked with `--root` from elsewhere.
 
+   ### ⚠ CENSUS AGAINST THE MERGE-BASE, NOT THE BRANCH'S OWN LAST GATE
+
+   **This changed the answer on the 2026-10-16 run and is not optional.** A baseline
+   anchored at the branch's own last gate **cannot see a removal that predates it**. The
+   three names that vanished on this branch all came from `b3e7601`, which predates the
+   branch's last gate — so a self-anchored baseline reports **zero** and is wrong.
+
+   ```sh
+   git merge-base HEAD main      # take this BEFORE you merge
+   ```
+
+   ### ⚠ `vitest list` IS BUILD-STATE SENSITIVE — compare like with like
+
+   `skipIf` is evaluated at **collection** time, so **26 names are gated on `dist*`
+   presence**: `site/dist.test.ts`'s built-site and built-player suites, both purity
+   suites' `dist/` suites, and `src/node/canvas.vendored.test.ts`'s
+   `it.skipIf(!existsSync('dist/node/canvas.js'))`.
+
+   **A census taken BEFORE a build, compared against one taken AFTER, reports 26 phantom
+   additions — or 26 phantom REMOVALS if you take them the other way round, which looks
+   exactly like a catastrophic finding.** Take both censuses in the same build state. The
+   2026-10-16 run took both unbuilt and its fidelity control caught this live.
+
+   ### ⚠ A SHORT GREP FRAGMENT IS NOT A PLANT CHECK — it false-positives on documentation
+
+   Measured by implementer I-L against an instruction in this very brief. Searching for a
+   **fragment** of a plant string — `raise sepNear`, `buys legibility with depth range` —
+   returns **two legitimate hits on a clean tree**: the docblock explaining why the advice
+   was removed, and an existing test's comment quoting it. **Both are prose, not emitted
+   strings.** Only the **full plant sentence** discriminates.
+
+   **A worker following "grep for your plant" literally with a short fragment sees a false
+   positive and may delete real documentation to clear it.** Grep the whole planted
+   sentence, and **include `dist/ dist-site/ dist-player/`** — a stale build hides a live
+   plant from a `src/`-only grep.
+
    ### Three dots for the DIFF, two dots for the COUNT
 
    | want | command | why |
@@ -775,6 +811,41 @@ Pages-critical assertions and still reports green, and this phase has already ha
 
 Report it under its own heading. A gate report that omits it has left the review's top
 uncovered item exactly as uncovered as it was.
+
+## ⚠ "DOCS-ONLY, THEREFORE SAFE" IS NOT A CHECK — tests parse `docs/` at runtime
+
+**The runtime reader set is THREE files reading ONE document**,
+`docs/plans/2026-10-13-editor-design.md`:
+
+| reader | call |
+|---|---|
+| `site/keybindings.test.ts:106` | `chromeSentence(readFileSync(from(DESIGN), 'utf8'))` |
+| `site/views.test.ts:222` | `viewsFromDesign(readFileSync(from(DESIGN), 'utf8'))` |
+| `site/shadings.test.ts:137` | `shadingsFromDesign(readFileSync(DESIGN, 'utf8'))` |
+
+**Five other test files mention `docs/` in COMMENTS ONLY** — `bindingregistration`,
+`markup`, `dist`, `legibility`, `types.seam` — and the last two have **no `fs` import at
+all.** The predicate is **a read call whose argument resolves under `docs/`, NOT the string
+`docs/` appearing in a file.** Two successive corrections to this rule each failed by
+grepping for the string.
+
+**⚠ DO NOT TRUST THIS LIST. RE-RUN THE THREE READERS INSTEAD.** It can go stale
+**silently**, two ways, both measured:
+
+- **A reader can be added with no `docs/` literal in any test file.**
+  `site/keybindings.ts:662` holds a roster entry
+  `file: 'docs/plans/2026-10-13-editor-design.md'`, consumed via
+  `readFileSync(from(roster.file))`. **A roster edit adds a reader invisibly to any grep
+  over test files.**
+- **A literal-grep over a docs diff cannot see a positional change.**
+  `shadings.test.ts` reads rows from a **content-matched** header until the first non-`|`
+  line, so **adding a row to design §5.2's shading table changes what it reads while none
+  of the test's anchor literals appear in the diff.**
+
+**So: if the merge touches any `docs/` path, run `keybindings`, `views` and `shadings`
+singly. That is three fast single-file runs and it is the only sound check.** State the
+intersection in your report even when it is empty — *"the merge changed N `docs/` paths, M
+of which are in the runtime reader set"* is a measurement; *"docs-only"* is not.
 
 ## Report
 
