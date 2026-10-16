@@ -36,8 +36,25 @@ export function sirdsFromDepth(
  * Everything in this repo — scenes, defaults, the period tests, the preview
  * report — is expressed in separation pixels, so the paper's `E`/`mu`
  * formulation is deliberately *not* used.
+ *
+ * **Exported for `shared/perception.ts`**, whose `encodableDepths` counts the
+ * separations this mapping can actually produce and has to agree with it
+ * *exactly*. The alternative was to write `Math.round(sepFar - z·range)` over
+ * there as well, which is the second-copy failure `angle.ts` names in this
+ * repo's own words — and here it is not hypothetical: the closed form design
+ * §10.1 quotes, `sepFar - sepNear + 1`, disagrees with this function in 8 of
+ * 20 measured configurations — **8, not the 7 this read until 2026-10-16;
+ * recomputed over the sweep in `src/shared/perception.capacity.test.ts`,
+ * whose own eight-row discriminator table was the refutation sitting next to
+ * the number.** It is wrong wherever a separation is fractional
+ * (`110.5/92` → 19.5, this mapping → 20) and wherever the clamps below bite
+ * (`110/1` → 110, this mapping → 109, because `sepNear` 1 encodes as 2). A
+ * caller that restated the arithmetic would be restating the unclamped,
+ * unrounded half of it and would be silently wrong at exactly the edges the
+ * clamps exist for. Nothing about either encoder's output changes by making
+ * this visible; both call sites below are untouched.
  */
-function sepAt(z: number, sepFar: number, range: number, maxSep: number): number {
+export function sepAt(z: number, sepFar: number, range: number, maxSep: number): number {
   const sep = Math.round(sepFar - z * range)
   return sep < 2 ? 2 : sep > maxSep ? maxSep : sep
 }

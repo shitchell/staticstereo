@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { HELP, UsageError, outputFormat, parseArgs } from './args.js'
+import { COMMANDS, FORMATS, HELP, UsageError, outputFormat, parseArgs } from './args.js'
 import type { CliArgs } from './args.js'
 
 /** `parseArgs` takes argv *after* node and the script, i.e. `process.argv.slice(2)`. */
@@ -333,5 +333,58 @@ describe('parseArgs — misc', () => {
   it('takes --depth-map on any command', () => {
     expect(parse(`${RENDER} --depth-map d.png`).depthMap).toBe('d.png')
     expect(parse('preview scene.yaml --depth-map d.png').depthMap).toBe('d.png')
+  })
+})
+
+/* ------------------------------------------------------------ --save-project */
+
+/**
+ * P1 criterion 6's write half, as a **flag** and not a format.
+ *
+ * `--depth-map` is the exact precedent: a side-output that is not the render,
+ * available on every command, with its own path. Putting `'stst'` in
+ * {@link FORMATS} was the rejected alternative — it would redefine `FORMATS`
+ * from "encoder for rendered pixels" to something else and make
+ * `render scene.yaml -o project.stst` read as "render to a project", which is
+ * not what it does.
+ */
+describe('parseArgs — --save-project', () => {
+  it('is a flag on any command, not a command and not an output format', () => {
+    expect(parse(`${RENDER} --save-project p.stst`).saveProject).toBe('p.stst')
+    expect(parse('still scene.yaml -o o.png --save-project p.stst').saveProject).toBe('p.stst')
+    expect(parse('preview scene.yaml --save-project p.stst').saveProject).toBe('p.stst')
+    expect(parse(RENDER).saveProject).toBeUndefined()
+  })
+
+  /**
+   * The verb list is the criterion's own wording — *"subcommand names are an
+   * escalation"* — so it is asserted rather than left to a reader's eye, and
+   * asserted against `COMMANDS` itself so a fourth verb reddens here whatever
+   * it is called.
+   */
+  it('adds no command and no output format', () => {
+    expect([...COMMANDS]).toEqual(['render', 'still', 'preview'])
+    expect([...FORMATS]).toEqual(['gif', 'mp4', 'png'])
+    expect(reject('project scene.yaml')).toMatch(/unknown command "project"/)
+    expect(reject(`render scene.yaml -o out.stst`)).toMatch(/\.stst/)
+  })
+
+  /**
+   * The extension is required, and this is the one place the two halves of
+   * criterion 6 have to agree: `loadScene` dispatches on `.stst`, so a project
+   * written under any other name is a file this same program will hand to the
+   * YAML parser. An unenforced convention there is a zip that reports itself
+   * as broken YAML.
+   */
+  it('requires the .stst extension, because the reader dispatches on it', () => {
+    const msg = reject(`${RENDER} --save-project p.yaml`)
+    expect(msg).toMatch(/--save-project/)
+    expect(msg).toMatch(/\.stst/)
+    // Case, like the reader's.
+    expect(parse(`${RENDER} --save-project P.STST`).saveProject).toBe('P.STST')
+  })
+
+  it('is documented in --help', () => {
+    expect(HELP).toContain('--save-project')
   })
 })

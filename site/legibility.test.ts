@@ -158,7 +158,12 @@ describe('disparityBudget', () => {
     expect(disparityBudget({ ...DEFAULT_STEREO, noiseScale: 4 })).toBe(18)
   })
 
-  it('shrinks as sepNear rises — the trade the warning has to offer', () => {
+  it('shrinks as sepNear rises', () => {
+    // The title used to end "— the trade the warning has to offer", and the
+    // warning no longer offers it: P7 criterion 5. The arithmetic is still
+    // worth pinning, because `fusionComfort` reads the same quantity and a
+    // smaller budget is genuinely easier to *fuse* — it is only legibility
+    // the budget does nothing for.
     expect(disparityBudget({ ...DEFAULT_STEREO, sepNear: 104 })).toBe(6)
   })
 })
@@ -168,37 +173,64 @@ describe('legibilityOf', () => {
     ({ medianRun, runs: 100, peak: 1, threshold: 0.5, measured: true })
 
   it('grades a stroke narrower than the budget as unfusable', () => {
-    expect(legibilityOf(at(17), 18)).toBe('illegible')
-    expect(legibilityOf(at(9), 18)).toBe('illegible')
+    expect(legibilityOf(at(17), 18).grade).toBe('illegible')
+    expect(legibilityOf(at(9), 18).grade).toBe('illegible')
   })
 
   it('grades exactly the budget as tight, not as unfusable', () => {
     // The rule is "narrower than the budget", so the boundary belongs to the
     // side that still has a shift to carry.
-    expect(legibilityOf(at(18), 18)).toBe('tight')
+    expect(legibilityOf(at(18), 18).grade).toBe('tight')
   })
 
-  it('needs TIGHT_MULTIPLE budgets to grade clear', () => {
-    expect(legibilityOf(at(18 * TIGHT_MULTIPLE - 1), 18)).toBe('tight')
-    expect(legibilityOf(at(18 * TIGHT_MULTIPLE), 18)).toBe('clear')
+  it('needs TIGHT_MULTIPLE budgets to grade clear, and says where that is', () => {
+    // **`clearAt` is read from the reading rather than recomputed here, and
+    // that is the point of P7 criterion 2.** These three lines used to say
+    // `at(18 * TIGHT_MULTIPLE - 1)`, which is a downstream copy of a
+    // perceptual boundary's arithmetic — the shape criterion 6 forbids — and
+    // it was the live witness that `legibilityOf` derived a quantity it did
+    // not return. It returns it now.
+    const boundary = legibilityOf(at(18), 18).clearAt
+    expect(boundary).toBe(18 * TIGHT_MULTIPLE)
+    expect(legibilityOf(at(boundary - 1), 18).grade).toBe('tight')
+    expect(legibilityOf(at(boundary), 18).grade).toBe('clear')
   })
 
   it('reacts to the budget, not only to the stroke', () => {
-    // Widening sepNear from 92 to 104 shrinks the budget to 6px and makes the
-    // same 9px stroke fusable. This is the alternative the note offers to
-    // "make the text bigger", and it is the reason the warning cannot be
-    // computed once at authoring time.
-    expect(legibilityOf(at(9), 18)).toBe('illegible')
-    expect(legibilityOf(at(9), 6)).toBe('tight')
-    expect(legibilityOf(at(9), 4)).toBe('clear')
+    // Raising sepNear from 92 to 104 shrinks the budget to 6px, and the rule
+    // as shipped then grades the same 9px stroke fusable. That is a property
+    // of the *rule*, which is budget-relative, and it is why the warning
+    // cannot be computed once at authoring time.
+    //
+    // It is **no longer offered to the author as a fix**, and the comment
+    // here used to say it was ("the alternative the note offers to 'make the
+    // text bigger'"). The 2026-10-12 findings measured the real threshold as
+    // an absolute stroke width — 4/4 exact reads at a fixed 14px stroke
+    // across a 3× budget sweep — so shrinking the budget moves the verdict
+    // without moving what the viewer can see. The rule keeps its thresholds
+    // (findings §5 declines to name a replacement); the advice went.
+    expect(legibilityOf(at(9), 18).grade).toBe('illegible')
+    expect(legibilityOf(at(9), 6).grade).toBe('tight')
+    expect(legibilityOf(at(9), 4).grade).toBe('clear')
   })
 
   it('refuses to grade an unmeasured stroke or a non-positive budget', () => {
-    expect(legibilityOf({ ...at(9), measured: false }, 18)).toBe('unmeasured')
+    expect(legibilityOf({ ...at(9), measured: false }, 18).grade).toBe('unmeasured')
     // sepNear >= sepFar is already a render error; there is no budget to
     // compare against, and 'clear' would be a lie told about an invalid scene.
-    expect(legibilityOf(at(9), 0)).toBe('unmeasured')
-    expect(legibilityOf(at(9), -4)).toBe('unmeasured')
+    expect(legibilityOf(at(9), 0).grade).toBe('unmeasured')
+    expect(legibilityOf(at(9), -4).grade).toBe('unmeasured')
+  })
+
+  it('reports the measurement and both boundaries beside the grade', () => {
+    // P7 criterion 2: "a caller wanting numbers never reads the grade." The
+    // illegible boundary is the budget itself and the clear boundary is
+    // `clearAt`; between them a panel can draw the margin without importing
+    // a single constant from the module.
+    const r = legibilityOf(at(9), 18)
+    expect(r).toEqual({
+      medianRun: 9, budget: 18, clearAt: 18 * TIGHT_MULTIPLE, grade: 'illegible',
+    })
   })
 })
 
@@ -220,13 +252,52 @@ describe('describeLegibility', () => {
     expect(describeLegibility(at(9), STEREO)).toContain('92')
   })
 
-  it('offers widening sepNear as well as enlarging the text', () => {
-    // Making the text bigger is not the only fix, and the other one is not
-    // discoverable: raising sepNear shrinks the budget at the cost of depth
-    // range. A warning that only said "bigger" would hide it.
+  it('does not offer the budget as a second fix — the purchase does not exist', () => {
+    // **This test asserted the opposite until 2026-10-15, and it was doing
+    // its job: it is the sensor that caught P7 criterion 5's change, so it is
+    // inverted with the reason recorded rather than deleted.** It read
+    // "offers widening sepNear as well as enlarging the text", on the
+    // rationale that "raising sepNear shrinks the budget at the cost of depth
+    // range. A warning that only said 'bigger' would hide it."
+    //
+    // The 2026-10-12 findings supersede that. §1 round 2 held the stroke at
+    // 14px and swept the budget over 10/18/24/30px — a 3× range — and read
+    // 4/4 exact: **the legibility threshold is an absolute stroke width and
+    // the budget is not a lever on it.** So the line was naming a real cost
+    // (depth range *is* `sepFar − sepNear`) against no benefit, which the
+    // findings call worse than silence. The rule's own thresholds are
+    // untouched — findings §5 declines to replace them on one observer's
+    // data — and only the advice went.
+    //
+    // Note what is deliberately *not* asserted: `/sepNear/`. The old test
+    // used it as half its evidence and it could never have seen this change,
+    // because the line prints `(sepFar 110 − sepNear 92)` to show how the
+    // budget was arrived at. An instrument that cannot go red for the thing
+    // it is checking is the failure mode this repo keeps paying for, so the
+    // assertions below are on the *advice* words and the positive control
+    // below them proves they can still see.
     const text = describeLegibility(at(9), STEREO)
-    expect(text).toMatch(/sepNear/)
-    expect(text).toMatch(/depth range|shallower|less depth/i)
+    expect(text).not.toMatch(/depth range|shallower|less depth/i)
+    expect(text).not.toMatch(/rais\w*\s+sepNear|sepNear\s+to\s+\w/i)
+    expect(text).toContain('sepNear 92')
+  })
+
+  it('still tells the author the one thing that does help', () => {
+    // The positive control for the assertion above: removing bad advice must
+    // not quietly remove all of it. Stroke width is what the trials moved,
+    // and type size is the author's lever on stroke width.
+    expect(describeLegibility(at(9), STEREO)).toMatch(/enlarge the type/i)
+    expect(describeLegibility(at(20), STEREO)).toMatch(/enlarge the type/i)
+  })
+
+  it('names the clear boundary in px as well as in budgets', () => {
+    // `TIGHT_MULTIPLE` is interpolated into this one branch and nowhere else
+    // a user can see, so the reword had to keep the grade boundary visible.
+    // It is printed twice — the derived px figure first, because every other
+    // number on the line is px, and the multiple after it.
+    const tight = describeLegibility(at(20), STEREO)
+    expect(tight).toContain(`${18 * TIGHT_MULTIPLE} px`)
+    expect(tight).toContain(`${TIGHT_MULTIPLE}×`)
   })
 
   it('stops advising once the stroke clears the budget, but still shows the margin', () => {

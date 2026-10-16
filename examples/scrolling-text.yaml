@@ -38,8 +38,17 @@
 # Sans) declare only 400 and 700, Chromium rendered `900` byte-identically to
 # `bold` in all three, and @napi-rs/canvas faked it at +13-25%. The vendored
 # family declares 400, 700 AND 900, so `900` is worth about +35% over bold in
-# both rasterisers. Size still has the widest range. Alternatively raise
-# sepNear to shrink the budget, buying legibility at the cost of depth range.
+# both rasterisers. Size still has the widest range.
+#
+# This block used to end "Alternatively raise sepNear to shrink the budget,
+# buying legibility at the cost of depth range." It does not any more, and the
+# sentence is recorded rather than dropped because it was copied into four
+# files. Shrinking the budget moves the verdict in the table above -- the rule
+# is budget-relative -- and blinded trials say it does not move what a viewer
+# can see: one round held the stroke at 14px and swept the budget over
+# 10/18/24/30px for four exact reads out of four. The threshold is an ABSOLUTE
+# stroke width, so the trade spends depth range and buys nothing. See
+# docs/2026-10-12-legibility-findings.md. Size and weight are the levers.
 
 size: [800, 300]
 fps: 12

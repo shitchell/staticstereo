@@ -15,6 +15,16 @@
  * literals are not imports, and only a parser knows the difference — hence the
  * TypeScript compiler API below, and the self-test that pins both failure
  * modes without needing a build.
+ *
+ * ## Two walks, and only one of them needs a build
+ *
+ * The `dist/core` walks answer "what did we publish". They cannot answer "what
+ * did we write", because they are gated on `dist/` existing and a module
+ * nobody has compiled is in no `dist/`. So there is a second walk here, over
+ * the sources `tsconfig.json` compiles, and it states the one rule the
+ * specifier-by-specifier checks leave out: **a guarded module may not reach an
+ * unguarded one.** `2e07de6` added that for `src/shared/` after measuring the
+ * same blindness there; the measurement for `src/core/` is at `hopVerdict`.
  */
 import { describe, it, expect } from 'vitest'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
@@ -22,11 +32,85 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as ts from 'typescript'
 import { importSpecifiers } from './testing/imports.js'
+import { compiledFiles, tsconfig } from './testing/roster.js'
 
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
-const DIST = join(ROOT, 'dist')
-const DIST_CORE = join(DIST, 'core')
+
+/**
+ * Where `tsc` writes, **asked of `tsconfig.json`** rather than transcribed.
+ *
+ * `DIST` and `SRC` here used to read `join(ROOT, 'dist')` and `join(ROOT,
+ * 'src')`, which is a hand copy of `rootDir` and `outDir`, and §9's "a
+ * hand-written list of the places that do X is not a check" applies to a
+ * hand-written *path* in the worse form: when the config moves, the stale tree
+ * is still on disk to be certified, and `files: ["dist"]` is what npm
+ * publishes. Measured on this tree, each arm rebuilt inside the mutation over
+ * a `dist/` a correct build had already written:
+ *
+ * ```
+ * tsconfig                     build   src/core/purity.test.ts
+ *   rootDir "src"     outDir "dist"    0   13 passed (13)   [correct]
+ *   rootDir "src"     outDir "dist2"   0   13 passed (13)   [over a dist/ tsc abandoned]
+ *   rootDir "."       outDir "dist"    0   13 passed (13)   [tsc emits dist/src/**]
+ *   rootDir "src/core" outDir "dist"   2   13 passed (13)
+ * ```
+ *
+ * Three wrong greens, one of them with the build exiting 2. `70718ea` closed
+ * the same hole in `src/shared/purity.test.ts` by *detecting* it —
+ * `emitLayoutVerdict` there compares the config against that file's own
+ * transcription and reddens. This file takes the other route and keeps no
+ * transcription to compare: it walks wherever the config says `tsc` writes, so
+ * a moved `outDir` leaves it reading the real output instead of certifying the
+ * abandoned one. The two are complements, not duplicates — detecting the move
+ * is how `dist/` stops being published stale, and following it is how these
+ * assertions keep having a subject.
+ *
+ * This sentence read "`2e07de6`'s successor" until the sha was checked against
+ * git, and it is worth recording how it was wrong rather than only that it
+ * was. `git show 2e07de6:src/shared/purity.test.ts | grep -c
+ * emitLayoutVerdict` is **0**; `git log -S emitLayoutVerdict --
+ * src/shared/purity.test.ts` puts the introduction at `70718ea`, whose parent
+ * is `b3e7601`, with twelve commits between the two — so `2e07de6` is not its
+ * predecessor in any git sense. The sharp part is that `2a553aa`, the commit
+ * that wrote the wrong sentence, names `70718ea` correctly in its own message:
+ * the log and the code it describes disagreed, and only the code was wrong. A
+ * sha is one command to verify and that command had not been run.
+ *
+ * Fails closed, as `roster.ts` does and for the same reason: with no `outDir`
+ * or no `rootDir`, `tsc` emits beside the sources and there is no output tree
+ * for this file to be right or wrong about, and "nothing to walk" must not
+ * read as "everything is clean".
+ */
+function emitRoots(): { readonly src: string; readonly dist: string; readonly distCore: string } {
+  const { rootDir, outDir } = tsconfig().options
+  for (const [name, value] of [['rootDir', rootDir], ['outDir', outDir]] as const) {
+    if (value === undefined) {
+      throw new Error(
+        `tsconfig.json sets no ${name}, so tsc emits beside the sources and every dist/ walk ` +
+        `in this file is about a directory nothing writes. Restore it, or repoint this file`,
+      )
+    }
+  }
+  const src = resolve(rootDir as string)
+  const dist = resolve(outDir as string)
+  const srcCore = join(ROOT, 'src', 'core')
+  if (srcCore !== src && !srcCore.startsWith(src + sep)) {
+    throw new Error(
+      `tsconfig.json compiles from ${src}, which does not contain ${srcCore}, so there is no ` +
+      `emitted core/ for this file to walk. Restore rootDir, or move what core/ is now called`,
+    )
+  }
+  // `core`'s emitted location is its path *relative to the root the compiler
+  // was given*, which is `core` under `rootDir: "src"` and `src/core` under
+  // `rootDir: "."`. Deriving it is the whole point: a constant `dist/core`
+  // silently becomes an absent directory under the second, and an absent
+  // DIST_CORE makes `built` false and every assertion below skip — fail-open
+  // in exactly the state that needs a sensor.
+  return { src, dist, distCore: join(dist, relative(src, srcCore)) }
+}
+
+const { src: SRC, dist: DIST, distCore: DIST_CORE } = emitRoots()
 
 /*
  * `importSpecifiers` was defined here and is now imported from
@@ -126,8 +210,12 @@ const built = existsSync(DIST_CORE)
  * *new* source file that has never been compiled has no counterpart in `dist/`
  * to be older than, so it is invisible here. The case this is for is the
  * common one — an edit to a file that was already built.
+ *
+ * `SRC` and `DIST` are `rootDir` and `outDir` as TypeScript resolved them —
+ * see `emitRoots` — so "every emitted `dist/X.js` names its own input" holds
+ * under a moved layout too, rather than only under the one spelling this file
+ * used to have written down.
  */
-const SRC = join(ROOT, 'src')
 
 interface Emitted {
   /** The emitted file, repo-relative, which is what a failure has to name. */
@@ -175,11 +263,27 @@ describe('dist/ is either absent or current', () => {
       expect(pairs, 'dist/ is absent, so nothing should have been paired').toEqual([])
       return
     }
+    // The message below used to end "— the outDir, the rootDir, or the
+    // extension filter has moved", and two thirds of that was false. Measured,
+    // each arm rebuilt inside the mutation, this file run alone:
+    //
+    //   outDir "dist" -> "dist2", build 0       13 passed (13)   not seen
+    //   rootDir "src" -> ".",     build 0       13 passed (13)   not seen
+    //   rootDir "src" -> "src/core", build 2    13 passed (13)   not seen
+    //   `.js` filter -> `.mjs`                  1 failed | 12 passed (13)
+    //
+    // Only the fourth was ever this floor's. The first three went unseen
+    // because the walk was pointed at a hand-written `dist/` that a previous
+    // build had filled correctly, so it kept pairing and kept passing; they
+    // are now `emitRoots`', which follows the config instead of transcribing
+    // it, and the broken-config arm reaches this floor only because the pairing
+    // then genuinely finds nothing. So the floor's one real property is the one
+    // stated here: the walk matched nothing, whatever the reason.
     expect(
       pairs.length,
-      'dist/ exists and no emitted .js was matched to a source under src/, so "nothing is ' +
-      'stale" is only true of the empty set — the outDir, the rootDir, or the extension ' +
-      'filter has moved',
+      'the emitted tree exists and no .js in it was matched back to a source, so "nothing is ' +
+      'stale" is only true of the empty set — the pairing walk is reading a layout that is ' +
+      'not the one tsc wrote, or the extension filter has moved',
     ).toBeGreaterThan(10)
     expect(
       staleEmits(pairs),
@@ -201,6 +305,158 @@ describe('dist/ is either absent or current', () => {
     // The same-millisecond case the `>` above is chosen for: a build that
     // landed in the same tick as its edit is current, not stale.
     expect(staleEmits([{ out: 'dist/core/x.js', sourceMs: 5, outMs: 5 }])).toEqual([])
+  })
+})
+
+/* ===================================================================== */
+/*  closure — a guarded module may not reach an unguarded one             */
+/* ===================================================================== */
+
+/**
+ * The *source* directory, anchored to the repo and not to `rootDir`. The walk
+ * below reads files that are on disk whether or not anything has been
+ * compiled, so it is the one place here that must not follow the emit layout:
+ * under `rootDir: "."` a `join(SRC, 'core')` would name a directory that does
+ * not exist and the walk would silently see nothing.
+ */
+const SRC_CORE = join(ROOT, 'src', 'core')
+
+/**
+ * Is a relative specifier out of `src/core/` allowed?
+ *
+ * Everything else in this file reads `dist/core`, and **that is the defect
+ * this answers**, not a stylistic preference. `2e07de6` removed the same
+ * blindness one package over for `src/shared/` and left it standing here.
+ * Measured on this tree, a compiled core module reaching the excluded helper
+ * directory — `src/core/zzzBridge.ts` importing and using `./testing/imports.js`,
+ * reached in turn from `src/shared/zzzUse.ts`, so the hop is live from a
+ * browser-bound module:
+ *
+ * ```
+ * unbuilt tree   26 passed | 7 skipped (33), exit 0   [blind]
+ * after build     2 failed | 29 passed (31)           [both are dist/-gated]
+ * ```
+ *
+ * `src/core/testing/imports.ts` imports `typescript`, a devDependency whose
+ * entry reaches Node builtins, so the hop puts a compiler in the browser
+ * bundle. The suite saw it only through `dist/`.
+ *
+ * ## Why `dist/` cannot be the only instrument, and what it costs to overlap
+ *
+ * The two assertions that caught the built case are both `skipIf(!built)`, so
+ * the tree that has never been compiled — the one a new module is written
+ * into, and the one most likely to carry a leak — is the tree with no sensor.
+ * Note also that the *reason* `dist/` caught it is an accident of `tsc`:
+ * `exclude` trims the root file set only, so an imported-but-excluded module
+ * is compiled and emitted anyway. `dist/core/testing/imports.js` appeared, and
+ * the two reds were `emits no test-only helpers into dist` and `imports
+ * nothing non-relative` — the latter firing on `typescript` inside the emitted
+ * helper, not on the hop. Point the hop at a target that emits under a lawful
+ * name and `dist/` stops being a sensor for it at all.
+ *
+ * This does overlap `does not reach outside core even by relative path` on a
+ * built tree. That overlap is the price and not an argument against: the two
+ * walk different inputs — one the sources the site bundle is built from, the
+ * other the output the published package ships — and neither is a subset of
+ * the other, because `dist/` cannot see an uncompiled source and the source
+ * walk cannot see an orphan.
+ *
+ * ## The cheapest satisfying action, said out loud
+ *
+ * For a hop into `testing/`, the obvious fix — add the directory to the
+ * roster — is the **wrong** one: it would emit the helpers into `dist/`, which
+ * `files: ["dist"]` publishes, and redden two assertions below. So the message
+ * names the right routes instead. For a hop out of `core/` there is only one
+ * route, since `core` is the package that may depend on nothing.
+ *
+ * Resolution is `.js` → `.ts`, deliberately naive, and fails **closed**:
+ * `module: node16` makes every relative specifier here an explicit `.js` path,
+ * which is the emitted name of a sibling `.ts`, and a specifier shape this
+ * does not understand produces no roster entry and is reported rather than
+ * waved through.
+ */
+function hopVerdict(
+  spec: string,
+  fromDir: string,
+  roster: ReadonlySet<string>,
+  coreDir: string,
+): { readonly ok: true } | { readonly ok: false; readonly why: string } {
+  const target = resolve(fromDir, spec.replace(/\.js$/, '.ts'))
+  if (!target.startsWith(coreDir + sep)) {
+    return {
+      ok: false,
+      why: `${spec} leaves core/ — core is the package that reaches the platform only ` +
+        `through the injected CanvasLike, so it may depend on nothing. Move what is needed ` +
+        `into core, or invert the dependency`,
+    }
+  }
+  if (!roster.has(target)) {
+    return {
+      ok: false,
+      why: `${spec} resolves to a file tsconfig.json does not compile, so every guard in ` +
+        `this file stops at the import and never reads what it imports. Do not add its ` +
+        `directory to the roster — an excluded helper added to the build is emitted into ` +
+        `dist/, which files: ["dist"] publishes. Either the import does not belong in a ` +
+        `compiled core module, or the module it names belongs somewhere the build already ` +
+        `compiles`,
+    }
+  }
+  return { ok: true }
+}
+
+describe('the core hop rule, as a predicate', () => {
+  const core = '/r/src/core'
+  const roster = new Set(['/r/src/core/sirds.ts', '/r/src/core/anim/track.ts'])
+
+  it('allows a hop onto another compiled core module', () => {
+    expect(hopVerdict('./sirds.js', core, roster, core)).toEqual({ ok: true })
+    expect(hopVerdict('../sirds.js', `${core}/anim`, roster, core)).toEqual({ ok: true })
+  })
+
+  it('rejects the live shape: a hop into the excluded testing/ directory', () => {
+    const v = hopVerdict('./testing/imports.js', core, roster, core)
+    expect(v.ok).toBe(false)
+    expect(v.ok ? '' : v.why).toContain('does not compile')
+  })
+
+  it('rejects a hop out of core, which dist/ only sees once it is built', () => {
+    const v = hopVerdict('../shared/frames.js', core, roster, core)
+    expect(v.ok).toBe(false)
+    expect(v.ok ? '' : v.why).toContain('leaves core/')
+    // Not a prefix match on the string: `coreutils/` next to `core/` must not
+    // read as inside it.
+    expect(hopVerdict('../coreutils/x.js', core, roster, core).ok).toBe(false)
+  })
+
+  it('rejects a specifier that names nothing, rather than waving it through', () => {
+    expect(hopVerdict('./gone.js', core, roster, core).ok).toBe(false)
+  })
+})
+
+describe('src/core reaches nothing the build does not compile', () => {
+  it('every relative import from a compiled core source lands on another one', () => {
+    const roster = new Set(compiledFiles())
+    const sources = [...roster].filter(f => f.startsWith(SRC_CORE + sep)).sort()
+    let relatives = 0
+    const escapes: string[] = []
+    for (const file of sources) {
+      for (const spec of importSpecifiers(readFileSync(file, 'utf8'), kindOf(file))) {
+        if (!spec.startsWith('.')) continue
+        relatives++
+        const v = hopVerdict(spec, dirname(file), roster, SRC_CORE)
+        if (!v.ok) escapes.push(`${relative(ROOT, file)}: ${v.why}`)
+      }
+    }
+    // Vacuity floors as relations rather than literals — §9's "a numeric floor
+    // chosen from today's count is a check". Every compiled source is reached
+    // from `tsconfig.json`, and core is a package of modules that import each
+    // other, so a walk that found no source or no relative specifier is a
+    // mis-pathed roster rather than a clean tree.
+    expect(sources.length, 'tsconfig.json compiles nothing under src/core, so this saw nothing')
+      .toBeGreaterThan(0)
+    expect(relatives, 'no relative specifier found in src/core, so this assertion saw nothing')
+      .toBeGreaterThan(sources.length / 2)
+    expect(escapes.sort()).toEqual([])
   })
 })
 

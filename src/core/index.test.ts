@@ -30,6 +30,7 @@ describe('public surface', () => {
       'sceneDurationOf',
       'gifFrameIndex',
       'blurDepth',
+      'sepAt',
       'sirdsFromDepth',
       'upscale',
       'makeRng',

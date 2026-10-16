@@ -26,7 +26,7 @@
  */
 import { spawn } from 'node:child_process'
 import { mkdtemp } from 'node:fs/promises'
-import { readFile } from 'node:fs/promises'
+import { readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -49,7 +49,9 @@ import type { CanvasLike, RasterCache, Scene, StereoOpts } from '../core/index.j
 import { nodeCanvas, writeGif, writeMp4, writePng, writePngSequence } from '../node/index.js'
 import { HELP, UsageError, outputFormat, parseArgs } from './args.js'
 import type { CliArgs } from './args.js'
-import { applyOverrides, loadScene, textScene } from './scene.js'
+import { writeStst } from '../shared/container.js'
+import type { StstMember } from '../shared/container.js'
+import { applyOverrides, loadProject, textScene } from './scene.js'
 import type { MeasureText } from './scene.js'
 
 /** Where the CLI writes. Injected so tests can read what it said. */
@@ -119,10 +121,13 @@ async function execute(args: CliArgs, io: Io): Promise<void> {
   const canvas = nodeCanvas()
   const cache = createRasterCache()
 
-  const base = args.scene !== undefined
-    ? await loadScene(args.scene)
-    : textScene(args, measurer(canvas))
-  const scene = applyOverrides(base, args)
+  // `loadProject`, not `loadScene`: the members have to survive the read or
+  // `--save-project` below cannot put them back. See `scene.ts` for why the
+  // loss is removed rather than warned about.
+  const project = args.scene !== undefined
+    ? await loadProject(args.scene)
+    : { scene: textScene(args, measurer(canvas)), members: [] as readonly StstMember[] }
+  const scene = applyOverrides(project.scene, args)
 
   /** The instant a single frame is taken from: §4.1's midpoint unless told otherwise. */
   const sampleAt = args.atTime ?? stillTime(scene)
@@ -138,6 +143,24 @@ async function execute(args: CliArgs, io: Io): Promise<void> {
     say(
       `stst: wrote ${args.depthMap} (${dw}x${dh} stage depth map at ` +
       `t=${sampleAt.toFixed(2)}s)`,
+    )
+  }
+
+  if (args.saveProject !== undefined) {
+    // **`scene`, not `project.scene`** — the scene the render used, overrides
+    // and all. Saving the file as authored would make the project disagree
+    // with the artifact it was produced beside, and nothing in the `.stst`
+    // would say which flags were in play.
+    //
+    // `project.members` passes straight through, which is what makes
+    // `--save-project` onto the path the scene was *read* from lossless. The
+    // list is empty for a `.yaml` or a `--text` scene, so there is nothing to
+    // special-case.
+    await writeFile(args.saveProject, await writeStst(scene, project.members))
+    const n = project.members.length
+    say(
+      `stst: wrote ${args.saveProject} (project: scene + ${n} ` +
+      `member${n === 1 ? '' : 's'})`,
     )
   }
 

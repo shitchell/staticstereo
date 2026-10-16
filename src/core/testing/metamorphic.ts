@@ -524,6 +524,21 @@ export function deadZones(
  * curves and diagonals pull it down, and it reads roughly 2–3× lower than a
  * by-eye stem measurement of the same glyphs. The threshold must be calibrated
  * against *this* definition rather than inherited from a hand measurement.
+ *
+ * **`threshold` is absolute depth, 0..1 — not `perception.ts`'s
+ * `INK_FRACTION`**, which is a fraction of the layer's own peak and is
+ * compared with `>=` rather than `>`. Callers here pass `0.5`, which is the
+ * same number, and the two agree on every layer at full depth and nowhere
+ * else; `src/node/metamorphic.real.test.ts`'s `ABSOLUTE_INK_DEPTH` carries the
+ * reasoning and the sensor. Do not import the constant to "deduplicate" them.
+ *
+ * **The `0` default is a third ink definition and is kept deliberately.** It
+ * counts any sample above zero, i.e. the whole antialiasing fringe, which
+ * `INK_FRACTION`'s docblock rejects for a perceptual reading — a half-covered
+ * pixel carries half the shift. It is right as a *default* because the callers
+ * that take it are measuring geometry (slabs, balls, synthetic masks at depth
+ * 0 or 1) where there is no fringe to exclude and no perception involved. It
+ * would be wrong as a perceptual threshold, and nothing here makes it one.
  */
 export function runLengths(
   depth: Float32Array, w: number, h: number, threshold = 0,
