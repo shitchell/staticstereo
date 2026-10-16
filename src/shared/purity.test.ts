@@ -572,9 +572,19 @@ describe('src/shared and dist/shared import only what runs in both runtimes', ()
   it.skipIf(!built)('every emitted module pairs back to a guarded source, so neither walk can be silently empty', () => {
     // The vacuity floor, and deliberately **not** the incumbent's literal.
     //
-    // `src/core/purity.test.ts:221` uses `expect(total).toBeGreaterThan(10)`,
-    // which is the right idiom — a parser that found nothing would also report
-    // no leaks. The literal is the part not to copy: §9 says "a numeric floor
+    // `src/core/purity.test.ts`'s `dist/core purity > imports nothing
+    // non-relative` uses `expect(total).toBeGreaterThan(10)`, which is the
+    // right idiom — a parser that found nothing would also report no leaks.
+    //
+    // **Cited by test title, not by line, because the line rotted twice while
+    // nothing touched this file.** It read `:221`, which is where `70718ea`
+    // left the assertion; `3d593fe` inserted the source-hop walk above it and
+    // moved it to `:377`, `2a553aa` inserted `emitRoots()` and moved it to
+    // `:466`. Neither edit had any reason to come here, which is the point —
+    // a cross-file line number is a claim about a file whose author is not
+    // reading this one. A title survives an insertion above it.
+    //
+    // The literal is the part not to copy: §9 says "a numeric floor
     // chosen from today's count is a check ... a specifier floor of 160 was
     // overtaken inside its own cluster". This comment said `dist/shared` held
     // 14; it holds **22** as this is rewritten, which is the row firing in
