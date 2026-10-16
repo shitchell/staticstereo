@@ -101,6 +101,7 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as ts from 'typescript'
 import { importSpecifiers } from '../core/testing/imports.js'
+import { compiledFiles, tsconfig } from '../core/testing/roster.js'
 
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
@@ -396,38 +397,6 @@ const installation: Installation = {
 /* ===================================================================== */
 
 /**
- * `tsconfig.json`, as TypeScript itself reads it — the single authority behind
- * both the roster below and `emitLayoutVerdict` above. It answers two separate
- * questions, `fileNames` ("what does this compile") and `options` ("where does
- * it put the result"), and this file needs both: a roster that is right about
- * a `dist/` nobody writes is still wrong.
- */
-function tsconfig(): ts.ParsedCommandLine {
-  const configPath = join(ROOT, 'tsconfig.json')
-  const read = ts.readConfigFile(configPath, ts.sys.readFile)
-  // Fail closed, both here and below. An unparseable or unresolvable config
-  // must not read as "no files to guard" — a roster that is empty because the
-  // question could not be answered is the fail-open shape §9 keeps naming,
-  // and it would report a clean `src/shared` over every module in it.
-  if (read.error) {
-    throw new Error(
-      `tsconfig.json did not parse: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`,
-    )
-  }
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, ROOT, undefined, configPath)
-  if (parsed.errors.length > 0) {
-    throw new Error(
-      `tsconfig.json did not resolve to a file list: ` +
-        parsed.errors.map(d => ts.flattenDiagnosticMessageText(d.messageText, ' ')).join('; '),
-    )
-  }
-  // `parseJsonConfigFileContent` absolutises `rootDir` and `outDir` against
-  // the config's directory, so `emitLayoutVerdict` compares absolute paths to
-  // absolute paths without re-resolving either.
-  return parsed
-}
-
-/**
  * Which sources are guarded, asked of the compiler rather than of the build.
  *
  * The roster has to be `include: ["src"]` minus `tsconfig.json`'s three
@@ -442,6 +411,12 @@ function tsconfig(): ts.ParsedCommandLine {
  * compiles. A fourth `exclude` glob needs no edit here *and* a never-built
  * module is in the roster the moment it is on disk.
  *
+ * That answer, and the two fail-closed guards around it, now live in
+ * `src/core/testing/roster.ts` because `src/core/purity.test.ts` needs the
+ * same one and there must be a single authority for it — the reasoning is at
+ * that file's docblock. `tsconfig()` is imported alongside it because
+ * `emitLayoutVerdict` needs the other half of the same parse, `options`.
+ *
  * Measured against today's tree: 13 files, the same 13 the old pairing walk
  * produced, with `src/shared/testing/gifFixtures.ts` excluded — by
  * `"src/shared/testing/**"`, not by the accident of emitting nothing. That
@@ -449,10 +424,6 @@ function tsconfig(): ts.ParsedCommandLine {
  * design, so excluding it is the correct answer and not a gap: it is never in
  * the site bundle and never in `dist/`.
  */
-function compiledFiles(): readonly string[] {
-  return tsconfig().fileNames.map(f => resolve(f))
-}
-
 function guardedSources(): string[] {
   return compiledFiles()
     .filter(f => f.startsWith(SRC_SHARED + sep))
