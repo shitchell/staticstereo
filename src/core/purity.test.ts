@@ -32,12 +32,74 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as ts from 'typescript'
 import { importSpecifiers } from './testing/imports.js'
-import { compiledFiles } from './testing/roster.js'
+import { compiledFiles, tsconfig } from './testing/roster.js'
 
 /** Anchored to this file, not to cwd, so the test is invocation-independent. */
 const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
-const DIST = join(ROOT, 'dist')
-const DIST_CORE = join(DIST, 'core')
+
+/**
+ * Where `tsc` writes, **asked of `tsconfig.json`** rather than transcribed.
+ *
+ * `DIST` and `SRC` here used to read `join(ROOT, 'dist')` and `join(ROOT,
+ * 'src')`, which is a hand copy of `rootDir` and `outDir`, and §9's "a
+ * hand-written list of the places that do X is not a check" applies to a
+ * hand-written *path* in the worse form: when the config moves, the stale tree
+ * is still on disk to be certified, and `files: ["dist"]` is what npm
+ * publishes. Measured on this tree, each arm rebuilt inside the mutation over
+ * a `dist/` a correct build had already written:
+ *
+ * ```
+ * tsconfig                     build   src/core/purity.test.ts
+ *   rootDir "src"     outDir "dist"    0   13 passed (13)   [correct]
+ *   rootDir "src"     outDir "dist2"   0   13 passed (13)   [over a dist/ tsc abandoned]
+ *   rootDir "."       outDir "dist"    0   13 passed (13)   [tsc emits dist/src/**]
+ *   rootDir "src/core" outDir "dist"   2   13 passed (13)
+ * ```
+ *
+ * Three wrong greens, one of them with the build exiting 2. `2e07de6`'s
+ * successor closed the same hole in `src/shared/purity.test.ts` by *detecting*
+ * it — `emitLayoutVerdict` there compares the config against that file's own
+ * transcription and reddens. This file takes the other route and keeps no
+ * transcription to compare: it walks wherever the config says `tsc` writes, so
+ * a moved `outDir` leaves it reading the real output instead of certifying the
+ * abandoned one. The two are complements, not duplicates — detecting the move
+ * is how `dist/` stops being published stale, and following it is how these
+ * assertions keep having a subject.
+ *
+ * Fails closed, as `roster.ts` does and for the same reason: with no `outDir`
+ * or no `rootDir`, `tsc` emits beside the sources and there is no output tree
+ * for this file to be right or wrong about, and "nothing to walk" must not
+ * read as "everything is clean".
+ */
+function emitRoots(): { readonly src: string; readonly dist: string; readonly distCore: string } {
+  const { rootDir, outDir } = tsconfig().options
+  for (const [name, value] of [['rootDir', rootDir], ['outDir', outDir]] as const) {
+    if (value === undefined) {
+      throw new Error(
+        `tsconfig.json sets no ${name}, so tsc emits beside the sources and every dist/ walk ` +
+        `in this file is about a directory nothing writes. Restore it, or repoint this file`,
+      )
+    }
+  }
+  const src = resolve(rootDir as string)
+  const dist = resolve(outDir as string)
+  const srcCore = join(ROOT, 'src', 'core')
+  if (srcCore !== src && !srcCore.startsWith(src + sep)) {
+    throw new Error(
+      `tsconfig.json compiles from ${src}, which does not contain ${srcCore}, so there is no ` +
+      `emitted core/ for this file to walk. Restore rootDir, or move what core/ is now called`,
+    )
+  }
+  // `core`'s emitted location is its path *relative to the root the compiler
+  // was given*, which is `core` under `rootDir: "src"` and `src/core` under
+  // `rootDir: "."`. Deriving it is the whole point: a constant `dist/core`
+  // silently becomes an absent directory under the second, and an absent
+  // DIST_CORE makes `built` false and every assertion below skip — fail-open
+  // in exactly the state that needs a sensor.
+  return { src, dist, distCore: join(dist, relative(src, srcCore)) }
+}
+
+const { src: SRC, dist: DIST, distCore: DIST_CORE } = emitRoots()
 
 /*
  * `importSpecifiers` was defined here and is now imported from
@@ -137,8 +199,12 @@ const built = existsSync(DIST_CORE)
  * *new* source file that has never been compiled has no counterpart in `dist/`
  * to be older than, so it is invisible here. The case this is for is the
  * common one — an edit to a file that was already built.
+ *
+ * `SRC` and `DIST` are `rootDir` and `outDir` as TypeScript resolved them —
+ * see `emitRoots` — so "every emitted `dist/X.js` names its own input" holds
+ * under a moved layout too, rather than only under the one spelling this file
+ * used to have written down.
  */
-const SRC = join(ROOT, 'src')
 
 interface Emitted {
   /** The emitted file, repo-relative, which is what a failure has to name. */
@@ -186,11 +252,27 @@ describe('dist/ is either absent or current', () => {
       expect(pairs, 'dist/ is absent, so nothing should have been paired').toEqual([])
       return
     }
+    // The message below used to end "— the outDir, the rootDir, or the
+    // extension filter has moved", and two thirds of that was false. Measured,
+    // each arm rebuilt inside the mutation, this file run alone:
+    //
+    //   outDir "dist" -> "dist2", build 0       13 passed (13)   not seen
+    //   rootDir "src" -> ".",     build 0       13 passed (13)   not seen
+    //   rootDir "src" -> "src/core", build 2    13 passed (13)   not seen
+    //   `.js` filter -> `.mjs`                  1 failed | 12 passed (13)
+    //
+    // Only the fourth was ever this floor's. The first three went unseen
+    // because the walk was pointed at a hand-written `dist/` that a previous
+    // build had filled correctly, so it kept pairing and kept passing; they
+    // are now `emitRoots`', which follows the config instead of transcribing
+    // it, and the broken-config arm reaches this floor only because the pairing
+    // then genuinely finds nothing. So the floor's one real property is the one
+    // stated here: the walk matched nothing, whatever the reason.
     expect(
       pairs.length,
-      'dist/ exists and no emitted .js was matched to a source under src/, so "nothing is ' +
-      'stale" is only true of the empty set — the outDir, the rootDir, or the extension ' +
-      'filter has moved',
+      'the emitted tree exists and no .js in it was matched back to a source, so "nothing is ' +
+      'stale" is only true of the empty set — the pairing walk is reading a layout that is ' +
+      'not the one tsc wrote, or the extension filter has moved',
     ).toBeGreaterThan(10)
     expect(
       staleEmits(pairs),
@@ -219,7 +301,14 @@ describe('dist/ is either absent or current', () => {
 /*  closure — a guarded module may not reach an unguarded one             */
 /* ===================================================================== */
 
-const SRC_CORE = join(SRC, 'core')
+/**
+ * The *source* directory, anchored to the repo and not to `rootDir`. The walk
+ * below reads files that are on disk whether or not anything has been
+ * compiled, so it is the one place here that must not follow the emit layout:
+ * under `rootDir: "."` a `join(SRC, 'core')` would name a directory that does
+ * not exist and the walk would silently see nothing.
+ */
+const SRC_CORE = join(ROOT, 'src', 'core')
 
 /**
  * Is a relative specifier out of `src/core/` allowed?
