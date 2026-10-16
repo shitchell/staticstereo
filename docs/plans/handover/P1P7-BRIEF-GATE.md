@@ -85,6 +85,21 @@ cleanup is `git clean -f -- 'src/*'`. You should not hit this unless something u
 left the tree dirty, which is why **step 0 is to confirm `git status` is clean** and to stop
 if it is not.
 
+**Step 0 is not a formality — it caught a real contamination on 2026-10-16.** A worker in
+this worktree overwrote the TRACKED file `src/shared/perception.throws.test.ts`, replacing
+its **246 lines with 8454** (451 KB of redirected command output), and left a stray
+untracked `true` alongside it. Both were restored and removed before any gate run. Note what
+this would have looked like if step 0 had been skipped: **a corrupted test file that still
+parses**, producing a count nobody could reconcile and a red nobody could locate. Run
+
+```sh
+git status --porcelain          # must be EMPTY
+git diff --stat HEAD            # must be EMPTY
+```
+
+and if either is not, **stop and ask your PM whose change it is** — do not `git checkout --`
+it yourself on the assumption it is rubbish. One of those 451 KB could have been real work.
+
 **`git merge main` is step 1 and a conflict is an escalation, not a thing to resolve.** The
 branch has not merged `main` since `8f9a36f`.
 
@@ -150,6 +165,49 @@ purity sensor and it is not a type sensor either; it is a bundling sensor.
    `main..HEAD` (two dots)** — see the table below, they are different operations and the
    conflation has now bitten two tiers. Use `LC_ALL=C` if you sort or `comm` (§9: `comm`
    without it fails open and silently reports **no** overlap).
+
+   ### ⚠ `vitest list --json=true` WRITES TO A FILE CALLED `true` AND PRINTS NOTHING
+
+   **The instrument this requirement depends on has a silent-empty failure mode, and it
+   was triggered live in this worktree on 2026-10-16.** Measured by PM-SHARED-5, both
+   spellings, from the repo root:
+
+   | command | stdout | side effect | exit |
+   |---|---|---|---|
+   | `vitest list --filesOnly --json` | **10267 bytes of JSON** — correct | none | 0 |
+   | `vitest list --filesOnly --json=true` | **0 bytes** | **creates a file named `true` in the PROJECT ROOT** holding the JSON | **0** |
+
+   `vitest list --help` documents the flag as `--json [true/path]` — *"Print collected
+   tests as JSON or write to a file"*. **The literal `true` is documented as meaning
+   stdout and actually behaves as a filename.** The help text is the trap, not the
+   protection.
+
+   **Why this is a false green and not just mess.** A runner who writes
+   `vitest list --json=true > before.json`, merges, then
+   `vitest list --json=true > after.json` gets **two empty files**, `diff` reports no
+   difference, exit 0 throughout, and the conclusion is *"zero net test removals"* —
+   from an instrument that collected nothing and said so to a file nobody opened. That
+   is §6.5a exactly: **a null from an instrument that was never armed.** The real
+   incident here produced a `true` file containing `[]` — zero tests collected — with
+   exit 0.
+
+   **Use the bare flag and assert the output is non-empty before you trust a diff of
+   it:**
+
+   ```sh
+   ./node_modules/.bin/vitest list --json > /tmp/before.json
+   test -s /tmp/before.json || { echo "INSTRUMENT RETURNED NOTHING — do not proceed"; exit 1; }
+   ```
+
+   **The paired control required by §6.5a:** plant a rename in one test name, re-run the
+   list, and confirm the diff reports it. An instrument that cannot show you a planted
+   rename cannot show you a real removal. This control has been used successfully on
+   this phase before (`main` 1882 vs branch 2110, planted rename detected).
+
+   **Also check for the stray before you commit anything.** `git status --porcelain`
+   showing `?? true` means someone ran the broken spelling; the file is untracked
+   rubbish, delete it. It lands in the **project root**, not your cwd — it resolves
+   against the project root even when invoked with `--root` from elsewhere.
 
    ### Three dots for the DIFF, two dots for the COUNT
 
