@@ -241,14 +241,62 @@ function tagOfReferencedAlias(
  * `depthView` in prose over eight lines, so a text search for the tag is red on
  * the module exactly as it stands. §9: *"a grep census is a census."*
  *
- * **Two halves, because they fail on different things.** {@link
+ * **Three halves, because they fail on different things.** {@link
  * Delegation.undelegated} catches a state *computed* anywhere in the module and
  * is indifferent to how the arm was selected, so extracting the duplicate into a
  * helper does not evade it — `self.state = someHelper(…)` is as undelegated as
- * an inline object literal. {@link Delegation.tagsNamed} catches an arm named
- * without ever reaching a write, which is the *suppression* case: an early
+ * an inline object literal. {@link Delegation.conditional} catches a write that
+ * only *some* actions reach, which is the *suppression* case: an early
  * `if (action.type === 'scene') return` writes nothing and would pass the first
- * half while silently dropping a transition.
+ * half while silently dropping a transition. {@link Delegation.tagsNamed}
+ * catches a per-arm decision that changes no state at all — a branch on the
+ * discriminant whose body only logs, or counts, or notifies twice.
+ *
+ * ## The hole the second half closed, and why there are three halves and not two
+ *
+ * There used to be two, and **a verifier measured that both could be evaded at
+ * once**: {@link Delegation.undelegated} keyed on the *declaration* of the name
+ * written to storage, so a **reassignment** defeated it, and
+ * {@link Delegation.tagsNamed} keyed on a tag literal, so a **tag-free
+ * selection** defeated it. Planted into this module together —
+ *
+ * ```ts
+ * let next = reduce(self.state, action)
+ * if ('value' in action && (action.value === 'composited' || action.value === 'encoded')) {
+ *   next = { ...self.state, depthView: action.value }      // no tag literal anywhere
+ * }
+ * self.state = next
+ * ```
+ *
+ * — the repository did not move: `build` 0, `build:site` 0, `typecheck` 0,
+ * **82 files / 1955 passed / 0 skipped**. That is an unambiguous second
+ * implementation of the `depthView` arm, computed from `self.state` and
+ * `action` alone, and it was invisible. Two fixes followed, and they are
+ * separate because the two evasions are:
+ *
+ *  - **A reassignment is a binding.** `fromReduce` now accumulates over
+ *    assignments as well as declarations, so `next` reassigned from anything
+ *    other than `reduce` disqualifies every write of `next`.
+ *  - **Suppression is measured structurally and no longer through the tag.**
+ *    {@link Delegation.conditional} asks whether the write is reachable on
+ *    *every* path through its own function, which catches
+ *    `if (shouldSkip(action)) return` exactly as it catches
+ *    `if (action.type === 'scene') return`. The tag spelling is no longer
+ *    load-bearing for the case that matters.
+ *
+ * **That second fix is what buys {@link Delegation.tagsNamed} the room to be
+ * narrowed**, and it had to be narrowed: `'set'` joined `Action`'s tags at
+ * `24392c3`, and a guard that reddens on *any* value-position `'set'` in this
+ * module is a guard whose cheapest satisfying action is to delete the half that
+ * once saw suppression (§6.5a's tripwire paragraph; A-4's own UNCERTAIN 1 flagged
+ * `tagsNamed` as the half most likely to need narrowing, over the far milder
+ * collisions `time`, `size`, `scene` and `frame`). So the tag half now counts a
+ * literal only where it is **compared against a `.type` discriminant** — in a
+ * `===`/`!==` or a `switch` case — and an ordinary `'set'` used as data passes.
+ * The residue is named rather than hidden: a tag laundered through a variable
+ * (`const arm = action.type; if (arm === 'set')`) is invisible to this half, and
+ * is caught by {@link Delegation.conditional} whenever it guards or skips the
+ * write, which is every case where it can change what the store stores.
  *
  * **What is deliberately not constrained.** Construction. The guard is over
  * writes to the storage *after* it exists, never over building the initial
@@ -264,7 +312,9 @@ interface Delegation {
   readonly writes: readonly string[]
   /** Writes whose value did not come straight from `reduce`, `path:line …`. */
   readonly undelegated: readonly string[]
-  /** `Action` tags named as value-position string literals, `path:line tag`. */
+  /** Writes some actions cannot reach, `path:line reason` — the suppression half. */
+  readonly conditional: readonly string[]
+  /** `Action` tags compared against a `.type` discriminant, `path:line tag`. */
   readonly tagsNamed: readonly string[]
 }
 
@@ -350,32 +400,147 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
     return returned.getText()
   })()
 
-  // Names whose *every* declaration in the file initialises from `reduce`, so
-  // that the one-hop `const next = reduce(…); self.state = next` the module
-  // actually uses is recognised. File-wide rather than scope-aware, and the
-  // looseness fails closed: a name declared twice, once from `reduce` and once
-  // from anything else, is not treated as delegated by either site.
+  const isAssignment = (node: ts.Node): node is ts.BinaryExpression =>
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+    node.operatorToken.kind <= ts.SyntaxKind.LastAssignment
+
+  // Names **every** one of whose bindings in the file comes straight from
+  // `reduce`, so that the one-hop `const next = reduce(…); self.state = next`
+  // the module actually uses is recognised. File-wide rather than scope-aware,
+  // and the looseness fails closed: a name bound twice, once from `reduce` and
+  // once from anything else, is not treated as delegated by either site.
+  //
+  // **A reassignment is a binding, and leaving it out was a measured hole and
+  // not a theoretical one.** Keyed on declarations alone, this map called `next`
+  // delegated however many times it was subsequently overwritten, so
+  // `let next = reduce(…); next = {…}; self.state = next` reported clean — and
+  // did, across the whole repository. That is the "fails closed" claim above
+  // being true of declarations and **false of the file**, which is the shape §9
+  // separates from a stale pointer: a wrong assertion misleads whoever trusts
+  // it. Both forms are accumulated here now, so the claim is true as written.
   const fromReduce = new Map<string, boolean>()
+  const binds = (name: string, straight: boolean): void => {
+    fromReduce.set(name, (fromReduce.get(name) ?? true) && straight)
+  }
   const bind = (node: ts.Node): void => {
     if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name)) {
-      const straight = node.initializer !== undefined && isReduceCall(node.initializer)
-      fromReduce.set(node.name.text, (fromReduce.get(node.name.text) ?? true) && straight)
+      binds(node.name.text, node.initializer !== undefined && isReduceCall(node.initializer))
+    }
+    if (isAssignment(node) && ts.isIdentifier(node.left)) {
+      // A compound assignment (`+=`) is never delegation whatever is on the
+      // right, so the operator is part of the test here exactly as it is at
+      // the write site below.
+      binds(
+        node.left.text,
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken && isReduceCall(node.right),
+      )
     }
     ts.forEachChild(node, bind)
   }
   bind(file)
 
+  /** The function a node sits directly inside, ignoring blocks and statements. */
+  const enclosingFunction = (node: ts.Node): ts.Node | undefined => {
+    for (let at: ts.Node | undefined = node.parent; at !== undefined; at = at.parent) {
+      if (
+        ts.isFunctionDeclaration(at) || ts.isFunctionExpression(at) ||
+        ts.isArrowFunction(at) || ts.isMethodDeclaration(at)
+      ) {
+        return at
+      }
+    }
+    return undefined
+  }
+
+  /**
+   * The construct, if any, that makes `write` conditional within `fn`.
+   *
+   * Only the chain between the two is walked, so the `for` loop that notifies
+   * subscribers *after* the write is not a guard on it.
+   */
+  const guardOver = (write: ts.Node, fn: ts.Node): string | undefined => {
+    for (let at: ts.Node | undefined = write.parent; at !== undefined && at !== fn; at = at.parent) {
+      if (ts.isIfStatement(at)) return 'if'
+      if (ts.isConditionalExpression(at)) return 'conditional expression'
+      if (ts.isSwitchStatement(at) || ts.isCaseClause(at) || ts.isDefaultClause(at)) return 'switch'
+      if (ts.isIterationStatement(at, false)) return 'loop'
+      if (ts.isCatchClause(at) || ts.isTryStatement(at)) return 'try'
+      if (ts.isBinaryExpression(at)) {
+        const kind = at.operatorToken.kind
+        if (
+          kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+          kind === ts.SyntaxKind.BarBarToken ||
+          kind === ts.SyntaxKind.QuestionQuestionToken
+        ) {
+          return 'short-circuit'
+        }
+      }
+    }
+    return undefined
+  }
+
+  /** Whether `fn` can leave before reaching `write`. Nested functions are not `fn`'s. */
+  const canExitBefore = (write: ts.Node, fn: ts.Node): boolean => {
+    let found = false
+    const scan = (node: ts.Node): void => {
+      if (found) return
+      if (
+        node !== fn &&
+        (ts.isFunctionDeclaration(node) || ts.isFunctionExpression(node) ||
+          ts.isArrowFunction(node) || ts.isMethodDeclaration(node))
+      ) {
+        return
+      }
+      if (
+        (ts.isReturnStatement(node) || ts.isThrowStatement(node)) &&
+        node.getStart() < write.getStart()
+      ) {
+        found = true
+        return
+      }
+      ts.forEachChild(node, scan)
+    }
+    scan(fn)
+    return found
+  }
+
+  const DISCRIMINANT = 'type'
+  const isDiscriminantOf = (node: ts.Expression): boolean =>
+    ts.isPropertyAccessExpression(node) && node.name.text === DISCRIMINANT
+
+  /**
+   * Whether `literal` is being matched against an action's own `type`.
+   *
+   * This is the narrowing §2a forced and the module docblock argues for: a
+   * string that merely *equals* a tag is data, and `'set'` is three characters.
+   * A string in `=== action.type`, or in `case` under `switch (action.type)`,
+   * is a per-arm decision whatever it spells.
+   */
+  const matchesADiscriminant = (literal: ts.StringLiteral): boolean => {
+    const parent = literal.parent
+    if (ts.isBinaryExpression(parent)) {
+      const kind = parent.operatorToken.kind
+      const comparison =
+        kind === ts.SyntaxKind.EqualsEqualsEqualsToken ||
+        kind === ts.SyntaxKind.ExclamationEqualsEqualsToken ||
+        kind === ts.SyntaxKind.EqualsEqualsToken ||
+        kind === ts.SyntaxKind.ExclamationEqualsToken
+      return comparison && isDiscriminantOf(parent.left === literal ? parent.right : parent.left)
+    }
+    if (ts.isCaseClause(parent) && ts.isCaseBlock(parent.parent)) {
+      return isDiscriminantOf(parent.parent.parent.expression)
+    }
+    return false
+  }
+
   const writes: string[] = []
   const undelegated: string[] = []
+  const conditional: string[] = []
   const tagsNamed: string[] = []
 
   const walk = (node: ts.Node): void => {
-    if (
-      ts.isBinaryExpression(node) &&
-      node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
-      node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
-      node.left.getText() === storage
-    ) {
+    if (isAssignment(node) && node.left.getText() === storage) {
       writes.push(at(node))
       // A compound assignment (`+=`) is never delegation whatever is on the
       // right, so the operator is part of the test and not just the shape.
@@ -386,19 +551,39 @@ function delegationIn(path: string, text: string, tags: readonly string[]): Dele
       if (!straight) {
         undelegated.push(`${at(node)} ${node.getText().replace(/\s+/g, ' ')}`)
       }
+
+      // The suppression half, and it is structural rather than lexical: an arm
+      // dropped before the write is a write some actions never reach, whatever
+      // the condition is spelled as. The real module's single write is a plain
+      // statement of `dispatch`'s body with nothing before it that can leave.
+      const fn = enclosingFunction(node)
+      if (fn === undefined) {
+        conditional.push(`${at(node)} the write is not inside a function`)
+      } else {
+        const guard = guardOver(node, fn)
+        if (guard !== undefined) {
+          conditional.push(`${at(node)} reached only through a ${guard}`)
+        } else if (canExitBefore(node, fn)) {
+          conditional.push(`${at(node)} an earlier return or throw can skip it`)
+        }
+      }
     }
-    // Value position only: a string-literal *type* (`type: 'depthView'` in a
-    // declaration) names a variant without deciding anything about it, and an
-    // identifier node is never the inside of a comment — which is the whole
-    // reason this is a parse.
-    if (ts.isStringLiteral(node) && !ts.isLiteralTypeNode(node.parent) && tags.includes(node.text)) {
+    // Value position only, and only against a discriminant: a string-literal
+    // *type* (`type: 'depthView'` in a declaration) names a variant without
+    // deciding anything about it, a `'set'` used as data decides nothing
+    // either, and an identifier node is never the inside of a comment — which
+    // is the whole reason this is a parse.
+    if (
+      ts.isStringLiteral(node) && !ts.isLiteralTypeNode(node.parent) &&
+      tags.includes(node.text) && matchesADiscriminant(node)
+    ) {
       tagsNamed.push(`${at(node)} ${node.text}`)
     }
     ts.forEachChild(node, walk)
   }
   walk(file)
 
-  return { storage, writes, undelegated, tagsNamed }
+  return { storage, writes, undelegated, conditional, tagsNamed }
 }
 
 /* ------------------------------------------------------ the import closure */
@@ -468,10 +653,56 @@ const BROWSER_GLOBALS = ['document', 'window', 'location', 'history', 'navigator
  * any module in this closure could read the time for itself, that sentence
  * stops being true of the store and nothing else in the suite would say so.
  *
- * `Date` and `performance` are the clocks; the four schedulers are here because
- * a module that can defer can also sample the clock by differencing its own
+ * `Date` and `performance` are the clocks; the schedulers are here because a
+ * module that can defer can also sample the clock by differencing its own
  * callbacks. `process` is neither, and is here because `process.hrtime` is the
  * node-shaped way to do the first one and `src/core` is shared with the CLI.
+ *
+ * ## What this roster's weakness actually is — corrected, with the measurement
+ *
+ * C-2 shipped this list knowingly weak and recorded the weakness as §9's
+ * **hand-written-list** shape: *"a novel clock spelling passes it, and C-2
+ * could not derive the list from anything."* **A verifier measured that this is
+ * not the mechanism, and the misdiagnosis sends the next reader to the wrong
+ * cure.** Planted into `site/transport.ts`, in the real import closure,
+ * grep-confirmed, build first:
+ *
+ * | plant | before | after |
+ * |---|---|---|
+ * | `Date.now()` — positive control | **RED** | **RED** |
+ * | `globalThis.Date.now()` | 24/24 green | **RED** |
+ * | `Promise.resolve().then(f)` | 24/24 green | **RED** |
+ *
+ * `Date` **was** on the roster and `globalThis.Date` passed anyway, because
+ * prefixing a global makes it the `name` of a `PropertyAccessExpression` and
+ * {@link globalsIn} deliberately skipped those — so **every listed name was
+ * evadable the same way**, and lengthening the roster could not have closed any
+ * of it. That suppression is narrowed at its single `globalThis` receiver
+ * rather than removed; see {@link globalsIn}, which records why removing it is
+ * not available.
+ *
+ * `Promise` is the one genuine roster gap of the three, and it is an
+ * inconsistency inside this list's own stated intent rather than a derivation
+ * failure: `queueMicrotask` is listed, and `Promise.resolve().then(f)` is the
+ * same microtask by its other spelling. It is added on that ground alone.
+ *
+ * **Adding it cost a second fix, and the second fix is the more general one.**
+ * `Promise` on this roster reddened the real closure at nine sites, and **all
+ * nine were type annotations** — `loadImage(src): Promise<DecodedImage>` and
+ * `images: Map<string, Promise<DecodedImage>>` in
+ * `src/core/{canvaslike,raster,render}.ts`, the image-decode path. A type
+ * schedules nothing, so {@link globalsIn} now ignores type position for every
+ * name on either roster. That was a latent false positive the whole time and
+ * `Promise` is simply the first entry common enough in a type to expose it.
+ *
+ * **This list is still not derived and still not complete**, and that is
+ * recorded here as an acceptance rather than a note, because §9 forbids a note:
+ * the acceptance is sensored by the controls below, which fail the day one of
+ * the three plants above stops being seen. What remains invisible is bounded
+ * and named — a receiver laundered through a variable (`const g = globalThis`),
+ * a computed member name, and a timing source nobody has thought of. Those are
+ * out of reach of any parser that is not a type checker, which is the same
+ * boundary {@link globalsIn}'s declaration suppression sits on.
  */
 const CLOCKS = [
   'Date',
@@ -482,6 +713,9 @@ const CLOCKS = [
   'clearInterval',
   'requestAnimationFrame',
   'queueMicrotask',
+  // The other spelling of `queueMicrotask`, and the one a verifier measured
+  // walking straight past this list.
+  'Promise',
   'process',
 ]
 
@@ -505,11 +739,49 @@ const CLOCKS = [
  * the same name — which is why the list leads with `document` and `window`,
  * the two no module shadows, and why the control below plants a file that
  * declares `location` and still gets caught on `document`.
+ *
+ * ## `globalThis.X` is the global, and that was the measured hole
+ *
+ * The member-name suppression below is the reason {@link CLOCKS}' recorded
+ * weakness was diagnosed wrongly. `globalThis.Date.now()` planted in
+ * `site/transport.ts` made `Date` the `name` of a `PropertyAccessExpression`,
+ * which this function skipped, and the sensor stayed green over a clock it
+ * lists by name — so **every entry in either roster was evadable by prefixing
+ * it**, and no amount of adding names could have helped.
+ *
+ * **The suppression is narrowed rather than removed, and the narrowing is the
+ * whole fix.** Removing it reddens `site/present.ts` and anything else with a
+ * property called `window`; keeping it whole leaves the hole. The one receiver
+ * for which `X.name` *is* the global is `globalThis`, by definition of
+ * `globalThis`, so that single case is unskipped — and it is also exempted
+ * from the declaration filter, because a file declaring its own `Date` does not
+ * make `globalThis.Date` anything other than the clock. The index spelling
+ * `globalThis['Date']` is matched beside it, since a string index is not an
+ * identifier and the walk would never have reached it.
+ *
+ * **Type position is not a reach either**, and that one is not a trade: an
+ * identifier under a type node cannot schedule or sample anything. It is
+ * suppressed for the same reason comments and strings are, and it is what made
+ * `Promise` addable to {@link CLOCKS} — nine of the closure's `Promise`
+ * references are `Promise<DecodedImage>` and none of them is a microtask.
+ *
+ * **What is still invisible, named rather than implied:** `const g =
+ * globalThis; g.Date.now()`, a computed member name, and a module that both
+ * declares and uses a listed name. The first two need a type checker to
+ * resolve and the third is the stated price of the declaration suppression.
  */
 function globalsIn(path: string, text: string, names: readonly string[]): readonly string[] {
   const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true)
   const declared = new Set<string>()
   const hits: string[] = []
+  // Reached through `globalThis`, so neither the member-name suppression nor
+  // the declaration filter applies — these are the global whatever the file
+  // calls its own bindings.
+  const rooted: string[] = []
+  const lineOf = (node: ts.Node): number =>
+    file.getLineAndCharacterOfPosition(node.getStart()).line + 1
+  const isGlobalRoot = (node: ts.Expression): boolean =>
+    ts.isIdentifier(node) && node.text === 'globalThis'
 
   const walk = (node: ts.Node): void => {
     if (
@@ -520,10 +792,27 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
     ) {
       declared.add(node.name.text)
     }
+    if (
+      ts.isElementAccessExpression(node) && isGlobalRoot(node.expression) &&
+      ts.isStringLiteral(node.argumentExpression) && names.includes(node.argumentExpression.text)
+    ) {
+      rooted.push(`${path}:${lineOf(node)} ${node.argumentExpression.text}`)
+    }
     if (ts.isIdentifier(node) && names.includes(node.text)) {
       const parent = node.parent
-      // `a.window` is a property named `window`, not the global.
+      // `a.window` is a property named `window`, not the global — but
+      // `globalThis.window` is, and that exception is the measured fix.
+      const viaGlobalThis =
+        ts.isPropertyAccessExpression(parent) && parent.name === node &&
+        isGlobalRoot(parent.expression)
       const isMemberName =
+        // A *type* is not a reach: `Promise<DecodedImage>` schedules nothing
+        // and `images: Map<string, Promise<T>>` is a cache's declared shape.
+        // Measured, and it is the difference between `Promise` being usable on
+        // this roster and not: the store's closure holds nine `Promise`
+        // references and **all nine are type annotations** on the image-decode
+        // path in `src/core/{canvaslike,raster,render}.ts`.
+        ts.isTypeNode(parent) ||
         (ts.isPropertyAccessExpression(parent) && parent.name === node) ||
         (ts.isPropertySignature(parent) && parent.name === node) ||
         (ts.isPropertyAssignment(parent) && parent.name === node) ||
@@ -531,15 +820,19 @@ function globalsIn(path: string, text: string, names: readonly string[]): readon
         (ts.isMethodSignature(parent) && parent.name === node) ||
         (ts.isQualifiedName(parent) && parent.right === node) ||
         ts.isImportSpecifier(parent) || ts.isExportSpecifier(parent)
-      if (!isMemberName) {
-        const line = file.getLineAndCharacterOfPosition(node.getStart()).line + 1
-        hits.push(`${path}:${line} ${node.text}`)
+      if (viaGlobalThis) {
+        rooted.push(`${path}:${lineOf(node)} ${node.text}`)
+      } else if (!isMemberName) {
+        hits.push(`${path}:${lineOf(node)} ${node.text}`)
       }
     }
     ts.forEachChild(node, walk)
   }
   walk(file)
-  return hits.filter(hit => !declared.has(hit.slice(hit.lastIndexOf(' ') + 1)))
+  return [
+    ...hits.filter(hit => !declared.has(hit.slice(hit.lastIndexOf(' ') + 1))),
+    ...rooted,
+  ]
 }
 
 interface Closure {
@@ -672,9 +965,17 @@ describe('createSceneStore', () => {
     ).toEqual([])
 
     expect(
+      found.conditional,
+      'a write to the store\'s state is not on every path through its own function, so some ' +
+      'actions reach it and some do not. Suppressing an arm drops a transition silently, and ' +
+      'the behavioural sweep cannot see it while every arm it does reach still agrees.',
+    ).toEqual([])
+
+    expect(
       found.tagsNamed,
-      'the store named an `Action` variant in its code, so it is deciding something per-arm. ' +
-      'Selecting or suppressing one arm is the same defect as re-implementing it.',
+      'the store matched an `Action` variant against the action\'s own `type`, so it is ' +
+      'deciding something per-arm. Selecting or suppressing one arm is the same defect as ' +
+      're-implementing it.',
     ).toEqual([])
   })
 
@@ -701,7 +1002,26 @@ describe('createSceneStore', () => {
     expect(honest.storage).toBe('self.state')
     expect(honest.writes.length).toBe(1)
     expect(honest.undelegated).toEqual([])
+    expect(honest.conditional).toEqual([])
     expect(honest.tagsNamed).toEqual([])
+
+    // REASSIGNED, and this is the plant that was measured invisible: a name
+    // declared from `reduce` and then overwritten from an object literal, with
+    // the arm selected by a value rather than by a tag so that nothing in the
+    // module spells a variant. Planted into the real `store.ts` it left build
+    // 0, build:site 0, typecheck 0 and 82 files / 1955 passed / 0 skipped.
+    const reassigned = of(module(
+      '      let next = reduce(self.state, action)\n' +
+      "      if ('value' in action && (action.value === 'composited' || action.value === 'encoded')) {\n" +
+      '        next = { ...self.state, depthView: action.value }\n' +
+      '      }\n' +
+      '      self.state = next'))
+    expect(reassigned.undelegated.length, 'a reassigned name is not a delegated name').toBe(1)
+    // …and it is the first half that sees it: the write itself is
+    // unconditional and no tag is spelled, so the other two are silent. Three
+    // halves that fail on different things, demonstrated rather than claimed.
+    expect(reassigned.conditional).toEqual([])
+    expect(reassigned.tagsNamed).toEqual([])
 
     // AGREEING. Returns precisely what `reduce` returns for every input, which
     // is why nothing else in the repository moves.
@@ -725,22 +1045,58 @@ describe('createSceneStore', () => {
 
     // SUPPRESSION. An arm dropped before any write happens: the first half is
     // silent here — no write is undelegated, because the delegated write is
-    // simply never reached — and only the tag half sees it. This is why both
-    // are asserted rather than either alone.
+    // simply never reached — and the other two see it. This is why all three
+    // are asserted rather than any alone.
     const suppressed = of(module(
       "      if (action.type === 'scene') return\n" +
       '      self.state = reduce(self.state, action)'))
     expect(suppressed.undelegated).toEqual([])
+    expect(suppressed.conditional).toEqual(['/plant/store.ts:8 an earlier return or throw can skip it'])
     expect(suppressed.tagsNamed).toEqual(['/plant/store.ts:7 scene'])
 
-    // Prose is not code. The module's real header discusses `depthView` over
-    // eight lines, so a grep for the tag would be red on the shipping module;
-    // this is the assertion that the parse is what makes the guard usable.
-    expect(of(module(
+    // TAG-FREE SUPPRESSION, which is the one the tag half could never see and
+    // the reason the structural half exists. Nothing here spells a variant.
+    const quietlySuppressed = of(module(
+      '      if (skip(action)) return\n' +
+      '      self.state = reduce(self.state, action)',
+      'declare function skip(action: Action): boolean\n'))
+    expect(quietlySuppressed.tagsNamed).toEqual([])
+    expect(quietlySuppressed.conditional.length).toBe(1)
+
+    // And the guarded form of the same thing, where no `return` is involved at
+    // all: the write is simply inside an `if`.
+    const guarded = of(module('      if (ready) self.state = reduce(self.state, action)'))
+    expect(guarded.undelegated).toEqual([])
+    expect(guarded.conditional).toEqual(['/plant/store.ts:7 reached only through a if'])
+
+    // Prose is not code, and nor is data. The module's real header discusses
+    // `depthView` over eight lines, so a grep for the tag would be red on the
+    // shipping module; and `'set'` joined the vocabulary at `24392c3`, so the
+    // guard must tolerate the three commonest characters in any codebase
+    // appearing as an ordinary string. Both halves of that in one plant.
+    const asData = of(module(
       '      // depthView is discussed here, and in a string that is data:\n' +
       '      const label = "depthView"\n' +
+      "      const mode = 'set'\n" +
+      '      void label, mode\n' +
       '      self.state = reduce(self.state, action)',
-    )).tagsNamed.length, 'a comment mentioning a tag must not count').toBe(1)
+    ))
+    expect(asData.tagsNamed, 'a comment or a data string naming a tag must not count').toEqual([])
+
+    // …while the same word *matched against the discriminant* still counts,
+    // which is what keeps the narrowing from being a deletion. Both spellings
+    // of the match, because a `switch` is the other way this is written.
+    expect(of(module(
+      "      if (action.type === 'set') return\n" +
+      '      self.state = reduce(self.state, action)',
+    )).tagsNamed).toEqual(['/plant/store.ts:7 set'])
+    expect(of(module(
+      '      switch (action.type) {\n' +
+      "        case 'scene': return\n" +
+      '        default: break\n' +
+      '      }\n' +
+      '      self.state = reduce(self.state, action)',
+    )).tagsNamed).toEqual(['/plant/store.ts:8 scene'])
 
     // And the instrument refuses rather than reporting clean when the module
     // moves under it — an empty `storage` would sweep nothing and pass.
@@ -953,6 +1309,64 @@ describe('the store runs in plain node', () => {
     graph['/plant/b.ts'] = `export const b = 0\n`
     expect(closureFrom('/plant/entry.ts', files).clocks).toEqual([])
   })
+
+  it('sees the two spellings that walked past it, and still not a property of that name', () => {
+    /**
+     * The three plants from {@link CLOCKS}' corrected rationale, as a sensor.
+     * Two of them were measured green on this exact instrument before the
+     * narrowing — in `site/transport.ts`, in the real closure, with the build
+     * run first and the plant grep-confirmed — so the acceptance that the
+     * roster is neither derived nor complete now ships with something that
+     * fails the day either stops being seen. §9: a gap ships with a sensor,
+     * never with a note.
+     *
+     * The fourth case is the one that keeps the narrowing honest: a property
+     * that merely *shares a global's name* must stay invisible, because that
+     * suppression is what prevents a false positive on `site/present.ts`.
+     */
+    const graph: Record<string, string> = {
+      '/plant/entry.ts': `import { b } from './b.js'\nexport const a = b\n`,
+      '/plant/b.ts': `export const b = globalThis.Date.now()\n`,
+    }
+    const files: Files = { read: path => graph[path] }
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual(['/plant/b.ts:1 Date'])
+
+    // The index spelling of the same reach.
+    graph['/plant/b.ts'] = `export const b = (globalThis['Date'] as DateConstructor).now()\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual(['/plant/b.ts:1 Date'])
+
+    // …and it survives the declaration filter, which the plain-identifier path
+    // does not: a file that declares its own `Date` has not stopped reaching
+    // the real one through `globalThis`.
+    graph['/plant/b.ts'] = `class Date {}\nexport const b = globalThis.Date.now()\nvoid Date\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual(['/plant/b.ts:2 Date'])
+
+    // The unlisted microtask scheduler, which is the one genuine roster gap of
+    // the three and the reason `Promise` sits beside `queueMicrotask`.
+    graph['/plant/b.ts'] = `export const b = (f: () => void) => Promise.resolve().then(f)\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual(['/plant/b.ts:1 Promise'])
+
+    // …and the type-position half of that pair, which is what the real closure
+    // is full of and what the previous paragraph had to make room for. Nine
+    // sites in `src/core` look exactly like this and not one of them defers.
+    graph['/plant/b.ts'] =
+      'export declare function load(s: string): Promise<number>\n' +
+      'export declare const cache: Map<string, Promise<number>>\n'
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual([])
+
+    // The false positive the suppression exists to prevent, still prevented:
+    // an ordinary object with a property called `Date` is not a clock, and a
+    // narrowing that caught this one would redden legitimate code.
+    graph['/plant/b.ts'] = `export const b = { Date: 1 }.Date + ({} as { Date: number }).Date\n`
+    expect(closureFrom('/plant/entry.ts', files).clocks).toEqual([])
+
+    // And the same for the browser roster, so the narrowing is not a `Date`
+    // special case: `a.window` stays silent, `globalThis.window` does not.
+    graph['/plant/b.ts'] = `export const b = (a: { window: number }) => a.window\n`
+    expect(closureFrom('/plant/entry.ts', files).globals).toEqual([])
+    graph['/plant/b.ts'] = `export const b = globalThis.window\n`
+    expect(closureFrom('/plant/entry.ts', files).globals).toEqual(['/plant/b.ts:1 window'])
+  })
 })
 
 /* --------------------------------------- criterion 9: the transport primitive */
@@ -1043,11 +1457,36 @@ describe('scene time and the transport primitive, through the store', () => {
      *
      * Swept through `SAMPLES`, which is total by the compiler, so an arm added
      * later cannot opt out of the invariant by being forgotten here.
+     *
+     * ## The floor counts commits, and it did not used to
+     *
+     * The `try`/`catch` is here so the sweep can stay total over the
+     * vocabulary while tolerating the samples `reduce` legitimately refuses —
+     * an out-of-range layer index, a text patch the editor rejects. That makes
+     * it **the one criterion-9 sensor total over the action vocabulary, and it
+     * was the one that could not tell a refusal from a crash.** A verifier made
+     * `withTransport` throw on *every* transition — the most total reducer
+     * failure expressible — and this test passed: it swept its samples, caught
+     * every throw, and asserted the invariant on that many copies of the
+     * untouched initial state, because the old floor (`examined > 0`) counted
+     * **attempts**.
+     *
+     * So the floor counts **commits** instead — a dispatch that returned and
+     * moved the state — and it is **per variant**, not a single total. A single
+     * total would have survived the same mutation as long as one arm anywhere
+     * still worked; per variant, every arm has to actually reach the store for
+     * this sweep to mean anything, and every one of them does today. The store
+     * writes a fresh object for every accepted action (`reduce` returns one per
+     * arm, which the module header records), so identity change is the commit
+     * signal and it needs no cooperation from the state's shape.
      */
     let examined = 0
+    const committed: Record<string, number> = {}
     for (const kind of Object.keys(SAMPLES)) {
+      committed[kind] = 0
       for (const action of SAMPLES[kind as Action['type']]) {
         const store = createSceneStore(initialState(ANIM))
+        const before = store.state()
         try {
           store.dispatch(action)
         } catch {
@@ -1060,11 +1499,20 @@ describe('scene time and the transport primitive, through the store', () => {
         // own documented contract and `anchorTime`'s as well.
         expect(frameTimesOf(state.scene), label).toContain(state.time)
         examined++
+        if (state !== before) committed[kind] = (committed[kind] ?? 0) + 1
       }
     }
-    // Vacuity floor: a sample table that had lost its arrays would sweep
-    // nothing and pass, exactly as in the delegation sweep above.
+    // Vacuity floor, in two parts because they fail on different things: a
+    // sample table that had lost its arrays sweeps nothing, and a reducer that
+    // refused everything sweeps the initial state N times and calls it N.
     expect(examined, 'no action was swept').toBeGreaterThan(0)
+    for (const kind of Object.keys(SAMPLES)) {
+      expect(
+        committed[kind],
+        `${kind}: every sample was refused, so the invariant above was asserted only on states ` +
+        'this sweep never changed. A reducer that threw on every transition would pass that.',
+      ).toBeGreaterThan(0)
+    }
   })
 
   it('names the same frame as snapTime for every t, and clamps at both ends', () => {

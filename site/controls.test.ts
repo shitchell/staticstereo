@@ -31,10 +31,13 @@ import type { ControlInfo } from './controlspec.js'
 import { initialTransport, pause, play, seek } from './transport.js'
 import { CHANNELS, PRESETS, STEREO_KEYS, compilePreset, stillTime } from '../src/core/index.js'
 import { CTX } from '../src/core/testing/ctx.fixture.js'
-import type { Preset, Scene, Track } from '../src/core/types.js'
+import type { Preset, Scene, StereoKey, Track } from '../src/core/types.js'
 
 const ANIM: Scene = { size: [64, 32], fps: 12, duration: 2, layers: [{ type: 'text', text: 'A' }] }
 const STILL: Scene = { size: [64, 32], layers: [{ type: 'text', text: 'A' }] }
+
+/** The module under test, read as text where a declaration is the only derivation available. */
+const CONTROLS_PATH = fileURLToPath(new URL('./controls.ts', import.meta.url))
 
 describe('coerceNumber / coerceInt', () => {
   it('reads a numeric input value', () => {
@@ -630,6 +633,136 @@ function setFor(spec: ControlInfo, value: unknown): SetAction {
   } as unknown as SetAction
 }
 
+/* ------------------------------- which controls the *legacy* keyed arms reach
+ *
+ * `{type:'set'}` overlaps seven older keyed arms, and the overlap is pinned
+ * below by dispatching both and comparing the states. The question this block
+ * answers is the one the pinning cannot: **which controls are in the overlap**.
+ *
+ * It used to be answered by `expect(new Set(pairs.map(…)).size).toBe(17)`,
+ * which is a **self-count of the table it sits under** — it catches a dropped
+ * row and nothing else. H-1b measured both ends of that: a new `Action`
+ * variant *is* caught (the sample tables and `store.test.ts`'s parser
+ * cross-check redden), but **an eighteenth control absorbed into an existing
+ * keyed arm is invisible** — add a third key to {@link TextPatch} and
+ * `{type:'layerText'}` reaches one more control with nothing to say so. §9:
+ * *"a hand-written list of 'the places that do X' goes stale silently the day
+ * a second place does X — derive it from the thing that makes a site one of
+ * them."*
+ *
+ * ## Which side of the derivation line this lands on, stated rather than left
+ *
+ * §9's adjacent trap is that **a guard derived from the roster it guards
+ * proves only that the derivation ran twice.** This is not that, and the split
+ * is exact:
+ *
+ *  - **The classification is hand-written and total by the compiler.**
+ *    {@link KEYED_ARM_COVERAGE} is a mapped type over
+ *    `Exclude<Action['type'], 'set'>`, so an arm added to the union is a
+ *    *typecheck* failure naming the variant — the same instrument
+ *    `store.test.ts`'s `SAMPLES` uses, and for the same reason. What is
+ *    hand-written is one word per arm, and it cannot be forgotten.
+ *  - **The membership of each class is derived, from four sources none of
+ *    which is this file.** `CONTROL_IDS` (`controlspec.ts`), `STEREO_KEYS`
+ *    (`src/core`), `BROWSER_LAYER_VARIANTS` (`controls.ts`), and
+ *    {@link TextPatch}'s own members parsed out of `controls.ts`. A key added
+ *    to any of them moves the answer with no edit here.
+ *  - **The table of `set`/keyed pairs stays hand-written**, because the keyed
+ *    action for a control is not derivable — `layerText` takes a patch,
+ *    `layerAnim` is addressed by index and does not know the variant. So it is
+ *    *cross-checked* against the derivation rather than replaced by it, which
+ *    is the shape D-1's `EDITOR_ONLY_MODULES` fix uses.
+ */
+
+/** How an `Action` arm other than `'set'` reaches the control registry. */
+type ArmCoverage =
+  /** Writes the one `scene.<tag>` control its own tag names. */
+  | 'scene-field'
+  /** Writes every `stereo.*` control, through `Partial<StereoOpts>`. */
+  | 'stereo-patch'
+  /** Writes `layer.<variant>.anim` for every browser-reachable variant. */
+  | 'layer-anim'
+  /** Writes `layer.text.<key>` for every key of {@link TextPatch}. */
+  | 'text-patch'
+  /** Reaches no registry control: whole-scene replace, or the playhead. */
+  | 'no-control'
+
+/**
+ * Every keyed arm, classified. **Total by the compiler, one word per arm.**
+ *
+ * `'set'` is excluded because it is the thing the overlap is measured against,
+ * not a member of it. Everything else must be classified, including the arms
+ * that write nothing — a new arm silently defaulting to "writes nothing" is
+ * exactly how this check would go stale, so there is no default.
+ */
+const KEYED_ARM_COVERAGE: { readonly [K in Exclude<Action['type'], 'set'>]: ArmCoverage } = {
+  size: 'scene-field',
+  fps: 'scene-field',
+  duration: 'scene-field',
+  freezeNoise: 'scene-field',
+  stereo: 'stereo-patch',
+  layerAnim: 'layer-anim',
+  layerText: 'text-patch',
+  // A whole-scene replace is not a control write: it is the editor handing
+  // `reduce` a rebuilt `Scene`, which is the write path criterion 22 exists
+  // to replace rather than one of the paths it counts.
+  scene: 'no-control',
+  // The playhead. `time`, `frame` and the three transport arms move
+  // `UiState.time`/`transport`, neither of which `CONTROLS` exposes — scene
+  // time is a scrubber, not a control.
+  time: 'no-control',
+  frame: 'no-control',
+  depthView: 'no-control',
+  play: 'no-control',
+  pause: 'no-control',
+  seek: 'no-control',
+}
+
+/**
+ * The members of `controls.ts`'s `TextPatch`, parsed out of its source.
+ *
+ * There is no runtime value to read: `TextPatch` is an interface, and the
+ * registry's `layer.text.*` controls come from the *model*, which is wider
+ * than the patch. So the one derivation available is the declaration itself,
+ * and it is the derivation that closes the hole H-1b named — a third key here
+ * grows `{type:'layerText'}`'s reach, and the cross-check below moves with it.
+ *
+ * **Throws rather than returning `[]`** for every shape it does not recognise,
+ * which is plan §1.2k applied to an instrument: an empty answer would quietly
+ * shrink the derived set and the cross-check would then demand that the pair
+ * table shrink to match, turning a blind parser into an instruction to delete
+ * two rows.
+ */
+function textPatchKeysIn(path: string, text: string): readonly string[] {
+  const file = ts.createSourceFile(path, text, ts.ScriptTarget.ES2022, true)
+  const declaration = file.statements.find(
+    (node): node is ts.InterfaceDeclaration =>
+      ts.isInterfaceDeclaration(node) && node.name.text === 'TextPatch',
+  )
+  if (!declaration) {
+    throw new Error(`${path} no longer declares \`interface TextPatch\`; this derivation is blind`)
+  }
+  const keys = declaration.members.flatMap(member =>
+    ts.isPropertySignature(member) && ts.isIdentifier(member.name) ? [member.name.text] : [])
+  if (keys.length === 0) {
+    throw new Error(`\`TextPatch\` declares no named members; this derivation would report nothing`)
+  }
+  return keys
+}
+
+/** The registry controls `tag`'s arm can write, by its classification. */
+function controlsWrittenBy(tag: string, coverage: ArmCoverage, patchKeys: readonly string[]): readonly string[] {
+  switch (coverage) {
+    // Derived from the tag itself rather than written beside it, so a
+    // classification cannot point at the wrong control.
+    case 'scene-field': return [`scene.${tag}`]
+    case 'stereo-patch': return STEREO_KEYS.map(key => `stereo.${key}`)
+    case 'layer-anim': return BROWSER_LAYER_VARIANTS.map(variant => `layer.${variant}.anim`)
+    case 'text-patch': return patchKeys.map(key => `layer.text.${key}`)
+    case 'no-control': return []
+  }
+}
+
 describe('criterion 22 — every CONTROLS entry is writable', () => {
   it('partitions CONTROL_IDS into the writable set and a declared residue', () => {
     // Total over the registry's own population, never over a number: §9's
@@ -713,6 +846,42 @@ describe('criterion 22 — every CONTROLS entry is writable', () => {
     })).toThrow(/99/)
   })
 
+  it('classifies every keyed arm against the registry, and the classes are not vacuous', () => {
+    // The guard on the derivation itself, because the cross-check below is
+    // only worth what this is: a classification that quietly said
+    // `'no-control'` for an arm that does write one would shrink the derived
+    // set and the cross-check would then demand the pair table shrink to
+    // match. So both directions are asserted against `CONTROL_IDS`.
+    const patchKeys = textPatchKeysIn(CONTROLS_PATH, readFileSync(CONTROLS_PATH, 'utf8'))
+    const ids = new Set<string>(CONTROL_IDS)
+
+    for (const [tag, coverage] of Object.entries(KEYED_ARM_COVERAGE)) {
+      const written = controlsWrittenBy(tag, coverage, patchKeys)
+      for (const control of written) {
+        expect(ids.has(control), `{type:'${tag}'} is classified ${coverage} but ${control} is ` +
+          'not a registry control, so this derivation is naming something that does not exist')
+          .toBe(true)
+      }
+      if (coverage === 'no-control') {
+        // The one way an arm can be misclassified silently: its tag *is* a
+        // scene field and somebody wrote `'no-control'` anyway.
+        expect(ids.has(`scene.${tag}`), `{type:'${tag}'} is classified no-control but ` +
+          `scene.${tag} is a registry control`).toBe(false)
+        expect(written).toEqual([])
+      } else {
+        expect(written.length, `{type:'${tag}'} is classified ${coverage} and reaches nothing`)
+          .toBeGreaterThan(0)
+      }
+    }
+
+    // And the parse is not reporting an empty interface as a shrinking one.
+    expect(patchKeys.length, 'TextPatch parsed to no keys').toBeGreaterThan(0)
+    expect(() => textPatchKeysIn('/plant/controls.ts', 'export const x = 1\n'))
+      .toThrow(/no longer declares `interface TextPatch`/)
+    expect(textPatchKeysIn('/plant/controls.ts', 'export interface TextPatch { a?: number; b?: string }\n'))
+      .toEqual(['a', 'b'])
+  })
+
   it('agrees with every keyed arm that already covered one of these controls', () => {
     // The overlap is the duplication this task creates, declared rather than
     // hidden: 17 controls now have two write paths. `store.test.ts` records
@@ -747,11 +916,25 @@ describe('criterion 22 — every CONTROLS entry is writable', () => {
         { type: 'layerText', index: 0, patch: { weight: '700' } },
       ],
     ]
-    // 17 is the count ESC-7 measured as *already keyed*, arrived at here from
-    // the other direction — one row per keyed control rather than one per
-    // action variant. The extra rows are the `undefined` outcomes of `fps` and
-    // `duration`, which are a different edit from a number.
-    expect(new Set(pairs.map(([set]) => set.control)).size).toBe(17)
+    // The table's reach, cross-checked against the derivation rather than
+    // against its own row count. ESC-7 measured 17 controls as already keyed
+    // and the derivation reproduces that number; it is asserted as a *set*, so
+    // a control that joined a keyed arm without joining this table reddens
+    // here naming itself, which a count never could. The extra rows above are
+    // the `undefined` outcomes of `fps` and `duration`, a different edit from
+    // a number and so not a different control.
+    const patchKeys = textPatchKeysIn(CONTROLS_PATH, readFileSync(CONTROLS_PATH, 'utf8'))
+    const derived = new Set(
+      Object.entries(KEYED_ARM_COVERAGE)
+        .flatMap(([tag, coverage]) => controlsWrittenBy(tag, coverage, patchKeys)),
+    )
+    expect(
+      [...new Set(pairs.map(([set]) => set.control))].sort(),
+      'a control reachable through a legacy keyed arm is not pinned against its `set` ' +
+      'equivalent, or is pinned and no longer reachable. The pairs are hand-written because ' +
+      'the keyed action for a control cannot be derived; which controls they must cover can.',
+    ).toEqual([...derived].sort())
+
     for (const [set, keyed] of pairs) {
       expect(reduce(start, set), `${set.control} vs {type:'${keyed.type}'}`)
         .toEqual(reduce(start, keyed))
@@ -851,3 +1034,131 @@ describe('criterion 22, second clause — a wrong-typed write fails to compile',
     }
   })
 })
+
+/* ------------------------------------------ the legacy-erasure tripwire (G-3)
+ *
+ * **Clause 2 is true of the `set` path and false of the `Action` union, and
+ * nothing watched the difference.** H-1b measured all four forms in this tree:
+ *
+ * ```
+ * { type: 'set',    control: 'stereo.cross', value: Number(raw) }   ERROR
+ * { type: 'set',    control: anyId,          value: Number(raw) }   ERROR
+ * { type: 'stereo', patch: { cross: 1 } }                           ERROR
+ * { type: 'stereo', patch: { [key]: Number(raw) } }                 COMPILES CLEAN  ← the hole
+ * ```
+ *
+ * The legacy keyed arms survive in `Action` only because `main.ts` consumes
+ * them, so the erasure criterion 22 exists to remove is **still reachable
+ * through them**. A declared gap with no sensor is what this phase's standing
+ * rule forbids, so tier 0 ruled both halves: tripwire the known hole now, and
+ * sequence the real removal after **G-3 deletes `main.ts`**, when the arms
+ * lose their only consumer.
+ *
+ * ## This block asserts the hole is OPEN. That is deliberate and it is the deliverable.
+ *
+ * The precedent is this repo's own: `site/views.test.ts` depends on
+ * `site/index.html` so that teardown reddens it **by design**, its author's
+ * framing being *"the HTML dependency is not a cost I tolerated, it is the
+ * deliverable; §9 says a note is not a sensor, so the note **is** the test."*
+ * Same shape here.
+ *
+ * **If you are reading this because something below went red, the correct
+ * action is almost certainly to DELETE THIS WHOLE BLOCK**, not to work around
+ * it. Three things can redden it and all three mean the tripwire has done its
+ * job and retired:
+ *
+ *  1. **G-3 deleted `main.ts` and the legacy keyed arms with it.** Expected,
+ *     planned, and the reason this exists. Delete the block.
+ *  2. **Someone closed the erasure while keeping the arms** — a `patch` type
+ *     that refuses a computed key. That is criterion 22 finished early; delete
+ *     the block and say so in the commit.
+ *  3. **The arms were kept but stopped applying.** That is a real regression
+ *     and the only case where the answer is to fix `controls.ts`.
+ *
+ * §6.5a: a guard whose cheapest satisfying action is wrong will eventually be
+ * satisfied wrongly, which is why the three cases are spelled out rather than
+ * left to whoever hits the red at the wrong hour.
+ *
+ * **Do not fix the hole here.** Removing or re-expressing the legacy arms is
+ * ruled G-3-or-later work.
+ */
+
+/**
+ * The erasure, in a function nothing calls — **and with no `@ts-expect-error`,
+ * which is the whole point.**
+ *
+ * Every other compile-time claim in this file asserts that a line *fails* to
+ * compile. This one asserts that a line **still compiles**, and the two have
+ * opposite retirement conditions: an `@ts-expect-error` goes red when its line
+ * becomes legal, and a bare line goes red when its line becomes illegal. The
+ * day `Partial<StereoOpts>` stops admitting a computed key, `npm run typecheck`
+ * names this file and this line — see case 2 in the block above.
+ *
+ * Both spellings H-1b measured are here, because the second is the one that
+ * surprises: **narrowing the key to `keyof StereoOpts` does not restore the
+ * check.** A fresh object literal with a computed key is typed by its index
+ * signature, and an index signature of `number` satisfies a target whose
+ * property is `boolean`.
+ */
+function theLegacyErasureIsStillReachable(wide: string, narrow: StereoKey, raw: string): readonly Action[] {
+  return [
+    // TRIPWIRE (G-3): this must keep compiling until the legacy arms go.
+    { type: 'stereo', patch: { [wide]: Number(raw) } },
+    // TRIPWIRE (G-3): and narrowing the key does not help, which is the half
+    // that makes "just narrow it" the wrong cure.
+    { type: 'stereo', patch: { [narrow]: Number(raw) } },
+  ]
+}
+
+describe('the legacy keyed arms still erase the field type, until G-3 removes them', () => {
+  it('still applies a keyed stereo patch, so the arm is live and the tripwire is armed', () => {
+    /**
+     * The runtime half, and it sees the retirement the compile half cannot.
+     * The action is cast, so deleting `{type:'stereo'}` from `Action` leaves
+     * this line compiling and reaching `reduce`'s exhaustive switch instead —
+     * where it matches nothing, the state comes back unchanged, and this
+     * assertion fires **with a message naming G-3** rather than a type error
+     * naming a line.
+     */
+    const start = initialState(WRITABLE_SCENE)
+    const before = start.scene.stereo?.cross
+    // Cast deliberately: the compiler must not be the thing that notices.
+    const legacy = { type: 'stereo', patch: { cross: !before } } as unknown as Action
+
+    let after: UiState | undefined
+    try {
+      after = reduce(start, legacy)
+    } catch {
+      after = undefined
+    }
+    expect(
+      after?.scene.stereo?.cross,
+      'the legacy `{type:\'stereo\'}` arm no longer applies. If G-3 has removed `main.ts` and ' +
+      'the keyed arms with it, this tripwire has retired: DELETE this whole describe block and ' +
+      '`theLegacyErasureIsStillReachable` above it. If the arms are still declared, this is a ' +
+      'regression in `reduce` and the fix is in controls.ts.',
+    ).toBe(!before)
+  })
+
+  it('holds the erasure open as a compile-time claim, with no runtime half available', () => {
+    // A type erasure is not observable at run time: both spellings produce the
+    // same object. All this half can witness is that the function exists, so
+    // that deleting it is a visible edit rather than a silent one — the claim
+    // itself is `npm run typecheck`'s and is checked on every run of the gate.
+    expect(typeof theLegacyErasureIsStillReachable).toBe('function')
+    // …and that the hole is worth guarding: the *literal* form is still
+    // refused, so what the computed key buys is the erasure and not a type
+    // that was never checked in the first place. `@ts-expect-error` below is
+    // the paired control for the two bare lines above — if `patch` ever stops
+    // checking literals, those two stop proving anything.
+    expect(wrongStereoPatchDoesNotCompile.length).toBeGreaterThan(0)
+  })
+})
+
+/** §6.5a's paired half for the tripwire: the *literal* form is still refused. */
+const wrongStereoPatchDoesNotCompile: readonly unknown[] = [
+  // @ts-expect-error — a number into `cross`, which is a boolean
+  { type: 'stereo', patch: { cross: 1 } } satisfies Action,
+  // @ts-expect-error — a string into `sepFar`, which is a number
+  { type: 'stereo', patch: { sepFar: 'far' } } satisfies Action,
+]
