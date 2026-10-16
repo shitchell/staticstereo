@@ -456,10 +456,34 @@ const isExternal = (ref: string): boolean =>
  * derives the set instead: any `node:`-prefixed specifier at all, plus
  * `builtinModules`, which node reports for the running runtime.
  */
-function collectSpecifiers(node: unknown, out: string[]): void {
+interface ImportSites {
+  /** Targets this reader determined. Each one is a string the bundler saw. */
+  readonly specifiers: string[]
+  /**
+   * Import sites whose target this reader **could not** determine, as source
+   * snippets. See {@link ImportSites} and the block that asserts over them:
+   * an entry here is an unanswered question, never a clean answer.
+   */
+  readonly unreadable: string[]
+}
+
+/**
+ * How much of an unreadable import site's source text a failure message
+ * carries. Long enough to identify the call in a minified chunk, short enough
+ * that a message naming several of them is still readable.
+ */
+const SNIPPET_CHARS = 120
+
+function snippet(text: string, node: { start?: unknown; end?: unknown }): string {
+  if (typeof node.start !== 'number' || typeof node.end !== 'number') return '<unlocatable>'
+  const raw = text.slice(node.start, node.end).replace(/\s+/g, ' ')
+  return raw.length > SNIPPET_CHARS ? `${raw.slice(0, SNIPPET_CHARS)}…` : raw
+}
+
+function collectSpecifiers(node: unknown, text: string, out: ImportSites): void {
   if (node === null || typeof node !== 'object') return
   if (Array.isArray(node)) {
-    for (const child of node) collectSpecifiers(child, out)
+    for (const child of node) collectSpecifiers(child, text, out)
     return
   }
   const n = node as Record<string, unknown>
@@ -473,36 +497,49 @@ function collectSpecifiers(node: unknown, out: string[]): void {
       type === 'ExportAllDeclaration') &&
     typeof source?.value === 'string'
   ) {
-    out.push(source.value)
+    out.specifiers.push(source.value)
   }
-  // `import('s')`. Only the literal form is readable; a computed specifier is
-  // unreadable here *and* unresolvable by the bundler, so it cannot be the
-  // route a native package takes into a browser bundle.
-  if (type === 'ImportExpression' && source?.type === 'Literal' && typeof source.value === 'string') {
-    out.push(source.value)
+  // `import(…)`. A string literal is read; **anything else is recorded as
+  // unreadable rather than skipped**, which is the whole of the fix — see
+  // {@link ImportSites} and the measurement in the block below.
+  if (type === 'ImportExpression') {
+    if (source?.type === 'Literal' && typeof source.value === 'string') {
+      out.specifiers.push(source.value)
+    } else {
+      out.unreadable.push(snippet(text, n as { start?: unknown; end?: unknown }))
+    }
   }
-  // `require('s')`, which vite emits for CommonJS interop.
+  // `require(…)`, which vite emits for CommonJS interop. Same two cases, for
+  // the same reason: a computed argument is a target this file cannot name.
   const callee = n['callee'] as { type?: string; name?: string } | undefined
   const args = n['arguments'] as { type?: string; value?: unknown }[] | undefined
-  if (
-    type === 'CallExpression' &&
-    callee?.type === 'Identifier' &&
-    callee.name === 'require' &&
-    args?.[0]?.type === 'Literal' &&
-    typeof args[0]?.value === 'string'
-  ) {
-    out.push(args[0]!.value as string)
+  if (type === 'CallExpression' && callee?.type === 'Identifier' && callee.name === 'require') {
+    if (args?.[0]?.type === 'Literal' && typeof args[0]?.value === 'string') {
+      out.specifiers.push(args[0]!.value as string)
+    } else if (args !== undefined && args.length > 0) {
+      out.unreadable.push(snippet(text, n as { start?: unknown; end?: unknown }))
+    }
   }
   for (const key of Object.keys(n)) {
-    if (key !== 'type') collectSpecifiers(n[key], out)
+    if (key !== 'type') collectSpecifiers(n[key], text, out)
   }
+}
+
+/** Every import site in one chunk's source text, split by whether it was read. */
+function importSites(source: string): ImportSites {
+  const out: ImportSites = { specifiers: [], unreadable: [] }
+  collectSpecifiers(parseAst(source), source, out)
+  return out
 }
 
 /** Every module specifier declared in one chunk's source text. */
 function moduleSpecifiers(source: string): string[] {
-  const out: string[] = []
-  collectSpecifiers(parseAst(source), out)
-  return out
+  return importSites(source).specifiers
+}
+
+/** Every import site in one chunk whose target this file could not determine. */
+function unreadableImports(source: string): string[] {
+  return importSites(source).unreadable
 }
 
 /** The node builtins, as the running runtime reports them — never a literal list. */
@@ -543,19 +580,148 @@ function forbiddenImport(specifier: string): string | undefined {
  * imported a builtin, which makes it bundler-generated and unforgeable by
  * prose — the property the whole block is after.
  *
- * TRIPWIRE. This is vite's internal chunk name, measured at **vite 5.4.21**. A
- * vite release that renames it makes this detector silently blind again. If
- * that happens the symptom is this assertion going quiet while a planted
- * `await import('node:fs')` builds clean — NOT a red. If you are here because
- * something reddened, the bundle really did externalise a builtin: find the
- * import and delete it. Do not relax the predicate, and do not delete the row
- * to make a vite upgrade green — re-measure the stub's new name and update the
- * constant, because the row going quiet is the failure mode, not the noise.
+ * TRIPWIRE, and it is the block below rather than this paragraph. This is
+ * vite's internal chunk name, and `package.json` pins vite with a **caret**, so
+ * a routine minor upgrade that renames it makes this detector silently blind
+ * again — the symptom being this row going quiet while a planted
+ * `await import('node:fs')` builds clean, NOT a red.
+ *
+ * **This paragraph used to be the whole of the mitigation, and a note is not a
+ * sensor.** Measured: rename the constant by one character — the same mismatch
+ * a vite rename produces, from the other side — and the file reports **42
+ * passed, exit 0**, with nothing in it tying the name to anything vite does.
+ * {@link isBrowserExternalStub} is then a predicate matching a string that
+ * exists only in this file.
+ *
+ * If you are here because something reddened in `the built site`, the bundle
+ * really did externalise a builtin: find the import and delete it. Do not relax
+ * the predicate, and do not delete the row to make a vite upgrade green —
+ * re-measure the stub's new name and update the constant, because the row going
+ * quiet is the failure mode, not the noise.
  */
 const VITE_BROWSER_EXTERNAL = '__vite-browser-external'
 
 const isBrowserExternalStub = (name: string): boolean =>
   basename(name).startsWith(VITE_BROWSER_EXTERNAL)
+
+/**
+ * Vite spells the stub chunk **two different ways**, and which one you get is
+ * decided by `process.env.NODE_ENV` rather than by anything in a config.
+ *
+ * Read out of `vite/dist/node/chunks/dep-*.js`, and then measured both ways:
+ *
+ *     return isProduction ? browserExternalId : `${browserExternalId}:${id}`
+ *     const isProduction = process.env.NODE_ENV === "production"
+ *
+ * so the emitted chunk is `__vite-browser-external-<hash>.js` under production
+ * and `__vite-browser-external_node_fs-<hash>.js` otherwise — the module id,
+ * sanitised. `npm run build:site` gets the first (vite defaults `NODE_ENV` to
+ * `production` for `build` when it is unset); **a probe running under vitest
+ * gets the second, because vitest sets `NODE_ENV=test`.**
+ *
+ * That is why this builds under both and not under "whatever the runner
+ * happened to set". A probe that read only the ambient value would have
+ * measured the path the editor build never takes, while reporting on the path
+ * it does — and the first draft of this block did exactly that, silently,
+ * until the two names disagreed.
+ *
+ * {@link isBrowserExternalStub} matches on the shared prefix and so recognises
+ * both, which is the property being pinned here. It is not incidental
+ * tolerance to be tidied away later: the suite's own mode is the non-production
+ * one, so any future tightening to an exact `-<hash>` shape would keep passing
+ * the editor build and break anything that ever reads a bundle built in test.
+ */
+const PROBE_MODES: readonly { label: string; nodeEnv: string }[] = [
+  { label: 'production — what `npm run build:site` emits', nodeEnv: 'production' },
+  { label: 'non-production — what a build under vitest emits', nodeEnv: 'test' },
+]
+
+describe('vite still names its browser-external stub what this file looks for', () => {
+  it.each(PROBE_MODES)('emits a chunk this file recognises ($label)', async ({ nodeEnv }) => {
+    // The note above became this. The question is "what does the vite we
+    // actually resolve DO", and §9's standing answer is that a textual proxy
+    // cannot answer a question about execution — so this runs the bundler and
+    // reads the name off the output, rather than grepping vite's source or
+    // asserting a version string.
+    //
+    // A version assertion was the obvious cheaper option and is deliberately
+    // not here: `"vite": "^5.4.21"` means every harmless patch bump would
+    // redden it, and a check that cries wolf on upgrades is a check someone
+    // eventually pins past. This reddens on the one event that matters and on
+    // no other — and it reddens on a MAJOR upgrade too, which a version
+    // equality check scoped to 5.x would not.
+    //
+    // Independent of `dist-site/` on purpose. It asserts a fact about the
+    // installed toolchain, not about our output, so it must not be gated on a
+    // build — a clean checkout is exactly where a fresh `npm install` has just
+    // moved vite.
+    //
+    // The probe builds with a bare config, not the site's. What is being
+    // pinned is vite's own internal constant, which does not depend on our
+    // plugins, target or minifier; building through `vite.site.config.ts`
+    // would couple this to the editor's graph for no gain. ~170ms per mode.
+    const { build } = await import('vite')
+    const dir = mkdtempSync(join(tmpdir(), 'stst-stub-probe-'))
+    const previousNodeEnv = process.env['NODE_ENV']
+    try {
+      process.env['NODE_ENV'] = nodeEnv
+      const entry = join(dir, 'entry.js')
+      // Dynamic rather than static, and that is the measured difference: vite
+      // INLINES `export default {}` for a static builtin import and rollup
+      // then drops the bare import, leaving no chunk to name. The dynamic form
+      // is the only one that produces the artifact this detector reads — which
+      // is also, exactly, the boundary stated below.
+      writeFileSync(entry, 'export async function f(){ return await import("node:fs") }\n')
+      const out = join(dir, 'out')
+      await build({
+        root: dir,
+        logLevel: 'silent',
+        configFile: false,
+        build: {
+          outDir: out,
+          emptyOutDir: true,
+          minify: false,
+          rollupOptions: { input: entry, preserveEntrySignatures: 'strict' },
+        },
+      })
+
+      const emitted = filesUnder(out).map(f => basename(f))
+      // The vacuity floor first: if the probe build stopped externalising —
+      // or stopped building — "no stub found" would otherwise read exactly
+      // like "the name changed", and those need different fixes.
+      expect(
+        emitted.filter(f => f.endsWith('.js')).length,
+        'the probe build emitted no JavaScript, so it established nothing about vite. This is a ' +
+        'broken probe, not a finding about the stub name.',
+      ).toBeGreaterThan(1)
+
+      expect(
+        emitted.filter(isBrowserExternalStub).length,
+        `vite externalised a node builtin and named the stub chunk something this file does not ` +
+        `recognise. It emitted [${emitted.join(', ')}], and ${VITE_BROWSER_EXTERNAL} matched none ` +
+        `of them. THE DETECTOR IN "the built site" IS NOW BLIND: a real await import('node:fs') ` +
+        `in the editor bundle would build clean and test green. Re-measure the new name and ` +
+        `update VITE_BROWSER_EXTERNAL — do not delete this row to make a vite upgrade pass.`,
+      ).toBe(1)
+
+      // The second half of the same detector. It matches the *importing
+      // specifier* as well as the emitted file, and a rename moves both — so
+      // controlling only the filename would leave half the row unpinned,
+      // which is the configuration that was measured silent.
+      const importers = filesUnder(out)
+        .filter(f => f.endsWith('.js') && !isBrowserExternalStub(f))
+        .flatMap(f => moduleSpecifiers(readFileSync(f, 'utf8')))
+      expect(
+        importers.filter(isBrowserExternalStub),
+        'vite rewrote the builtin import to a specifier this file does not recognise as a stub',
+      ).toHaveLength(1)
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env['NODE_ENV']
+      else process.env['NODE_ENV'] = previousNodeEnv
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+})
 
 /**
  * Which emitted files are JavaScript to be parsed.
@@ -573,6 +739,8 @@ interface ParsedChunk {
   /** Repo-relative, which is what a failure message has to say. */
   readonly file: string
   readonly specifiers: readonly string[]
+  /** @see ImportSites.unreadable */
+  readonly unreadable: readonly string[]
 }
 
 interface UnparsedChunk {
@@ -600,13 +768,86 @@ function parseChunks(files: readonly string[]): {
   for (const file of files.filter(isScriptChunk)) {
     const label = relative(ROOT, file)
     try {
-      parsed.push({ file: label, specifiers: moduleSpecifiers(readFileSync(file, 'utf8')) })
+      parsed.push({ file: label, ...importSites(readFileSync(file, 'utf8')) })
     } catch (error) {
       unparsed.push({ file: label, reason: error instanceof Error ? error.message : String(error) })
     }
   }
   return { parsed, unparsed }
 }
+
+/**
+ * The browser-unsafe imports a built directory declares, worded as the
+ * assertion below reports them.
+ *
+ * **A function rather than a loop inside the `it`, and that is the whole point
+ * of it.** The planted-file control further down has to exercise *this* code,
+ * not a second copy that happens to agree with it today: a control over a
+ * reimplementation proves the reimplementation works. The same reason
+ * {@link filesContaining} is shared by the `yuv444p` probe and its own control.
+ */
+function forbiddenImportsIn(files: readonly string[]): string[] {
+  const offenders: string[] = []
+  for (const { file, specifiers } of parseChunks(files).parsed) {
+    for (const specifier of specifiers) {
+      const why = forbiddenImport(specifier)
+      if (why !== undefined) offenders.push(`${file}: imports ${specifier} — ${why}`)
+    }
+  }
+  return offenders
+}
+
+/** The import sites in a built directory whose target could not be read. */
+function unreadableImportsIn(files: readonly string[]): string[] {
+  return parseChunks(files).parsed.flatMap(c => c.unreadable.map(u => `${c.file}: ${u}`))
+}
+
+/**
+ * The string-literal probe for node-only code reaching a browser bundle, named
+ * once so the two leak rows and their control cannot drift apart.
+ *
+ * The argument for choosing it over `@napi-rs` is at the top of this file and
+ * is unchanged. What was missing is that **this probe is cited throughout the
+ * phase as the cover for narrowing the `@napi-rs` text match, and had never
+ * been watched fire.** A probe nobody has seen go red is a probe with two
+ * indistinguishable green states, exactly like the specifier reader above, and
+ * "it is the belt this narrowing keeps" is a claim about a belt whose
+ * sensitivity was assumed. Both halves are now asserted rather than argued:
+ * the row below proves the needle still exists upstream, and the planted
+ * control proves the predicate sees it in the directory it reads.
+ */
+const NODE_ONLY_NEEDLE = 'yuv444p'
+
+/** Where the needle legitimately lives — the sources the probe guards against. */
+const NODE_ONLY_SOURCES: readonly string[] = [
+  join(ROOT, 'src', 'node', 'encode.ts'),
+  join(ROOT, 'src', 'cli', 'args.ts'),
+]
+
+describe('the leak probe is probing for something that exists', () => {
+  it('finds its needle in the node-only sources it exists to keep out', () => {
+    // The vacuity half, and it is not hypothetical bookkeeping: the probe is
+    // a grep for a literal in another package's source. Rename `yuv444p` or
+    // drop the lossless-MP4 default and both leak rows below go green
+    // FOREVER, over a bundle nobody is checking any more, with no edit to
+    // this file and nothing to notice. The needle is the premise; this is
+    // the premise asserted.
+    //
+    // Deliberately NOT a count or a line number — `src/node/encode.ts` has
+    // several occurrences today and that is not the claim. The claim is that
+    // the string is still produced by node-only code.
+    const missing = NODE_ONLY_SOURCES.filter(
+      f => !existsSync(f) || !readFileSync(f, 'utf8').includes(NODE_ONLY_NEEDLE),
+    ).map(f => relative(ROOT, f))
+    expect(
+      missing,
+      `the leak probe greps the bundles for ${NODE_ONLY_NEEDLE}, and these node-only sources no ` +
+      `longer contain it — so the probe can never fire and both "contains no code from src/node ` +
+      `or src/cli" rows are now vacuous. Pick a replacement literal that node-only code really ` +
+      `emits; do not delete the rows.`,
+    ).toEqual([])
+  })
+})
 
 /**
  * ## THE BOUNDARY. What these checks can no longer see, and the measured reason
@@ -629,25 +870,67 @@ function parseChunks(files: readonly string[]): {
  *    build is an externalised import, which is a specifier and is caught.
  *    `yuv444p` above remains the string-literal probe for the general case and
  *    is deliberately untouched — it is the belt this narrowing keeps.
- * 2. **A computed specifier**, `import(expr)`. Only literals are readable.
- *    Rollup cannot resolve a computed specifier either, so it cannot be how a
- *    native package gets *bundled*; it could still be how one gets *requested*
- *    at runtime, and that request is not visible here.
- * 3. **Anything in a file {@link isScriptChunk} does not name.** Measured: the
- *    builds emit `css html js woff2`, and the emitted documents link their
- *    scripts with `src=` rather than carrying an inline body, so there is no
- *    unparsed JavaScript today. A build that inlined the entry into the HTML
- *    would have none of it checked.
- * 4. **A rename of vite's external stub.** See {@link VITE_BROWSER_EXTERNAL};
- *    that one has its own tripwire because its failure mode is silence.
+ * 2. ~~**A computed specifier**, `import(expr)`.~~ **CLOSED, and the paragraph
+ *    that stood here was wrong in the one way that mattered.** It read "rollup
+ *    cannot resolve a computed specifier either, so it cannot be how a native
+ *    package gets *bundled*" and treated the residue as acceptable. Measured:
+ *    `await import(location.hash.slice(1) || '@napi-rs/canvas')` in
+ *    `site/main.ts` builds **exit 0**, reaches `dist-site/assets/index-*.js`
+ *    verbatim, and this file reported **37 passed** over it — a LIVE route from
+ *    ordinary source to a green suite. The reasoning was sound and the
+ *    conclusion drawn from it ("so it need not be checked") was not: an import
+ *    this file cannot read is an *unanswered question*, and the fix was to say
+ *    so rather than to widen the reader. See "read every import site it found".
+ *    Struck rather than deleted, because a boundary clause that was used to
+ *    justify a silence should stay visible after the silence is fixed.
+ * 3. **Anything in a file {@link isScriptChunk} does not name** — now pinned
+ *    rather than described. The sentence that stood here ("Measured: the builds
+ *    emit `css html js woff2`") was true, and was *only* prose: nothing
+ *    reddened if a build emitted a fifth format, and a planted `.json` was
+ *    measured passing at **38 passed, exit 0**. {@link UNREAD_EXTENSIONS} and
+ *    the two rows beside it assert both halves of it per build, including the
+ *    inline-script case — a `require("node:fs")` planted into
+ *    `dist-site/index.html` was also measured silent, and is not any more.
+ * 4. **A rename of vite's external stub.** {@link VITE_BROWSER_EXTERNAL}; its
+ *    failure mode is silence, and it is now a probe that builds rather than a
+ *    paragraph that warns.
+ * 5. **A STATIC import of a node builtin — `import 'node:fs'`, or
+ *    `import * as fs from 'node:fs'` — and this one CANNOT BE CLOSED HERE AT
+ *    ALL.** Not by this reader, not by a text grep, not by any check that reads
+ *    build output, now or later. Vite replaces the module with `export default
+ *    {}` and **inlines** it; rollup then drops the bare side-effect import. The
+ *    build exits 0 and leaves **no `node:fs`, no stub chunk, and no specifier
+ *    of any kind** — measured here for both forms, with the namespace form
+ *    given a real use (`Object.keys(fsns).length`) so that nothing was elided
+ *    for being unreferenced: `build:site` exit 0, the use present in
+ *    `dist-site/assets/index-*.js` reading from an inlined `{}`, zero
+ *    occurrences of `node:fs` in the directory, and this file **46 passed,
+ *    exit 0** over it. So an AST reader and a text grep are blind in precisely
+ *    the same place, for the same reason, which is that there is nothing left
+ *    in the artifact to read. The runtime consequence is worse than a crash:
+ *    the import does not throw, the code receives an empty object and carries
+ *    on. **The instrument that does see it is `build.rollupOptions.onwarn` in
+ *    the vite configs** — reported by the worker that measured the spelling
+ *    matrix (`be122ac`) to fire on all three `import` spellings at exit 1 and
+ *    to be structurally blind to `require()`, which this file catches, making
+ *    the two near complements. **That half is relayed and was NOT re-measured
+ *    here**; what is measured here is the first half, that nothing in the
+ *    output can see the static forms. Adding onwarn is a separate change to
+ *    the root configs and is deliberately NOT attempted from inside a test
+ *    file. Nothing in this file should be widened in the hope of covering
+ *    clause 5; a pattern that appeared to would be lying.
  *
- * The honest summary of the trade: against a *mention*, sensitivity is now
- * zero where it used to be total, which is the point. Against a real import it
- * is strictly higher than before — row 3 of this block catches an externalised
- * builtin that the text grep provably passed over (`34 passed`, exit 0, with a
- * live `await import('node:fs')` in the bundle). This is not a weaker check
- * with a narrower aim; it is a check that stopped reading prose and started
- * reading imports.
+ * The honest summary of the trade, reworded because the sentence here was
+ * false: against a *mention*, sensitivity is now zero where it used to be
+ * total, which is the point. Against a **real import** the replacement was
+ * **not** "strictly higher than before" — it was replace-in-place with two
+ * declared real-reference coverage losses (the computed specifier, and a real
+ * import in a non-script emitted file), both inside this boundary, traded for
+ * one real-reference gain (the externalised builtin the text grep provably
+ * passed over: `34 passed`, exit 0, with a live `await import('node:fs')` in
+ * the bundle). **Both of those losses are closed above**, so the comparison is
+ * now favourable on every axis — but it was not when it was first claimed, and
+ * the claim was the kind that gets relayed upward and believed.
  */
 describe.skipIf(!fresh)('the built site', () => {
   const html = fresh ? readFileSync(join(DIST, 'index.html'), 'utf8') : ''
@@ -688,8 +971,36 @@ describe.skipIf(!fresh)('the built site', () => {
   })
 
   it('contains no code from src/node or src/cli', () => {
-    const leaks = files.filter(f => readFileSync(f, 'utf8').includes('yuv444p'))
-    expect(leaks.map(f => relative(ROOT, f))).toEqual([])
+    // Through {@link filesContaining} rather than an inline filter, so that
+    // the control below exercises THIS predicate. A control over a second
+    // copy of the same expression proves the copy works.
+    expect(filesContaining(DIST, NODE_ONLY_NEEDLE)).toEqual([])
+  })
+
+  it('would catch planted node-only code in the directory it reads', () => {
+    // The sensitivity half. MEASURED before this row existed, by planting the
+    // needle into both output directories by hand: both leak rows went red
+    // and nothing else did — so the probe was genuinely sensitive, and the
+    // only thing missing was any in-repo evidence of it. That evidence lived
+    // in a verifier's transcript, which no future reader runs.
+    //
+    // Same shape as the player's needle control, and for the same reason: a
+    // predicate that reads the wrong directory, or that filters every file
+    // out, reports "clean" forever over a healthy tree.
+    const planted = join(DIST, 'assets', '__planted-node-needle.js')
+    try {
+      writeFileSync(planted, `console.log(${JSON.stringify(NODE_ONLY_NEEDLE)})\n`)
+      expect(
+        filesContaining(DIST, NODE_ONLY_NEEDLE),
+        'the leak probe did not see its own needle planted in the directory it reads, so its ' +
+        'silence about the real bundle establishes nothing',
+      ).toEqual([relative(ROOT, planted)])
+    } finally {
+      rmSync(planted, { force: true })
+    }
+    // ...and clean again, so the tree the row above asserts over is the
+    // build's and not a leftover from this one.
+    expect(filesContaining(DIST, NODE_ONLY_NEEDLE)).toEqual([])
   })
 
   it('could read every chunk it emitted — the import checks below parse, not grep', () => {
@@ -717,21 +1028,53 @@ describe.skipIf(!fresh)('the built site', () => {
     // saying "@napi-rs" cannot reach this list and a real import cannot avoid
     // it. See {@link collectSpecifiers} for why the stripped-comments version
     // of this fix would have been green and useless.
-    const { parsed } = parseChunks(files)
-    const offenders: string[] = []
-    for (const { file, specifiers } of parsed) {
-      for (const specifier of specifiers) {
-        const why = forbiddenImport(specifier)
-        if (why !== undefined) offenders.push(`${file}: imports ${specifier} — ${why}`)
-      }
-    }
     expect(
-      offenders,
+      forbiddenImportsIn(files),
       'the editor bundle declares an import that cannot resolve in a browser. This is a REAL ' +
       'regression and not a parser problem — the assertion above is the one that fires when ' +
       'the checker cannot read the artifact. If this reddens because a prose mention of ' +
       '@napi-rs reached a string literal, that is a BUG IN THIS CHECK and not a finding: a ' +
       'string is not a specifier and must not appear here. Do not relax the expectation.',
+    ).toEqual([])
+  })
+
+  it('read every import site it found — an unreadable one is an unanswered question', () => {
+    // The third reader-failure row, and it is the same shape as the two
+    // above rather than a new kind of thing: "could not parse the chunk",
+    // "could not read this import", "found a forbidden import" are three
+    // different findings and the file reports them as three.
+    //
+    // Keyed to the QUESTION and not to a spelling. The row does not ask "is
+    // this computed specifier @napi-rs" — it could not tell, which is the
+    // whole problem — it asks whether the specifier set the two rows above
+    // conclude from is COMPLETE. Any import site this file cannot name makes
+    // their silence meaningless, regardless of what it turns out to point at,
+    // so the predicate is "unread", not a list of forms.
+    //
+    // MEASURED, and this is the hole it closes. Planted in `site/main.ts`:
+    //
+    //     await import(location.hash.slice(1) || '@napi-rs/canvas')
+    //
+    // `npm run build:site` exits 0, the call reaches
+    // `dist-site/assets/index-*.js` verbatim and unfolded, and before this row
+    // existed the file reported **37 passed, exit 0** over it — with the two
+    // rows above among the passes, not skipped. The old text grep this file
+    // replaced caught it; a specifier reader cannot, because a `LogicalExpression`
+    // has no value to read. A foldable computed specifier is a different case
+    // and needs nothing: vite folds it back to a literal and both rows see it.
+    //
+    // Vacuity: a healthy build of either directory contains ZERO import
+    // expressions and zero `require` calls, so this row is green by being
+    // empty. {@link forbiddenImportsIn}'s planted control below is what keeps
+    // the pair from being green for two indistinguishable reasons.
+    expect(
+      unreadableImportsIn(files),
+      'the bundle contains an import whose target this file cannot determine, so the two rows ' +
+      'above concluded "no forbidden import" from an INCOMPLETE specifier set — they did not ' +
+      'clear this call, they never saw it. Rollup cannot resolve a computed specifier either, ' +
+      'so it is not how a native package gets BUNDLED; it is how one gets REQUESTED at runtime, ' +
+      'from a bundle that builds and tests green. Make the specifier a literal, or delete the ' +
+      'import. Do not widen the reader to guess at the expression.',
     ).toEqual([])
   })
 
@@ -785,6 +1128,25 @@ describe.skipIf(!fresh)('the built site', () => {
       'a real dynamic import of @napi-rs must still be seen — without this the narrowing above ' +
       'would be indistinguishable from deleting the check',
     ).toEqual(['@napi-rs/canvas'])
+    // The same discrimination for the *unreadable* half, which otherwise has
+    // no control at all over the extractor itself: a readable import must not
+    // be reported as unreadable, and a computed one must not be silently
+    // dropped — those are the two ways the new row goes quiet. The third
+    // string is the bytes vite emitted for the planted
+    // `await import(location.hash.slice(1) || '@napi-rs/canvas')`, not an
+    // invention, same as the two above.
+    const computed = 'x=async()=>await import(location.hash.slice(1)||"@napi-rs/canvas");'
+    expect(unreadableImports(real)).toEqual([])
+    expect(
+      moduleSpecifiers(computed),
+      'a computed specifier has no value to read, so it must contribute NOTHING to the ' +
+      'specifier set — reading the inner literal here would be guessing at the expression',
+    ).toEqual([])
+    expect(
+      unreadableImports(computed),
+      'a computed specifier must be reported as unread rather than skipped — skipping it is ' +
+      'the exact silence the row above exists to end',
+    ).toEqual(['import(location.hash.slice(1)||"@napi-rs/canvas")'])
     expect(forbiddenImport('@napi-rs/canvas')).toBeDefined()
     expect(forbiddenImport('node:fs')).toBeDefined()
     // Derived, not listed: `node:child_process` was one of the four needles the
@@ -795,6 +1157,65 @@ describe.skipIf(!fresh)('the built site', () => {
     // And the parse-failure path is reachable, so the assertion guarding it is
     // not a formality over a function that cannot fail.
     expect(() => moduleSpecifiers('this is (not javascript {{{')).toThrow()
+  })
+
+  it('would catch a planted import in the directory it reads, not only in a string', () => {
+    // The row above controls the EXTRACTOR and the PREDICATE, over two
+    // hard-coded strings. It never touches `dist-site/`. This one controls
+    // the WIRING between them — `filesUnder` → `isScriptChunk` → `parseChunks`
+    // → `forbiddenImport` → the list an assertion reads — and that wiring was
+    // measured uncontrolled.
+    //
+    // MEASURED, which is why these are two tests and not one. With
+    // {@link forbiddenImportsIn} gutted to `() => []` and nothing else
+    // touched, this file reported **41 passed, exit 0**. With the extractor
+    // itself gutted to `() => []` the row above DOES redden, alone — so the
+    // two rows fail on disjoint mutations and neither subsumes the other.
+    //
+    // A healthy bundle declares zero specifiers, so every import row here is
+    // green over an empty list. "Green because the bundle is clean" and
+    // "green because nothing was read" are the same output. This is the only
+    // thing in the file that tells them apart, and it does it the way the
+    // player's needle control does: plant into the REAL output directory,
+    // and require the REAL predicate to see it.
+    const probe = join(DIST, 'assets', '__planted-import-probe.js')
+    const stub = join(DIST, 'assets', `${VITE_BROWSER_EXTERNAL}-planted.js`)
+    try {
+      writeFileSync(
+        probe,
+        // A literal forbidden specifier and an unreadable one, because the
+        // two rows above report them through different fields and a control
+        // over one proves nothing about the other.
+        'import "node:fs";\nconst load = () => import(globalThis.where || "@napi-rs/canvas");\nexport { load };\n',
+      )
+      writeFileSync(stub, 'const e={};export{e as default};\n')
+
+      const planted = filesUnder(DIST)
+      expect(
+        forbiddenImportsIn(planted).filter(o => o.includes('__planted-import-probe')),
+        'the real predicate, over the real directory, did not see a real import planted in it — ' +
+        'so its silence on the actual bundle is not evidence of anything',
+      ).toEqual([`${relative(ROOT, probe)}: imports node:fs — a node: builtin`])
+      expect(
+        unreadableImportsIn(planted).filter(o => o.includes('__planted-import-probe')),
+        'the unreadable-import row did not see a computed specifier planted in the directory it ' +
+        'reads',
+      ).toHaveLength(1)
+      expect(
+        planted.filter(isBrowserExternalStub).map(f => relative(ROOT, f)),
+        'the browser-external stub detector did not see a stub planted in the directory it reads',
+      ).toEqual([relative(ROOT, stub)])
+    } finally {
+      rmSync(probe, { force: true })
+      rmSync(stub, { force: true })
+    }
+
+    // ...and all three are clean again, so the directory the assertions above
+    // run against is exactly the one the build produced and not a leftover.
+    const restored = filesUnder(DIST)
+    expect(forbiddenImportsIn(restored)).toEqual([])
+    expect(unreadableImportsIn(restored)).toEqual([])
+    expect(restored.filter(isBrowserExternalStub)).toEqual([])
   })
 
   it('bundled the vendored woff2 for every weight, with a relative url', () => {
@@ -835,6 +1256,146 @@ describe.skipIf(!fresh)('the built site', () => {
     // and that the shim, not a raw default import, is what reached the bundle.
     expect(text).toContain('applyPalette')
     expect(js.some(f => statSync(f).size > 10_000)).toBe(true)
+  })
+})
+
+/* ===================================================================== */
+/*  the premise the import checks rest on, asserted instead of written    */
+/* ===================================================================== */
+
+/**
+ * The emitted extensions {@link isScriptChunk} deliberately does not visit,
+ * **and the reason each one is safe to skip.**
+ *
+ * This is a pin, knowingly, and the usual objection to a hand-written list
+ * does not apply because *the list is the claim*. Clause 3 of the boundary
+ * block above reads "Measured: the builds emit `css html js woff2`" — which
+ * was true, was measured once, and **was recorded only in prose.** Nothing
+ * reddened the day a build emitted a fifth format; the import checks would
+ * simply have stopped covering part of the output, silently, which is the
+ * exact failure shape this file exists to remove.
+ *
+ * - `css`  — a stylesheet has no module graph. `url()` is covered separately
+ *            by the root-relative and woff2 rows.
+ * - `woff2` — binary font data.
+ * - `html` — **the one entry that is not safe on its own**, because a document
+ *            can carry an inline script body and {@link parseChunks} never
+ *            opens it. That is not waved away here: the row below asserts the
+ *            emitted documents carry no inline body, which is what makes this
+ *            entry true per build rather than true in 2026.
+ *
+ * A red here is not an invitation to append. The question to answer first is
+ * whether the new format can carry a module import; if it can, it belongs in
+ * {@link isScriptChunk} or in a reader of its own, not on this list.
+ */
+const UNREAD_EXTENSIONS: readonly string[] = ['css', 'html', 'woff2']
+
+const extensionOf = (file: string): string => {
+  const dot = basename(file).lastIndexOf('.')
+  return dot < 0 ? '' : basename(file).slice(dot + 1).toLowerCase()
+}
+
+/** Inline `<script>` bodies in a document — the ones with no `src` to follow. */
+function inlineScriptBodies(html: string): string[] {
+  return [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)]
+    .filter(m => m[2]!.trim().length > 0)
+    .map(m => `<script${m[1]}> ${m[2]!.trim().slice(0, SNIPPET_CHARS)}`)
+}
+
+/**
+ * Read inside each `it`, never at describe scope.
+ *
+ * **`describe.skipIf` still runs the factory.** The predicate decides whether
+ * the *tests* run, not whether the body evaluates, so a `filesUnder(DIST)` at
+ * describe scope throws `ENOENT` during COLLECTION on a clean checkout — which
+ * fails the whole file with `0 test` and `Tests no tests`, not with a skip.
+ * Measured, by doing it: `rm -rf dist-site dist-player && vitest run
+ * site/dist.test.ts` → exit 1, "Failed Suites 1", every assertion in the file
+ * uncollected. That breaks the clean-checkout policy this file records in four
+ * places, and it breaks it in the loudest possible way for the one block that
+ * is supposed to be silent there.
+ *
+ * The blocks above use `fresh ? … : []` at describe scope for the same reason.
+ * A function is used here instead because both rows want both directories and
+ * neither wants a stale snapshot.
+ */
+function emittedDirs(): { label: string; files: string[] }[] {
+  return [
+    { label: 'dist-site', files: filesUnder(DIST) },
+    { label: 'dist-player', files: filesUnder(DIST_PLAYER) },
+  ]
+}
+
+describe.skipIf(!fresh || !freshPlayer)('every emitted file is read, or known to carry no import', () => {
+  it('emits no format the import checks silently skip', () => {
+    const dirs = emittedDirs()
+    // MEASURED, and this is why it is an assertion and not a sentence. With
+    // `dist-site/assets/<marker>.json` planted — a format vite emits the
+    // moment a page imports a JSON asset — the file reported **38 passed,
+    // exit 0**: not a pass over a checked tree, a pass over a tree one of
+    // whose files nothing had looked at.
+    const unread = dirs.flatMap(d =>
+      d.files
+        .filter(f => !isScriptChunk(f))
+        .map(f => extensionOf(f))
+        .filter(ext => !UNREAD_EXTENSIONS.includes(ext))
+        .map(ext => `${d.label}: .${ext}`),
+    )
+    expect(
+      [...new Set(unread)].sort(),
+      'the build emitted a format that is neither parsed as a script chunk nor on the list of ' +
+      'formats known to carry no module import, so the import checks above quietly stopped ' +
+      'covering part of the output. Decide whether this format can carry an import before ' +
+      'touching UNREAD_EXTENSIONS — if it can, it needs a reader, not a list entry.',
+    ).toEqual([])
+  })
+
+  it('emits no inline script body, which is the one way an unread file holds code', () => {
+    const dirs = emittedDirs()
+    // The half that makes `html` legitimate on that list, and it restores a
+    // real-reference loss rather than documenting one. MEASURED: with
+    // `<script>require("node:fs")</script>` planted into `dist-site/index.html`
+    // this file reported **38 passed, exit 0** — while the text grep this
+    // file replaced exited 1 and named the offender. An emitted document is
+    // not a script chunk, so nothing ever opened it.
+    //
+    // Asserted as "there is no inline body" rather than parsed, deliberately.
+    // Both builds emit exactly one `<script type="module" src="…">` per
+    // document and no body at all, so the question "is there JavaScript here
+    // that nobody reads" has a yes/no answer — and a parser for a case that
+    // does not exist is a second reader to keep correct for nothing. If a
+    // build ever needs an inline body, this row is where the decision gets
+    // made, and it fails loudly rather than widening by itself.
+    const inline = dirs.flatMap(d =>
+      d.files
+        .filter(f => f.endsWith('.html'))
+        .flatMap(f => inlineScriptBodies(readFileSync(f, 'utf8'))
+          .map(body => `${relative(ROOT, f)}: ${body}`)),
+    )
+    expect(
+      inline,
+      'an emitted document carries an inline script body. parseChunks() only opens script ' +
+      'chunks, so this code is in the deploy and no import check in this file has ever read ' +
+      'it — a node builtin or an @napi-rs import in here ships green. Move it into a module ' +
+      'the bundler emits as its own chunk.',
+    ).toEqual([])
+  })
+
+  it('would say so — both predicates, over inputs that are wrong on purpose', () => {
+    // The paired control. On a correct build both rows above are empty for
+    // the same reason everything else in this file is: there is nothing to
+    // find. So neither exercises its failing branch in CI, and a predicate
+    // gutted to `() => []` would be green forever.
+    expect(extensionOf('dist-site/assets/index-ABC123.js')).toBe('js')
+    expect(extensionOf('dist-site/assets/sprite.WOFF2')).toBe('woff2')
+    expect(extensionOf('dist-site/LICENSE')).toBe('')
+    // The planted format, worded exactly as the row above would report it.
+    expect(UNREAD_EXTENSIONS.includes(extensionOf('dist-site/assets/data.json'))).toBe(false)
+    // A `src=` script is followed as a chunk and must not read as inline; a
+    // body must. Both halves, because a regex that matched everything and one
+    // that matched nothing both produce a green row above.
+    expect(inlineScriptBodies('<script type="module" crossorigin src="./a.js"></script>')).toEqual([])
+    expect(inlineScriptBodies('<script>require("node:fs")</script>')).toHaveLength(1)
   })
 })
 
@@ -962,8 +1523,10 @@ describe.skipIf(!freshPlayer)('the built player', () => {
   })
 
   it('contains no code from src/node or src/cli', () => {
-    const leaks = files.filter(f => readFileSync(f, 'utf8').includes('yuv444p'))
-    expect(leaks.map(f => relative(ROOT, f))).toEqual([])
+    // Shares the editor row's predicate and needle; see {@link NODE_ONLY_NEEDLE}.
+    // The planted control over `dist-player/` is the no-editor-code block's,
+    // which exercises {@link filesContaining} against this same directory.
+    expect(filesContaining(DIST_PLAYER, NODE_ONLY_NEEDLE)).toEqual([])
   })
 })
 
