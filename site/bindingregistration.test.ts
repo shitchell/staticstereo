@@ -526,6 +526,23 @@ const PKG = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')) as {
 
 const GATE_TSCONFIG = 'tsconfig.typecheck.json'
 
+/**
+ * The checker's output format, pinned on the command line rather than inherited.
+ *
+ * `svelte-check` 4.7.6 picks its format in `getOutputFormat()`, and with no
+ * `--output` flag the choice is
+ * `process.env.CLAUDECODE === '1' ? 'machine' : 'human-verbose'`. `runGate`
+ * hands the child `...process.env`, so the format was being decided by whether
+ * the suite happened to run from inside Claude Code — green locally, and on a
+ * GitHub runner the human format that carries no `COMPLETED` line at all. That
+ * is what held `main`'s CI red, and undeployed, for nine hours. `CLAUDECODE`
+ * is deleted from the child's environment for the other half of it: with the
+ * ambient switch gone, dropping this flag reddens the suite everywhere rather
+ * than only where nobody was watching. Full account in
+ * `site/fitregistration.test.ts`'s `MACHINE_OUTPUT`.
+ */
+const MACHINE_OUTPUT = ['--output', 'machine'] as const
+
 /** The file the coupled-consumer control plants, named so a failure says what it was. */
 const CONSUMER_FILE = 'bindingconsumerplant.ts'
 
@@ -557,6 +574,14 @@ function typecheckCommand(): readonly string[] {
     tokens.some(t => t.endsWith(GATE_TSCONFIG)),
     `typecheck must name ${GATE_TSCONFIG}`,
   ).toBe(true)
+  // And must leave `--output` to the harness: a repeated `--output` is not
+  // "last wins". mri collects the duplicate into an array, svelte-check's
+  // `outputFormats.includes()` fails on it, and the format silently reverts to
+  // human — measured at 4.7.6. See `MACHINE_OUTPUT`.
+  expect(
+    tokens.some(t => t === '--output' || t.startsWith('--output=')),
+    'typecheck must not pin --output; this harness pins it — see MACHINE_OUTPUT',
+  ).toBe(false)
   return tokens
 }
 
@@ -675,21 +700,43 @@ function plantCoupledConsumer(tree: string): void {
 function runGate(tree: string): Promise<GateResult> {
   const [cmd, ...args] = typecheckCommand()
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd!, args, {
-      cwd: tree,
-      env: { ...process.env, PATH: `${join(ROOT, 'node_modules', '.bin')}:${process.env.PATH}` },
-    })
+    // Annotated rather than inferred: the inferred spread has `PATH` required
+    // and no index signature, and `delete` is only legal on an optional one.
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      PATH: `${join(ROOT, 'node_modules', '.bin')}:${process.env.PATH}`,
+    }
+    // The ambient format switch, removed so the format is decided in exactly
+    // one place — see `MACHINE_OUTPUT`.
+    delete env.CLAUDECODE
+    const child = spawn(cmd!, [...args, ...MACHINE_OUTPUT], { cwd: tree, env })
     let raw = ''
     child.stdout.on('data', (d: Buffer) => { raw += d.toString() })
     child.stderr.on('data', (d: Buffer) => { raw += d.toString() })
     child.on('error', reject)
-    child.on('close', () => {
+    child.on('close', (code, signal) => {
       const errors = [...raw.matchAll(/^\d+ ERROR "([^"]+)" \d+:\d+ "((?:[^"\\]|\\.)*)"$/gm)]
         .map(m => ({ file: m[1]!, message: m[2]!.replace(/\\(.)/g, '$1') }))
       const completed = /^\d+ COMPLETED (\d+) FILES (\d+) ERRORS/m.exec(raw)
-      // C-15's D5, and the single most important line in the harness: a format
-      // this file cannot read must not look like a clean run.
-      expect(completed, `could not read the checker's COMPLETED line from:\n${raw}`).not.toBe(null)
+      if (completed === null) {
+        // C-15's D5, and the single most important line in the harness: a
+        // format this file cannot read must not look like a clean run.
+        //
+        // Two corrections to how it said so. It must name which of two
+        // **opposite** diagnoses applies — "the checker did not run, or
+        // printed something unparseable" is not "the compiler declined to
+        // report the error the criterion needs", and an `expect` on a null
+        // match reported both as `expected null not to be null`. And it must
+        // reject rather than throw into this callback: the throw escaped as an
+        // uncaught exception, the promise never settled, and `beforeAll` sat
+        // out its full 600s timeout — which is the whole of CI's 10m45s.
+        reject(new Error(
+          'the type gate emitted no machine-format COMPLETED line, so it did not run or '
+          + 'could not be read. This is NOT a missing compiler error: the criterion was '
+          + `never measured. exit=${code} signal=${signal} tree=${tree}\n${raw}`,
+        ))
+        return
+      }
       resolve({
         files: [...new Set(errors.map(e => e.file))].sort(),
         messages: errors.map(e => e.message),

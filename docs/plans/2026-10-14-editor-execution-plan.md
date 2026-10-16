@@ -817,6 +817,23 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
    compressed image data** — baked masks and original sources are PNG/GIF, where deflate
    buys ~0%; only `scene.json` and the manifest are compressible and both are small.
 
+   **MEASURED 2026-10-15, and the reasoning above was wrong in the direction that matters.**
+   "A `.stst` is overwhelmingly already-compressed image data, where deflate buys ~0%" is
+   **right about photos and wrong about masks.** On a photo PNG deflate buys *less than
+   zero* — 2,234,956 stored against 2,235,641 deflated, stored-block framing being overhead
+   on incompressible input. But `scene.json`, `manifest.json` and **the baked masks** still
+   deflate **18–65%**, cross-checked across five PNG encoders. Design §6.1 makes silhouette
+   masks **the primary import path**, so the compressible files are the common case, not the
+   exotic one — **the cost is concentrated exactly where I argued it would not be.**
+
+   Measured against a threshold **stated before measuring** (material = ≥5% relative): the
+   representative fixture (4 text/shape layers + photo + logo + 3-frame GIF + baked masks,
+   2.44 MB) is **+4,777 B, +0.195% — not material.** But **case E, eight flat-graphic PNGs
+   and no photo: 107,724 → 137,279, +29,555 B, +27.4%.** Absolute cost across the whole
+   sweep is bounded at +478 B to +8,892 B except there. **Escalated to Shaun**, because the
+   threshold was pre-registered and crossed, and moving a threshold after seeing the number
+   is the failure this project spends its time policing.
+
    **This is conditional on measurement, not on the above reasoning being right.** A worker
    measures the stored-versus-deflated size of a representative multi-layer scene with a
    real imported PNG. If the delta is material, that is an escalation **to Shaun** carrying
@@ -911,9 +928,15 @@ is derived from the plan rather than from the design or from the requirement.
    `resolveStereo`.
 8. **R22 obligation 4 has a sensor:** no perception signature takes a subjective
    parameter. Neither obligation mapped to any criterion, which is plan §3's own lesson
-   live — a phase can pass its gate with a design item simply missing. **Scoped to a named list** — the
-   survey worker enumerates candidate constants and the PM fixes the list before dispatch,
-   because "is this constant perceptual?" is otherwise unjudgeable.
+   live — a phase can pass its gate with a design item simply missing.
+
+   *(Corrected 2026-10-16 — orchestrator error 28.* This paragraph used to end with
+   *"**Scoped to a named list** — the survey worker enumerates candidate **constants** … because
+   'is this constant perceptual?' is otherwise unjudgeable."* **That sentence belongs to
+   criterion 6, which is the constants criterion; criterion 8 is about parameters**, and
+   criterion 6 already carries its own named-list wording. A reader scoping criterion 8 from
+   this paragraph scoped the wrong thing. Found by a verifier reading both criteria against
+   each other.)*
 
 **P7 does not touch `site/main.ts`.** Revision 1 had it rewiring a file P3 deletes, while
 running before P3. The module lands standalone; P4 consumes it.
@@ -1093,6 +1116,382 @@ throwing** — zero runtime change. Paired with a sweep of other registries shar
 shape. Landed at `2a44191`; the sweep found **three more** (`DepthView`, `Legibility`,
 `FitLimit`, the last in live non-orphaned code) and those are open.
 
+### P3b rulings, 2026-10-15 — seven escalations from SPIKE-1 and cluster A
+
+**SPIKE-1 was a throwaway spike that paid for itself many times over.** It mounted one real
+panel against the real store, committed nothing, and found five things wrong with the
+obvious way to build cluster F — **four of them invisible to every instrument this repo
+owns.** Dispatching F without these rulings would have shipped green and wrong.
+
+**ESC-7 — R6 is not reachable through the current `Action` union. New criterion 22.**
+**17 of 63 controls have a keyed `Action`; 46 do not** — every `layer.*.at`/`.depth`/`.name`,
+all `layer.shape.*`, all `image/gif.src|mode|mask`, and **all 11 `preset.*`**. Their only
+write path is rebuilding the whole scene, which the store must not own. **Criterion 6 is MET
+and structurally cannot see this**: it proves a spec is *reachable*, not that a value is
+*writable*, and R6 says *"ensure the strong editor exposes every control."*
+
+> **Criterion 22: every `CONTROLS` entry is *writable*, not merely reachable — and a
+> wrong-typed write fails to compile.**
+
+The second clause is not decoration. SPIKE-1 measured that **a computed `string` key erases
+the field type**: `{type:'stereo', patch:{[key]: Number(raw)}}` compiles clean where the
+literal form errors, so a generic renderer can write a number into a boolean or an enum with
+nothing to stop it — SPIKE-1's own code had the bug and compiled. A path-addressed action
+that reintroduces that hole satisfies the first clause and fails the criterion.
+
+**This is P3b's and it is a prerequisite for cluster F**, because the `Action` union is the
+store's API and P4, P5 and P6 all build on it; settling it later means rework across three
+phases.
+
+**ESC-8 — the test tier cannot see cluster F's real failure modes. Ruled: thin components
+plus a minimal DOM tier, and close the warnings hole.** SPIKE-1 measured: no DOM tier exists
+(`jsdom` and `happy-dom` absent, `mount()` unrunnable by any test); **`$effect` is stripped
+from SSR output**; `render()` is **lazy**, so a side-effect assertion after it measures
+nothing and reports green; and `$state(store.state())` **forks state in the browser**,
+breaking the store's identity guarantee, **while SSR reports the same answer for the correct
+and the incorrect spelling.** That last one is the worst kind: the tier does not merely miss
+the bug, it actively cannot distinguish the two.
+
+Three-part ruling:
+1. **Standing architecture rule: a Svelte component is a thin binding and holds no logic
+   that could fail a test.** Everything testable lives in a plain module. This is what the
+   store, `hashprojection.ts` and `transport.ts` already do, and it serves R7 directly.
+2. **Fund a minimal DOM tier** (`jsdom`) for the residue rule 1 cannot cover — principally
+   the store-identity guarantee, which lives in the binding itself and so cannot be moved
+   out of it. **If `mount()` cannot be made to run, that is an escalation, not a workaround.**
+   **Design §12 is amended by this**, having previously excluded Svelte component DOM
+   wholesale.
+3. **`npm run typecheck` is fail-open on Svelte warnings** — 8 × `state_referenced_locally`,
+   Svelte saying *the panel will never re-render*, and the gate exits **0**. Close it. Measure
+   the repo-wide warning count first, because this may redden existing code, and **do not
+   touch `--output`** while editing that script (see §9's row on the duplicated flag).
+   **Playwright is deliberately not funded here.** This host has chromium and Xvfb, but CI
+   does not have them demonstrated and a 94s suite is not worth risking yet. Revisit for P4,
+   where pixels are the subject.
+
+**ESC-9 — narrow `dist.test.ts`'s `@napi-rs` grep. Granted, P3b owns the file.**
+
+**ITS PREMISE WAS FALSE AND THE GRANT RESTED ON IT — orchestrator error 37, 2026-10-16.**
+It said the check *"reddens on a **doc string**"*. **Measured: a docblock never reddened it
+and still does not.** `site/legibility.ts` is in the bundle and says `@napi-rs` **three
+times in comments**, and `@napi-rs` appears **nowhere** in `dist-site/` — comments are
+stripped. The real offender, **`site/controlspec.ts:632`, is a *runtime string literal***
+— `LAYER_SPECS.font`'s `note:` field, evaluated eagerly into `CONTROL_SPECS` — **which
+minification is obliged to keep.** So the clause was **already true before any change**, and
+**the natural fix (strip comments, then grep) would have gone green and fixed nothing.**
+This is the project's signature failure one level up: **not a blind instrument but a blind
+task definition**, producing a correct-looking commit that closes a hole which was never
+open. **Original wording follows.** It is a raw
+`text.includes` over built files, so it reddens on a **doc string** in `controlspec.ts` — not
+a purity defect, and **F-2 cannot be green until it is narrowed.** Its parse-failure and its
+real-regression modes are also *the same assertion*, which is the harness defect again: fix
+both halves.
+
+**ESC-10 — chrome: ruled (a), `applyChrome` from an effect.** Option (c), hand-written markup
+beside a separate `ChromeNode` tree, is **excluded**: a parallel description makes criterion
+16 a check that cannot see, and SPIKE-1's warning stands — *"if F-2 is specified as 'write
+the shell in Svelte markup', it has chosen (c) without anyone deciding to."* Option (b), a
+recursive Svelte renderer over `ChromeNode`, works and was built with a paired control, but
+it is **a second renderer of the tree** — the thing `chromedom.ts`'s header names as not to
+build — and **it already diverged twice in a spike**. (a) keeps one renderer and one
+description, and the ESC-8 DOM tier is what makes an effect testable.
+
+**ESC-11 — F-2 ↔ criterion 10 entry ordering. Ruled: decouple, do not sequence.**
+`vite.site.config.ts` has `root:'site'` and no explicit input, so **`site/index.html` is the
+only path into the bundle — and it is the file teardown deletes.** Rather than ordering two
+clusters around an implicit dependency, **give the config an explicit input, and that edit
+belongs to F, not G.** G may not delete `index.html` until it has landed. An ordering
+constraint that exists in no document is how a phase discovers it the hard way.
+
+**ESC-12 — an unrenderable scene reaches the URL. Ruled: the projection does not filter.**
+`reduce` accepts combinations that do not render, so a share link can carry a scene the
+canvas refuses to draw. **A filter in `hashprojection.ts` would be the wrong cure**: the hash
+is a *projection of the store* (criterion 8), and a projection that silently drops states
+stops round-tripping — reload would hand you a different scene than you had, with nothing
+said. The honest shape is the one the owner already specified for perceptual limits:
+
+> *"write such diagnostic functions at the model layer, only ever use diagnostics around
+> perceptibility / interprability for the purposes of warning at the View layer"*
+
+So: **the projection round-trips faithfully, and an unrenderable scene is surfaced by a
+model-layer diagnostic warning at the view layer.** The diagnostic is **P4's**, with the
+rest of them. Recorded here because it is user-visible and was raised, not decided, by A-2.
+
+**Criterion 15 is sharpened, not widened — A-3's distinction, adopted.** N mutations in one
+tick produce **at most** one write: a tick whose mutations cancel leaves the projection
+unmoved, and writing anyway would reinstate the per-tick `replaceState` cost that
+`main.ts:683-684` exists to avoid. The rule is **a write happens exactly when the projection
+moved across the tick**, both arms tested.
+
+**And criterion 15 gains a second clause, because the module half is not the user-visible
+half.** *The editor's URL actually coalesces* is unwitnessed until the composition root
+exists, **and the choice of queue is cluster F/G's to get wrong** — today there is neither a
+criterion nor a sensor on that side, which the standing "a gap ships only with a sensor" rule
+forbids. F/G owns it.
+
+**Carried from A-2, for criterion 14's owner:** `hashprojection.ts` is in neither bundle
+today, so `EDITOR_ONLY_MODULES` correctly omits it — **and the day cluster G wires the
+browser adapter it becomes editor-only, and the list lives in three places, one unguarded.**
+That is the second confirmed instance of the rot D-1 exists to fix; SPIKE-1 observed a third,
+where six modules became editor-only under a real consumer and `toHaveLength(7)` **stayed
+green and silent.**
+
+### P3b, shift 2 — criterion 23, and a sensor that made the right architecture detectable
+
+**Criterion 9 is DONE** (`bf5eb1a`, `760f353`), joining 8 and 15. Two escalations ratified:
+C-1's rewrite of a merged P2 test, which the `seek` ruling forces — if out-of-range and
+in-the-final-gap are one `snapLoopTime` fold then `seek(…, 2.5)` must be frame 6 *and* frame
+23, which is a contradiction and not a choice of convention — and C-2's minimal
+`hashprojection.test.ts` edit. **Zero test removals across the entire phase**; C-1 went 7 →
+15 assertions and preserved the superseded rows beside the new ones, which is better than
+§6.4 requires.
+
+> **Criterion 23: the playhead does not drift when playback resumes.** `{type:'time'}` and
+> `{type:'frame'}` carry no `nowMs`, so **during playback** the playhead resumes advanced by
+> the elapsed interval and a drag compounds it. **Paused — the scrubber's real case — it is
+> exact, and asserted across five clocks.** The fix gives those arms a `nowMs`, which is a
+> `main.ts` edit and therefore **cluster F/G's.**
+
+*(Added 2026-10-15. It was carried as a note and owned by no criterion, and a recorded note
+is not a sensor — §9's last row, applied to the phase that keeps citing it.)*
+
+**The shift's most transferable finding, and it is an argument for front-loading sensors.**
+C-2 chose to put `TransportState` *inside* `UiState` rather than beside it, and its first
+reason is stronger than its conclusion: a second field written by `store.ts` would sit
+**outside the expression `state()` returns**, so **A-4's duplication guard would have been
+silent over exactly the code that task added.** A guard built two tasks earlier is what made
+the right architecture the *detectable* one. A sensor that only fires on code written after
+it is still worth building before the code exists — the ordering is the whole value.
+
+**Also measured:** one of C-2's plants showed **A-4's guard fires on action tags it was never
+told about**, which is the difference between a guard that generalises and one that happens
+to work. That distinction is worth asking of every guard this phase ships.
+
+**Known weakness shipped knowingly:** the clock sensor's name list is hand-written
+(`Date`, `performance`, four schedulers, `process`). Paired control, zero hits across the
+21-file closure — **but a novel clock spelling passes it**, and C-2 could not derive the list
+from anything. It is the hand-written-list shape §9 warns about, accepted because no
+derivation exists, and recorded so nobody reads the green as total.
+
+### Criterion 22 — the two rulings its adoption forced, 2026-10-16
+
+The salvaged H-1 work was adopted at `24392c3` with **fourteen claims, each with a named
+mutation, grep-confirmed in the real file and its verdict quoted.** `git diff b27a315 HEAD`
+is empty: content brought across, the salvage branch **not** merged.
+
+**The erasure is genuinely solved, and the proof is a control rather than a claim.**
+`SetAction` is a **mapped type distributed over control id → the model's own field type**, so
+each member pairs one literal `control` with one concrete `value` type and there is no fresh
+object literal for an index signature to widen. Severing that correlation turns **exactly six
+of eleven `@ts-expect-error` directives "unused"** — precisely the six value-type claims —
+while the five structural ones still bite. So the wall is neither inert nor double-counted.
+This answers the question SPIKE-1 left open and that H-1 was permitted to fail.
+
+**Ruling 1 — clause 1 is MET over 52 of 63, and the residue is accepted with a condition.**
+The other eleven are the preset family. The gap is **derived and sensored**:
+`unwritableControls()` names them and the partition asserts
+`CONTROL_IDS.length === WRITABLE_CONTROL_IDS.length + residue.length`, which reddens the day
+a registry control grows without a write path. **A sensored residue is not a hidden gap, so
+it discharges criterion 22** — but it does **not**, by itself, discharge **R6**, which says
+the strong editor exposes *every* control.
+
+The resolution is already in the standing rulings: **bundles are UI macros writing an `Anim`
+array at attach time, not registry entries**, forced by `PresetFn` returning a single
+`Track`. A preset is therefore **applied, not set** — it is a different mechanism by design,
+not a missing one. **Condition: R6 is discharged for the residue only when the
+preset-application path exists and is itself exercised and sensored.** That path is cluster
+F/G's. **It must not be dropped on the grounds that criterion 22 passed** — the criterion
+passing is exactly what would make it invisible.
+
+**Ruling 2 — clause 2 is true of the `set` path and false of the `Action` union. Tripwire
+now, remove later.** The legacy keyed arms survive because `main.ts` consumes them, so
+`{type:'stereo', patch:{[key]: Number(raw)}}` **still compiles clean with nothing watching
+it.** A declared gap with no sensor is what this phase's own standing rule forbids, so
+"accept it as a note" is excluded. Of the remaining two, **do both, in this order**:
+
+1. **Tripwire the known hole now**, on this repo's own *the note **is** the test* precedent —
+   the same shape as `site/views.test.ts` depending on `site/index.html` so that teardown
+   reddens it **by design**.
+2. **Sequence the actual removal after G-3 deletes `main.ts`**, at which point the legacy
+   arms lose their only consumer and the tripwire retires with them.
+
+**H-2's scope follows from this and should be settled before it dispatches**: its harness
+pins clause 2 **for the `set` path**, and the tripwire — not the harness — covers the legacy
+hole until G-3. A harness pinning a clause that is only half true would pin the wrong thing.
+
+**One claim in the adoption has no runtime RED and H-1b said so unprompted:**
+`hashprojection.test.ts`'s mapped `SAMPLES` table leaves vitest at 34 passed when the `set`
+row is removed — **only the compiler sees it.** Recorded rather than smoothed over.
+
+### P7 rulings from V-4, 2026-10-16
+
+**The `cardboarding` contradiction is settled: the roster is wrong and the module is right.**
+`perceptionRoster.ts:189` declares it `graded`; `perception.ts:1175` says *"Objective and
+ungraded."* V-4 measured which survives: a one-line strengthening of the witness —
+**`graded` ⇒ the answer owns a `grade` field** — reddens **exactly one row of thirteen**, and
+it is `cardboarding`. `fusionComfort` and `legibilityOf` both carry a literal `grade`;
+`cardboarding` does not. **Ruled: reclassify `cardboarding` as `objective`, and adopt the
+one-line strengthening**, because without it the table is not a sensor on the classification
+at all.
+
+**That second half is the substantive finding and it is worse than the contradiction.** V-4
+censused all thirteen return shapes against the ratchet:
+
+| direction | detectable |
+|---|---|
+| `graded → objective` | **0 of 13** |
+| `objective → graded`, scalar/string return | 9 of 13 |
+| `objective → graded`, object-with-a-number return | **blind** (`measureInk`) |
+
+So the `AssertNever` pair is a real ratchet on **membership** — it cannot go short, proved —
+and **no sensor at all on the value**. The file's own docblock is accurate about this and
+nobody overclaimed; the gap was simply open. **Criterion 2 is not violated under either
+declaration** — `cardboarding` returns a verdict plus three quantities — so the defect is
+that `Grading`'s two values had no operative difference, not that a row broke a criterion.
+
+**Criterion 6's "against a named list fixed before dispatch" is discharged by something
+stronger, and the clause is retired.** No list artefact was ever recorded; the ledger carries
+it as an open question. But V-4 ran an **independent census** instead and found every
+`runLengths` threshold outside `perception.ts`: four in `metamorphic.real.test.ts` (all
+`ABSOLUTE_INK_DEPTH`), `canvas.vendored.test.ts:113` (P3b's, known-open), and
+`src/core/metamorphic.test.ts:706` — which it then **measured to be a separator, not a
+threshold**, by changing `0.5` to `0.01` over a binary 0/1 map and watching the value stay
+byte-identical. **An exhaustive census beats a list fixed in advance**, because the list can
+be wrong and the census is checkable. Criterion 6 is **MET on the substantive property, by
+measurement.**
+
+**The §6.5a control that matters, reproduced exactly.** With the forbidden fix applied
+(`runLengths` made peak-relative) against the **pre-commit** file: `14 passed` and **all 21
+`[measured]` values byte-identical** — blind by pass/fail *and* by value. Against **HEAD**'s
+file, the same mutation reddens and moves a measurement `487 vs 0 → 487 vs 487`. **So the
+standing ruling against importing `INK_FRACTION` there is vindicated and the commit closed a
+real blind spot.** Both halves named, as the rule requires.
+
+### P3b shift 3 — criterion 22 complete, and the budget everyone cited was one sample
+
+**Landed:** `24392c3` the write path (adopted with RED attributed per claim) · `f8d931b` its
+clause-2 sensor · `5f11f93` six blind sensors closed. **Criteria 8, 9, 15 and 22 done.**
+Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23.
+
+**The "94s CI budget" was one sample of a varying quantity and every brief on this phase
+cited it, the orchestrator's included.** Measured instead of quoted: a 93s job of which
+`npm test` is **53s**, typecheck 6s, builds 4s — and **`apt-get install ffmpeg` 25s**. The
+last four runs span **93–108s**. **A quarter of the "budget" is apt, and it already varies
+by 15s**, so a figure cited to three significant figures was never that precise. The fourth
+harness landed against the real measurement, and **whole-suite wall-clock does not move at
+all**: summed test time rises 32s while the new file's 27s runs inside an existing harness's
+48s shadow. **Cite a measured range, and say what the number is made of.**
+
+**The cheaper route was refuted by one table row, and the refutation is worth keeping.** The
+PM proposed extending the eleven `@ts-expect-error` rows rather than building H-2's harness.
+**A directive is lexical and cannot be generated from `WRITABLE_CONTROL_IDS`**, so the wall
+covers **8 controls and 44 have no clause-2 coverage at all.** Erasing `SceneValues` to
+`unknown` — four controls losing exactly the correlation clause 2 forbids — leaves the wall
+**green at typecheck exit 0** while the generated sweep reddens 52 → 48 and names all four.
+**The two are complementary, not duplicative.**
+
+**Ruled: a PM may append a measured correction beside a tier-0 paragraph it has disproved.**
+R-1's +25-line block in this document stands. It **preserves** C-2's original paragraph
+rather than replacing it, which is §9's *correct beside the quote, never inside*; the
+substance is required because C-2's rationale names the wrong mechanism; and the code is
+independent of it, since the in-code `CLOCKS` docblock carries the full version. **The
+boundary: append beside, never rewrite or delete, always flag it in the report.** Routing
+every measured correction through tier 0 is how error 15 happened — the orchestrator adopted
+nine criteria in messages and wrote none of them down.
+
+**The debt, and it is the largest on the phase: none of the three commits has been verified
+by anyone who did not write it, and the three have never been run together.** A gate run is
+owed — serialised, announced, by a runner who implemented none of it. The arithmetic
+suggests 83 files / ~1967; **that is arithmetic, not a measurement**, and §6.3 compares
+against the branch's own baseline.
+
+**Latent and unmeasured, in two *merged* files:** both pre-existing harnesses unescape
+machine messages with `replace(/\\(.)/g,'$1')`, which **turns `\n` into a literal `n`** and
+welds a nested diagnostic's two lines together. H-2 maps escapes explicitly and did not touch
+theirs. **Nobody has audited whether either asserts across a line join.**
+
+**The pattern above any individual finding.** Four instruments this phase trusted for
+multiple shifts turned out blind: the skip glyph, `build` as evidence about `site/` types,
+`build:site` against three of four builtin spellings, and the `@ts-expect-error` wall over 44
+of 52 controls. **Each was caught only when someone planted a control against an instrument
+nobody had ever watched fire.**
+
+### A1 — the two-discriminant bag, measured. Rulings, 2026-10-16
+
+A reviewer converted a derivation into a measurement on one authorised single-file run. An
+`anim` carrying **both** discriminants — `{kind:'move', from, to, keys:[…]}` — gives:
+
+```
+CLI  validateScene : ACCEPTED, keeps the preset and carries keys along
+SITE validateScene : ACCEPTED, silently drops kind/from/to, keeps only the track
+writeScene(CLI out): THREW  — "kind" is not in the keyframe-track key roster
+CONTROL (kind only): accepted/accepted/written — so it is the second discriminant talking
+```
+
+**Two defects with different owners. They must not travel as one item.**
+
+**A1-c — the comment. This phase's, fix before the gate.** `src/shared/sceneWrite.ts:216-221`
+asserts all three discriminators use *"the same discrimination, in the same order … a bag
+carrying both would otherwise be written as one shape and read back as the other."* The CLI
+is **kind-first**; the other two are **keys-first**. **The comment names the exact failure
+that occurs and claims it is prevented.** That is the ASSERTION class at its worst and it is
+cheap to fix.
+
+**A1-b — the divergence. NOT blocking this phase's merge, and it gets a criterion rather
+than a note.** *"The same file renders as a `move` preset on one side and a keyframe track
+on the other"* is a real violation of R17's promise. But the honest scoping is the
+reviewer's: **the input is malformed and neither validator rejects it**, the CLI's
+`kind !== undefined` laxity is **pre-existing**, and the render divergence was simply never
+observable because nothing compared the two sides. **What this phase added is the save-time
+refusal and the false comment** — and `writeScene`'s throw is arguably *correct*: it refuses
+rather than drops, by design, and says so in its message. **The defect is the disagreement,
+not the refusal.**
+
+> **Criterion 24: a bag carrying both discriminants is rejected by both validators, and the
+> two validators agree on acceptance for every input.** *(Added 2026-10-16.)* Making the
+> malformed input fail on both sides is what makes `writeScene`'s throw unreachable for this
+> case, which is the right outcome — and it makes A1-c's comment true rather than merely
+> corrected.
+
+**And criterion 10's witness was worse than any of us said. MET again at `6531698`.**
+The reviewer reported that `site/project.test.ts:42-46` *"asserts parity absolutely over a
+weak fixture"*, and the orchestrator relayed that to the PM. **Measured by the implementer:
+those lines are docblock prose, the file never imported `src/cli/scene.ts`, and only the
+site validator ever ran. The parity claim was discharged by nothing at all.** The fixture
+gap was real and additional. **Reviewer claim → orchestrator relay → implementer
+refutation, with the true state worse than the reported one** — in the direction nobody
+checks.
+
+**The orchestrator offered a false choice and the measurement forced a third answer.** The
+ruling had been *"cover a disagreeing construct **or** narrow the claim."* Neither is
+sound: **parity over the disagreeing case cannot be asserted as *agreement*, because the
+site's refusal is a deliberate design decision** (design §9.5). The only correct assertion
+**covers the disagreeing construct and asserts the disagreement.**
+
+**And the container-reachable divergence was not the animator — it is `draw`.** The
+`{kind, keys}` bag **cannot reach a `.stst` in either direction**, because
+`containerRead.ts:325` runs `writeScene` on the way in, making the write roster the read
+gate too; the divergence is real between the two functions and unreachable through a
+container. But `LAYER_KEYS` carries a `draw` roster, so `writeStst` writes one and
+`readStst` returns it — **the CLI accepts and the site refuses, by design.** The old
+fixture carried three of five types and **neither of the two that mattered.**
+
+**The tripwire wording is the part to copy.** Both characterisation tests say, in the test:
+*"if this reddens because the two sides were unified, delete the row — do not flip the
+expectation."* **That is §6.5a's rule written where the person tempted to flip it will read
+it**, rather than in a document they will not open.
+
+**R22 obligation 1 has no criterion and no sensor — plan §3's lesson, third firing, same
+requirement.** Measured citation counts: obligation 2 nine times, obligation 4 three times,
+obligation 3 once, **obligation 1 zero**. Nothing asserts *"perceptual predicates live in
+the model, not in any view."* It **holds today** — the reviewer censused `site/*.ts` — but
+this phase made it cheaper to break, since `site/legibility.ts` is now a bare `export *` and
+**nothing guards `site/*.ts` imports.**
+
+> **Criterion 25: no perceptual predicate is evaluated in a view.** *(Added 2026-10-16.)*
+> Pairs with the unguarded `site/*.ts` import hole, which is the same gap from the other
+> side.
+
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
 0. **Per-layer geometry API in `src/core/`** — bbox in scene px and occupied depth range,
@@ -1184,7 +1583,48 @@ how.
 
 ---
 
+## 8a. Which range answers which question
+
+**This project has had a range direction wrong five times, in five different spellings, and
+each new spelling defeated the procedure written for the last one.** Patching a sixth time
+would fail the same way. So: the table, not the procedure. `B` is your branch, `M` is
+`origin/main`, `MB` is `$(git merge-base M B)`.
+
+| question | correct form | what the tempting wrong form gives |
+|---|---|---|
+| **What commits does my branch add?** | `git rev-list --count --no-merges M..B` | `M...B` (three dots) is the **symmetric difference** and roughly doubles it while `M` moves — measured **58 vs 30** |
+| **What changes does my branch add?** | `git diff M...B` (**three dots**) | `M..B` on a *diff* is the same as `M B` and shows `M`'s commits in reverse too |
+| **What commits am I missing from `main`?** | `git log --oneline B..M` | `M..B` is **your own work**, which is *supposed* to touch `src/` — a stop-rule on it fires on every healthy branch |
+| **What files do those missing commits touch?** | `git diff --name-only MB M` | **`git diff --name-only B M` is the trap.** It diffs *trees*, so it surfaces your branch's own commits in reverse. **Measured: `log B..M` = 2 docs commits; `diff --name-only B M` = 16 files, 10 under `src/`/`site/`; the merge-base form = 1 file, 0 under either.** A runner applying "touches `site/` ⇒ STOP" would have **halted a healthy docs-only merge.** |
+
+**The generalisation, which is the only durable part: `log`/`rev-list` take a *commit range*;
+`diff` takes *two endpoints*. They accept the same syntax and mean different things, and
+`A..B` is the one that silently changes meaning between them.** When the question is "what
+do these commits touch", the two-dot form is never the answer.
+
 ## 9. Known traps
+
+> ### The generalisation that covers every row below
+>
+> **Every instrument this project trusted and then actually measured turned out blind.**
+> Not most — every one that was put to a control. The skip glyph. **Both** builds over
+> `site/` types. `build:site` over three of four builtin spellings. The `@ts-expect-error`
+> wall over 45 of 52 controls. `conditional` under a write hoisted one level. `isGlobalRoot`
+> under a pair of parentheses. A baseline that cannot see what predates it. A `vitest list`
+> census that omits skips and cannot tell a retitle from a delete. A roster ratchet blind in
+> one entire direction. A census instrument that silently writes its output over the file
+> you named.
+>
+> **Each was caught only when someone planted a control against an instrument nobody had
+> ever watched fire.** None was caught by reading the instrument, by reasoning about it, or
+> by it behaving oddly — several had been cited as evidence across multiple shifts while
+> blind.
+>
+> **Assume the next one is in whatever you are about to trust.** PM-SHELL-P3b-4's closing
+> line, and it is the only sentence here that predicts the rest of the table instead of
+> recording it.
+
+
 
 Each already cost a correction. Hand this table to every worker.
 
@@ -1255,9 +1695,62 @@ Each already cost a correction. Hand this table to every worker.
 | "registered" means the entry appears | Not necessarily. Two consecutive registration tests passed on **appears** rather than on **register**: a dummy reached a function's return value and was invisible to every reader, and another reached an info lookup while being invisible to the only question the consumer asks. A registration test must assert that the thing a *consumer* does is now possible — not that the entry can be found. |
 | a cross-phase note will be read when it matters | Make the note **be** the test. P3a deliberately left `site/views.test.ts` depending on `site/index.html`, so P3b's teardown turns it red *by design* with a message naming the teardown. Its author's framing: *"the HTML dependency is not a cost I tolerated — it is the deliverable; §9 says a note is not a sensor, so the note **is** the test."* |
 | a test that pins prose is stable | Not if the prose churns. A `site/` test began reddening on `docs/` edits because the orchestrator lands doc commits on `main` mid-phase. Discriminate upstreams **by churn** — a design document that has not moved all branch is a different risk from a plan amended four times — and **where the upstream is executable, execute it; parse only prose.** |
+| `grep -c '↓'` counts skipped tests | **Control attached 2026-10-16, as this table now requires of itself.** GATE-P3b-1 built a throwaway file with two `it.skip`s, watched the summary line fire — `1 passed | 2 skipped (3)` — and confirmed `grep -c '↓'` returns **0** on that same genuinely-2-skipped output. The row below was previously asserted without one. **It returns 0 on a genuine 22-skipped run.** Every *"0 skipped, verified positively by `↓`"* on P3b verified nothing. **Corrected 2026-10-16, because the first version of this row was itself wrong — orchestrator error 30.** It added *"and `grep -c 'skipped'` can too"*, which is **false**: measured over four real logs, `grep -c 'skipped'` returns **2, 2, 3** on runs with 22, 22 and 26 skips and **0** on a zero-skip run. It discriminates correctly. The error was misreading a relayed *"gives 0 vs 4"* as *sometimes-0-when-it-should-be-4*, when it meant **0 at baseline, 4 on the skipped run** — the instrument working. **But it is a presence detector, not a counter**: those 2/2/3 are matching *lines*, not skipped tests. **Use vitest's summary line**, which answers both questions — `Tests 1349 passed \| 22 skipped (1371)`, so a parenthetical total equal to the passed count is positive proof of zero and an unequal one names the number. |
+| an agent's last transcript line is the frontier of its work | **It is a statement of intent, not a record of state.** A PM read a killed agent's final self-instruction — *"Now extend the parser cross-check…"* — as the thing left undone, and briefed its replacement accordingly. The work had **already been finished**; the line was written *before* doing it. The adopting worker added no code there and verified instead. **Reasoning backwards from a last line infers a frontier that was never claimed** — ask whether the work after it exists rather than assuming the transcript stops where the work did. |
+| `npm run build` gives you a clean `dist/` | **It does not clean it.** A verifier contaminated its own run this way and caught it: a stale planted file left **4 reds where a wiped rebuild gives 2**, and the spurious extra red was *"emits no test file and no testing/ helper into dist/shared"* — which **reads exactly like a genuine finding**. Anyone planting into `src/shared/testing/**` must `rm -rf dist dist-site` first. A gate runner that rebuilds over a dirty tree can report a defect that does not exist, in the vocabulary of one that does. |
+| a test that derives its expectations from the constant is the robust kind | **It is robust against intentional change and blind to the constant moving at all** — which is the opposite of what you want from a *threshold* witness. Measured: `INK_FRACTION` 0.5 → 0.9 and `TIGHT_MULTIPLE` 2 → 3 each leave `src/shared/perception.test.ts` at **21 passed**, because every one of its boundary tests derives its budgets from the module's own constants. The only sensor that sees either move is the file that uses **literal** budgets. **The sharpest part: a docblock amended specifically to avoid a stale assertion now cites that derivation as its proof** — *"what witnesses that is … every one of which derives its budgets from the module's own constants"* — so **the cited mechanism is precisely the reason the claim fails.** Invariant 4 says assert on structure not values; a threshold is the narrow exception, and **every threshold needs at least one literal-pinned witness** or nothing can see it change. |
+| a plant quoted in a brief is a measurement | **It is a measurement with an expiry date, and the commit that expires it is usually one of your own.** A verifier's plant was quoted verbatim into a later brief; by the time it ran, `24392c3` had changed the types out from under it — and it failed **toward** *"the hole is closed"*, which is the direction nobody checks. **Re-establish a quoted plant against the current tree before trusting its verdict**, especially a reassuring one. |
+| a nonzero skip count means the same thing wherever you see it | **Two alarms in this repo mean opposite things.** A `beforeAll` rejection in any of the four `svelte-check` harnesses reports as **"N skipped" plus a file failure** — not fail-open, but the phase simultaneously teaches that a nonzero skip count is the alarm for a *stale or unreadable* run. Read the file-level result alongside the count; the count alone cannot tell you which alarm fired. |
+| two deltas measured against the same baseline can be added | **Not if they were measured in parallel worktrees.** Two P3b commits were each measured in a separate worktree **against the same `24392c3` baseline**, so neither observed the other's presence — one recorded "after 83 / 1963", the other "after 82 / 1959", and **their deltas do not compose.** The branch therefore had **no recorded baseline covering its own tip**, not because nobody wrote one down but because parallel measurement structurally cannot produce one. **The recorded baseline is the common base they shared**, and the gate compares against that and reports the observed delta. A runner that reconciles toward the summed prediction is the worst outcome available: if the observed total differs, the sum was never evidence. |
+| `rm -rf dist dist-site` wipes the built output | **It misses `dist-player/`, which `build:site` also emits and four test files read.** GATE-P3b-1 checked rather than assumed and found the manual wipe is **right for the wrong reason**: both Vite configs set `emptyOutDir: true` explicitly, so Vite empties its own outputs despite the outDir sitting outside `root` — where the default is *not* to empty. **Only `tsc`'s `dist/` genuinely needs the manual wipe; the `dist-site` half is redundant.** The runner then turned the rule on itself in `UNCERTAIN`: *"that reading is source inspection, not a measurement — I did not plant a file in `dist-player/` and confirm it was gone."* **The wipe is not ceremonial** — that run found `dist/` (576K) and `dist-site/` (192K) already present before it started. |
+| a gate runner should fix what it finds | **A gate runner that repairs the thing it is measuring has destroyed the measurement.** PM-SHELL-P3b-4's wording, adopted as a standing rule. It generalises past gate runners: it is why a verifier does not fix what it verifies, and why "it fixes nothing" belongs in the brief above any individual check in the list. A repaired tree cannot answer the question the run was asked. |
+| isolated worktrees make verification unsafe | **They do not — the distinction is causal claim versus count.** A verifier asserts *"mutate X, this named test reddens; revert, it greens"*, which is tree-local and composes across trees perfectly well. A **count** is a statement about a whole tree, and two trees are not the same tree. So: **verify in isolated worktrees freely; take whole-suite counts only from the serialised gate run in the primary worktree**, and label any count a verifier emits incidentally as tree-local and non-composable. **And record the sha each verifier ran at — it must be the gate's sha or a descendant**, or "verified" and "gated" describe different trees while both reports read clean. That is error 19's shape: a gate run against the wrong worktree returned a *plausible* number already in the record. |
+| a §9 row is a measurement | **It is a relayed claim like any other, and this table's framing hides that.** "Each already cost a correction" reads as *measured*, but **a row is a sentence a tier-0 agent wrote from a worker's report** — so every omission and compression failure that governs relayed claims governs rows too, and the row arrives wearing the table's authority. Demonstrated: the skip-instrument row recorded `grep -c 'skipped'` as blind when the relayed *"0 vs 4"* meant **0 at baseline, 4 on the skipped run** — the instrument *working*. **Subtractive again**, which is the pattern across every correction pass on this project: not once a wrong fact, always a dropped clause or label. **So: a row that records an instrument as blind must carry the control that showed it blind**, or the next reader cannot tell which direction the number ran. PM-SHELL-P3b-4's generalisation, and it earned it by logging its own error beside mine — *"the row being wrong is not why I was wrong; four real logs were sitting on disk and I reasoned from a row instead of running the control over them."* **The existing rows have NOT been audited against this requirement.** |
+| a sha in a brief is unambiguous | **It is unambiguous and it is stale.** Two agents an hour apart were briefed with shas that had moved before they read them. The lesson is **not** "re-check shas before dispatching" — that does not scale against a `main` that moves every few minutes. **Every sha in a brief needs its resolution procedure attached**, the way §6's merge step does. The gate brief carried one — *verify it rather than trusting me; if the count is nonzero, merge* — and the agent resolved and continued. The audit brief carried a bare assertion, so the agent could only flag it and stop. **A sha is a claim; the procedure is what makes it checkable.** This supersedes the weaker §6 practice "brief with a sha, never a section number alone". |
+| a fix task always has a RED available | **Not when the fix is behaviour-neutral, and that is exactly when a worker will manufacture one.** An audit proved a proposed correction neutral over *every current assertion*, then flagged the consequence: *"a worker sent to 'fix this' and told to produce a failing test first will either find none and conclude the fix is unnecessary, or manufacture a fake one."* Both outcomes are bad and the second is worse. **Where no RED exists, the brief must say so and name what the real RED is** — here, a round-trip test on the helper, which first requires *extracting and exporting* an inline arrow so there is a function to test at all. **That extraction is the substance of the task; the one-line fix is not.** |
+| a null measurement is a null measurement | **A null proved over all possible inputs is a different artefact from a null sampled over the ones you thought of.** AUDIT-UNESCAPE-1 did not test eight diagnostics and generalise: it proved from source that the formatter always emits its newline followed by `≥2 spaces` and that the templates contain no newlines, so a weld *always* carries that signature — making all nine real assertions immune **for any possible diagnostic**. Paired with both controls (one spanning a join, one matching only the weld) firing in the same invocation. **Prefer a message-independent null; when you can only sample, say which it is.** |
+| a guard scoped to a syntactic region catches the thing it names | **Move the subject out of the region and the guard goes quiet.** `conditional` scopes its reachability scan to the write's *immediate enclosing function*; hoisting the write into a helper arrow and calling that arrow conditionally takes all three halves silent — **build 0, build:site 0, typecheck 0, 83 files / 1967 passed / 0 skipped.** The plant used was the commit's own dormant guard, its load-bearing proof that the check was not a restatement. **And the authors had already solved this, one guard over:** `store.test.ts:1036` reads *"The same duplicate moved behind a helper … is the cheapest way to satisfy a guard scoped to the literal `dispatch` body. It must not be a way out, so the check is over the module and keyed on the write."* They carried that to `undelegated` and not to `conditional`. **Tenth instance of the signature defect, inside the commit written to remove the ninth.** The generalisation is the new part: **the fix is usually already present on a sibling guard, and nobody thinks to re-apply it.** |
+| a control proves the feature works | **Only in the position the control exercises it.** `isGlobalRoot` is an identifier-equality check, so `(globalThis as any).Date.now()` — **the idiomatic TypeScript spelling, the one a real evasion would be written in** — walks straight past it, along with four other cast and non-null forms, all measured invisible at 25/25 green. The suite's own control uses `(globalThis['Date'] as DateConstructor).now()`, where the cast wraps the **element access** and leaves `globalThis` a bare identifier. **So the cast is exercised in the one position where it does not break the sensor.** Two parentheses defeat the fix. **Vary the position, not just the presence.** Note the direction: the declared residue was *understated*, not overstated — none of the five needs a type checker, and all five are a one-line parser fix. |
+| `main...HEAD` is the way to scope a phase review | **Three dots is right for the *diff* and wrong for the *count*.** `git diff main...HEAD` gives the branch's changes since the merge-base, which is what you want. `git rev-list --count main...HEAD` gives the **symmetric difference** — the branch's commits *plus every commit `main` has gained since the merge-base* — so on this project, where tier 0 lands docs commits continuously, it roughly **doubles**: measured **58** against the true **30**. A reviewer handed the three-dot form as a general instruction reported 54 and had to re-derive it. **Diff with three dots; count with two.** Orchestrator error 31, and it shipped *inside the correction for error 27*, which was also a commit count. |
+| `npm run build:site` typechecks `site/` | **It does not, and neither does `npm run build` — so every "build 0, build:site 0" is two null readings, not one.** Measured: a planted `const x: number = 'not a number'` in `site/controls.ts`, grep-confirmed present, leaves **`build` exit 0 and `build:site` exit 0**; only `npm run typecheck` exits 1 and names it. **This widens the earlier row, which named only `npm run build`, and the widening is in the dangerous direction — `build:site` is the one that *sounds* like it covers `site/`.** Both builds have been cited as evidence across multiple shifts on this phase. **Only `typecheck` is evidence about `site/` types.** |
+| grep found it or it is not there | **grep is line-oriented, so any phrase that wraps is invisible to it.** Spot-checking a commit body, the orchestrator grepped five claimed phrases and got **zero hits on two** — both were present, and both had been line-wrapped across a break (`…counting` / `it as clause-2 coverage`). A looser multi-term search found them immediately. **The orchestrator was one step from reporting a complete record as missing content, minutes after recording the census row below.** When a grep comes back empty on something you expect to exist, suspect the instrument before the artefact: search terms that cannot wrap, or widen to `-A`/`-B` context, or stop using grep. |
+| the same mistake at two tiers is two mistakes | **It is one operation.** Tier 0's errors 27, 29, 30 and 31 are four relayed *numbers*; a PM's five brief defects are four dropped *clauses* and a misattribution. **No wrong facts on either side.** PM-SHELL-P3b-4's statement of it: *"the same operation at both tiers — compressing a source into a restatement, then treating the restatement as the source. The remedy is identical: go to the thing itself, which for me is the commit body and for you is the command."* **And the reason it persists rather than being learned once:** *"the restatement is **usually** faithful, so the habit gets reinforced far more often than it gets punished."* That is why re-deriving must be a rule rather than a judgement call — the judgement is trained by the common case and the common case is safe. |
+| an unpushed commit is cheap to amend, so improve it | **Not once it has been spot-checked.** PM-SHELL-P3b-4 declined to amend `c6b575c` after the orchestrator verified that sha, on the grounds that **rewriting a verified artifact silently invalidates the verification** — the next reader sees a sha that was confirmed and a commit that is not the one confirmed. *Correct beside, never inside*, applied to a commit rather than a quote. The fix ships as a **findability index in the next commit**: additive, nothing rewritten, and it repairs the actual defect. **Cheapness is not the test; whether anyone has relied on it is.** |
+| a phrase in a record can be found later | **Only if it lives on one line.** grep is line-oriented and wrapped prose puts every claim one reflow away from being unsearchable. **This is a property of the artifact, not of the searcher**, and therefore the writer's to fix: **a phrase intended to be found must be written on a single line.** Discovered when a zero-hit grep over a complete record nearly got it reported as missing content. |
+| `git stash list | wc -l` tells you whether the stash is empty | **Not with the `git` wrapper on this machine, which writes its two identity banner lines to *stdout*.** So an empty stash reports **2**, and `2>/dev/null` does not clean it because the lines are not on stderr. **Filter on `^stash@`.** A reviewer nearly filed a phantom stash against its own cleanup check. Anything scripting this repo's `git` must assume stdout carries banner lines. |
+| a claim about what a test asserts can be taken at face value | **Not when the cited lines are not executable code.** A reviewer reported that a file *"asserts parity absolutely over a weak fixture"*; the cited lines were **docblock prose**, the file **never imported** the thing the claim said it compared against, and only one side ever ran — **the claim was discharged by nothing at all.** This is a third failure distinct from a stale assertion and from a claim restated in different words: **reading prose as assertion.** It travels because a weak test still *sounds* like a test, where "no test" would have been challenged. **Cheap check: does the file import the thing the claim says it compares against?** |
+| a decision that turned out right had a right reason | **Not necessarily, and a right decision with an invented reason is harder to catch than a wrong one — the outcome validates it.** A PM withheld a push and told the orchestrator it would *"add CI load on a box running another phase's gate."* **CI runs on GitHub's hosted runners; a push costs this machine nothing.** The *holding* was correct — it had been told to hold — but the mechanism was confabulated, and **the orchestrator praised it in writing**, calling it "the serialisation rule applied to a resource I never named." Two tiers endorsed a reason neither had checked, because the decision under it was sound. **Caught only when its author re-examined its own record unprompted.** Check the reason separately from the outcome; a correct call is not evidence for the story attached to it. |
+| the brief records the correction, so the brief is safe | **Not if the copy-paste block contradicts the prose — and the block is what gets used.** A gate brief's sequence block said `rm -rf dist dist-site` while its prose **eight lines below** said three directories and explained that two misses `dist-player`, which four test files read. The same block said bare `npm test` while the disconfirmation section **180 lines below** wrapped it in the sha/branch/`pwd` stamp. **A runner who copy-pastes the block — which is what a block is for — gets the wrong half of both corrections while the brief congratulates itself on having recorded them.** The cheapest satisfying action was the wrong one, **in the brief that cites that very rule.** Where a brief has an executable block, the block *is* the instruction; prose beside it is decoration. **Fix the block, and state that block wins if they ever disagree.** |
+| `main..HEAD` tells you whether it is safe to proceed | **Backwards — that range is the branch's own work, which is supposed to touch `src/`.** A branch-point rule reading *"if `main..HEAD` touches `src/`, `site/`, config or tests, stop and escalate"* **fires a false alarm on every healthy feature branch**; measured here at 39 commits over 46 files. **The direction carrying the risk is `HEAD..main`** — what `main` has gained that the branch lacks and may be stale against. Orchestrator error 32. Note this project has now had the branch-point rule wrong **four separate times**, three in a worker boilerplate and once in a tier-0 brief, which is a sign the rule should be stated as *which range answers which question* rather than as a procedure. |
+| `vitest list --json <path>` filters to that file | **It OVERWRITES that file with ~8400 lines of JSON. Exit 0. Silent. No stderr.** `--json` takes an **optional value**, so the arg parser binds **the next bare token** to it — and a token typed as a *test-file filter* is consumed as the *output destination*. **Reproduced by the orchestrator against a scratch file: 26 bytes → 394,428 bytes, exit 0.** This is the mechanism behind a tracked 246-line test file becoming 8454 lines **that still parsed**; one argument-order error also produced a stray `./true`, which is why the two presented as unrelated kinds of mess. **The safe form is `vitest list <filter> --json` — filter first, `--json` bare and last** (verified: victim file untouched, JSON on stdout). **"Avoid `--json=true`" is the wrong lesson and leaves you fully exposed** — the dangerous form is `--json <path>` with a bare space, which is exactly what someone types when they believe they are filtering. **The detection, since prevention can fail: `git diff --stat` before committing; thousands of lines on a hand-edited file is the signature.** |
+| `vitest list --json=true` prints JSON to stdout | **It prints nothing and silently writes a file named `true` in the project root.** Reproduced by the orchestrator: `--json` → **8292 bytes on stdout**; `--json=true` → **0 bytes on stdout, 8291 bytes into `./true`**, exit 0 both times. **`--help` is the trap, not the protection** — it reads `--json [true/path]`, documenting the literal `true` as the stdout spelling while it behaves as a path. **The gate consequence:** a runner doing `--json=true > before.json`, merging, then `--json=true > after.json` **compares two empty files, sees no diff, sees exit 0 at every step, and reports "zero net test removals"** — a null from an instrument that was never armed, at **§6.4**, the requirement this project has staked its strongest claims on. **Any `vitest list` census needs a `test -s` non-empty guard and the planted-rename control before its result is believed.** The file also resolves against the **project root**, not the cwd, even when vitest is invoked with `--root` from elsewhere. |
+| a count delta establishes "zero net test removals" | **It cannot, and arithmetic is not the weaker evidence — it is the wrong kind.** A gate reported *"zero removals"* on a delta of **+1 file, +12 tests** against its recorded baseline. **`+12` is equally consistent with twelve added, and with fifteen added and three removed.** §6.4 asks for **names**, and no arithmetic over totals can supply one. **The failure to look for is not an unarmed instrument but *no name-set instrument at all*** — and that is worse in the way that matters, because **an unarmed instrument at least leaves a trace to find**, whereas an absent one leaves a plausible number and a clean report. When a §6.4 claim appears, **ask which instrument produced it before accepting the number**; "zero removals" beside a believable delta is the most comfortable unverified sentence in a gate report. |
+| warn the worker about the hazard | **Give the detection, not the warning.** A warning asks someone to be careful, which competes with the task; a detection tells them how to *notice*, which does not. Worked example: rather than *"be careful not to redirect output over a test file"*, the instruction given was **"run `git diff --stat` before committing — a line-count delta in the thousands on a file you edited by hand is the signature."** The hazard it addresses is real and measured: a worker replaced a tracked 246-line test file with **8454 lines of redirected command output, and it still parsed.** |
+| a true warning is a safe warning | **Not when its scope is narrower than the hazard — then it is dangerous *because of what it implies is safe*.** *"Avoid `vitest list --json=true`"* is accurate, names a real failure, and **a worker obeying it exactly would walk into the destructive `--json <path>` form while believing itself warned.** Not a wrong fact and not a provenance error: **a warning narrower than its hazard reads as complete, and the reader's confidence scales with how specific it sounds.** The orchestrator wrote it and a PM relayed it for an hour before a worker reproduced the real mechanism. **The check, applied before sending any warning: does this name the whole mechanism, or one spelling of it?** |
+| the signature of a silent-empty instrument is an empty file | **Not for this one — the destructive form leaves a *corrupted* file, not an absent result.** A census told to hunt for *"an unarmed instrument"* looks for emptiness and finds nothing wrong; the same defect run with a bare-space path **overwrites the file it was told to read**. When a hazard has two mechanisms, **the search for its traces needs widening to both**, or the narrower framing sends the investigator looking for the wrong evidence. |
+| the suite went red, so the new sensor fired | **Check *which* tests failed.** Under a non-dormant plant, S-1's file went red on **two tests — both behavioural sweeps, neither the sensor it had just built.** In its words: ***"'vitest exit 1' is not 'the sensor fired', and the two-failure reading would have been mistaken for coverage."*** The red was produced by **exactly the instruments the new sensor exists because they are insufficient** — so a pass/fail reading credits the new guard with work the old ones did. **A sensor's control must name the sensor's own test, not the suite's exit code.** |
+| a worker's uncommitted file is a partial fix | **It may be an unreverted plant, and adopting it ships the thing the task existed to remove.** D-0's orphan was `site/main.ts`, **outside its declared scope of `site/dist.test.ts`** — and its method required planting a real `@napi-rs` reference into a module reaching the browser bundle. **Adopting those three lines would have injected that reference into the editor entry point: the precise opposite of the task.** Before adopting orphaned work, **ask whether the file is in the task's declared scope**; a file outside it is likelier scaffolding than progress. Capture the diff to a patch first so "discard" stays reversible without being adopted. |
+| a small diffstat means ordinary interrupted work | **Line count is the wrong discriminant, and a plant wears the most innocuous diff there is.** An orphaned tree read as *"44 lines, hand-edited scale, not corruption"* contained a **live un-reverted rot fixture**: `disparityBudget(stereo)` became `disparityBudget(stereo, comfortBias = 0)` with `+ comfortBias` in the body — a **real perception function's signature and arithmetic**, with in-repo callers. **A default-valued parameter is behaviour-neutral at every existing call site, so nothing would have gone red. It would have passed the gate.** The orchestrator made this reading; the PM found the plant by reading the diff. **A dirty-tree capture must grep for plant-shaped edits — added default-valued parameters, changed arithmetic — not just produce a diffstat.** |
+| a plant-and-revert task reverts its plant | **Only if something checks. Build the check into the protocol:** the worker **picks a distinctive plant name, records it, and pastes an empty `grep` for that name into its report before its final commit.** That is the one failure its predecessor had, and a crash between *strengthen* and *revert* leaves sabotage in a tree that looks finished. Pair it with **`git commit -- <explicit paths>`, never `-a`**, so a worker sharing a tree cannot sweep up a neighbour's in-flight plant. |
+| the recurring failure is a null read as evidence | **There is a second shape and it is the same defect with the sign flipped: *noise read as signal*.** Raw `tsc` **exits 2 on a clean tree** — a pre-existing `TS2307 Cannot find module './SvelteSmoke.svelte'` that `svelte-check` resolves and raw `tsc` cannot. **An instrument already non-zero before the experiment cannot distinguish the error you planted from the error that was always there, and it reports the sum.** That is how criterion 8's recorded control, *"TS2344 ×2, exit 2"*, came to be **wrong in both terms** — under `npm run typecheck` it is **one error, exit 1**. **Establish an instrument's reading *before* the plant, not only after.** |
+| a vanished test title is a removal | **It is a rename until triaged, and the asymmetry hides it.** A title-set diff over one delta showed **one title vanishing** — a net removal and a hard gate-blocker. It was a rename: *"…seven configurations tell them apart"* → *"…eight…"*, the count having genuinely moved. **`git log -S` found no removing commit precisely because the unchanged substring is on both sides.** The trap is the asymmetry: **the addition is one of nineteen and the removal is one of one, so only the removal is conspicuous.** A PM was one message from escalating a non-event as a blocker. **Triage is not optional: does the vanished title exist at HEAD in another form?** Net removals over the real delta: **zero**, 1859 → 1876. |
+| comparing against the branch's own baseline finds its test removals | **It cannot see a removal that predates the baseline, and §6.3 and §6.4 interact badly because of it.** §6.3 mandates comparing against the branch's own last recorded baseline; §6.4 asks for net test removals **by name**. A census run both ways disagreed: **against the last gated sha, 0 removals, name sets md5-identical; against the merge-base with `main`, 1** — a retitle from a commit that **predates the last gate**, and therefore invisible to the mandated comparison **forever after**. **Every count delta on that branch had missed it and so would every future one. §6.4's census runs against the merge-base with `main`, not the branch's own last gate** — §6.3's baseline stays correct for *counts*, which is a different question. |
+| the `git` wrapper's stdout banner breaks every script | **It is command-dependent, not universal.** Measured: the wrapper is **byte-identical to `/usr/bin/git` for `show` and `ls-tree`**, so those are safe to script directly; `git stash list` **does** emit the banner. Narrower and more useful than the blanket warning — **check the specific command rather than avoiding the wrapper.** |
+| `vitest list` enumerates the suite | **It omits skipped tests** — an `it.skip` plant dropped the list 1967 → 1966, measured. So a `vitest list` census is a census of *runnable* tests. **And it cannot distinguish a retitle from a delete-plus-add**, which is why its one hit above needed reading by hand. |
+| wait for the worker's clearance request, then grant it | **The request can never arrive, so waiting is a deadlock rather than a protocol.** §1.2g's asymmetry is not occasional: a worker addressing its PM by name got `No agent named … is reachable` **twice**, and a second worker's request would have failed identically. **A PM can reach a live worker. Push the decision unprompted.** The orchestrator briefed "watch for their requests and grant one at a time" and a PM caught that it structurally could not work. **And shape the denial so the criterion stays refutable:** deny with reasons *and an escape hatch* — *"if your acceptance criterion genuinely requires a whole-suite count, my denial makes it unsatisfiable; say so, prove why, and I will serialise you a slot."* Otherwise a denied clearance silently converts into an unmet criterion nobody records. |
+| a handover commit means the predecessor has stopped | **It cannot — a handover commit cannot say "and I may come back."** A PM stood down in a commit message, then **re-engaged past its own stand-down** to merge an orphaned branch (correctly: *"an unmerged branch in a departed PM's worktree is how the salvage nearly got lost"*). Its successor, briefed at the handover sha, merged `main` into **the same primary worktree while the predecessor was still committing into it** — two PMs writing one tree, §1.2b's hazard, **resolved benignly by luck.** **`ps` and the branch, not the handover, are what say whether a predecessor is still writing** — and the orchestrator must confirm that before launching a successor into a shared worktree. |
+| "verified" means the criterion held | **It means the criterion held *as the verifier was able to leave it* — and a verifier that can edit its own target can pass by narrowing.** This phase has three instances with a degree of freedom nobody granted on purpose: a verifier that **amended the criterion it was sent to check** (well-measured, ratified), one that **found the error in its criterion and then passed it**, and one that **passed a criterion whose witness was docblock prose.** All three were ruled not-defects; naming them was the action. **The guard is a brief that says in terms: you fix nothing, you report defects rather than touching them, and a criterion you believe unsatisfiable is a refusal with proof, not an amendment.** *"Verified" is only as strong as the verifier's inability to move the goalposts.* |
+| tier 0 can amend a document while agents are briefed against it | **Not without pushing the correction, and the section you amend is reliably the one a live brief names.** **Three consecutive shifts:** the amended section was the one the brief specifically cited, most recently a §9 audit dispatched at one sha while two commits amending §9 — including one of the audit's own subjects — landed underneath it. **This is not coincidence: tier 0 writes about whatever the live phase is working on, which is what its briefs name.** So when tier 0 amends a section, it must **check whether a live brief cites it and push the correction with a resolution procedure**, exactly as a sha requires one. |
+| a census taken in a scratch tree measures the same thing as one taken in the primary | **Prove it on a known-common point before trusting it on the unknown one.** GATE-P3b-2 ran `vitest list` at the merge-base and at the tip in scratch trees, then **diffed its scratch-tip census against the primary-tip census under `LC_ALL=C sort`** — establishing the scratch harness was faithful *before* believing either number — with `test -s` non-empty guards on both. **This is §1.2o applied to one's own instrument, unprompted, and it is the exact check whose absence produced orchestrator error 34** ("zero removals" accepted from a census nobody had shown could see a removal). **The general form: when you measure somewhere other than where the answer will be used, first measure something both places already agree on.** |
+| `vitest list` can tell a deletion from a skip | **It cannot — the two produce *byte-identical* census deltas, measured.** This cuts both ways at **§6.4**, the requirement this project has staked its strongest claims on: **a silently skipped test reads as a removal, and a real deletion can be waved off as "probably a skip."** Only the suite's own summary line separates them. Third measured limit of that instrument, alongside *omits skipped tests* and *cannot distinguish a retitle from a delete-plus-add*. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
+| `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
 | a standing ruling in the handover was ruled | Not necessarily. "`seek` clamps to the last frame" sat in §4 under *do not re-litigate* for a week. It entered in the handover's **own birth commit**, and the P2 record it purported to settle says the opposite — *"Nothing pins `seek`… P3 must decide"*. It was the orchestrator's inference, formatted as an inheritance, and a PM correctly refused to build on it. **A ruling's authority is the measurement or the decision behind it; `git log -S` finds that in one command.** Where a §4 entry cannot be traced to one, it is a proposal. |
+| the suite measures the code | It measures the code **in the environment you ran it in**, and every tier of this system runs inside the same agent harness. `svelte-check` 4.7.6 picks its output format in `getOutputFormat()`: an explicit `--output` wins, **otherwise it returns `machine` if `process.env.CLAUDECODE === '1'` and `human-verbose` if not.** Two gate harnesses spawned it with `{...process.env}` and parsed for a `COMPLETED` line that only machine format emits. So the suite was green for **every agent that ever ran it** and red on the only machine that ships — `main` was broken for nine hours and eight commits, and no tier could have seen it, because the blindness was in the thing all of them shared. **When a test spawns a child, strip the harness's variables and pin every format the child would otherwise decide by sniffing its environment.** |
+| a failing `expect` inside a child-process callback fails the test | It escapes as an **uncaught exception**, the promise never settles, and the suite sits out the full timeout. This is why the red CI run took **10m45s** against a 43s local suite — `beforeAll` burned 300s and 600s timeouts reporting a verdict it already had at 8 seconds, and the duration was read as "the runner is slow" rather than "the harness hung". **Async harnesses `reject`; they do not `throw` from a callback.** |
+| the last `--output` wins | Not under `mri`, which collects a repeated flag into an **array** — `outputFormats.includes([...])` is then false and the format **silently reverts to human**. `--output human --output machine` emits no `COMPLETED` line. A duplicated flag that degrades instead of erroring is the fail-open shape in argument parsing. |
+| pinning the format in the root `typecheck` script is the clean fix | **It would reintroduce the bug**, and this is only visible by combining two workers who never read each other. The audit worker proposed it as the root fix and escalated, reasoning that svelte-check's "last-wins" would become load-bearing. The fix worker had already **measured that there is no last-wins**: the harnesses *append* `--output machine` to the script's tokens, so a root pin yields a **duplicated flag**, `mri` collects it into an array, and the format **silently reverts to human** — exactly the nine-hour failure, restored by the change intended to prevent it. **Do not make this change.** If the root pin is ever wanted, the harnesses must *replace* the token rather than append it. Neither worker was wrong; the hazard lived in the join. |
 
 ---
 
