@@ -59,6 +59,9 @@
  * *reported*, so the evidence stays visible in CI output without being
  * load-bearing.
  */
+import { existsSync, readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { createCanvas, GlobalFonts } from '@napi-rs/canvas'
 import { nodeCanvas, resolveFontGenerics, CSS_GENERIC_FAMILIES } from './canvas.js'
@@ -68,6 +71,44 @@ import { INK_FRACTION } from '../shared/perception.js'
 import type { Scene } from '../core/types.js'
 
 const canvas = nodeCanvas()
+
+/** Repository root, the same way `canvas.vendored.test.ts` reaches it. */
+const ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+
+/* --------------------------------------------------- the comments' pointers */
+
+describe('this file\'s own comments', () => {
+  it('names no source path that does not resolve', () => {
+    // **Written because this file has now written a stale pointer twice, and
+    // the second time was in the commit that was fixing the first.** The
+    // metric's docblock below records that the threshold's comment used to
+    // point at a bare `export *` shim holding no constant — "a pointer at a
+    // shim rots quietly". The same commit then wrote a new pointer naming a
+    // metamorphic.real module in this directory that has never existed, beside
+    // a sibling filename that resolves only in a different directory. A
+    // recorded note is not a sensor (§9), and "do not write stale pointers" is
+    // the purest form of a recorded note, so the property gets an instrument.
+    //
+    // **Scoped to paths that carry a directory, which is the whole judgement
+    // in this test.** A bare `raster.ts` is a nickname and the reader resolves
+    // it by knowing the repository; demanding it resolve from here would be
+    // wrong, and demanding it resolve uniquely anywhere would have passed the
+    // sibling that caused this. A path with a slash in it is a claim about
+    // where a file is, and that claim is either true or it is not.
+    //
+    // The escape hatch, for the day someone needs to cite a file that is gone:
+    // name it without backticks. This reads the file's own convention — a
+    // backticked path is a pointer — rather than every string in it.
+    const source = readFileSync(fileURLToPath(import.meta.url), 'utf8')
+    const cited = [...source.matchAll(/`([\w.-]*\/[\w./-]+\.(?:ts|js|json|html|md))`/g)]
+      .map(m => m[1]!)
+    const missing = [...new Set(cited)].filter(p => !existsSync(resolve(ROOT, p))).sort()
+    expect(missing).toEqual([])
+    // The vacuity floor, and only that: a count taken from today's comments
+    // would be §9's hand-written list again in numeric form.
+    expect(cited.length).toBeGreaterThan(0)
+  })
+})
 
 /**
  * The ratio a real Latin rendering must clear.
@@ -110,12 +151,24 @@ const LATIN_RATIO = 2
  * now a bare `export *` shim over `src/shared/perception.ts` and holds no
  * constant of its own; a pointer at a shim is a pointer that rots quietly.
  *
- * The same shape, deliberately *not* unified: `src/node/metamorphic.real.ts`'s
- * and `metamorphic.test.ts`'s `runLengths(…, 0.5)` calls. That threshold is
- * **absolute**, not peak-relative, so the two numbers coincide only on a
- * full-depth layer — see `ABSOLUTE_INK_DEPTH` in `metamorphic.real.test.ts`.
- * This one is peak-relative and is the same quantity `measureInk` computes,
- * which is why it imports.
+ * The same shape, deliberately *not* unified: `runLengths`, declared in
+ * `src/core/testing/metamorphic.ts`, takes an **absolute** ink threshold where
+ * this one is a fraction of the layer peak, so the two numbers coincide only
+ * on a full-depth layer. `ABSOLUTE_INK_DEPTH` in
+ * `src/node/metamorphic.real.test.ts` is that threshold named, and carries the
+ * standing ruling against importing `INK_FRACTION` into it. This metric is
+ * peak-relative and is the same quantity `measureInk` computes, which is why
+ * it imports.
+ *
+ * **The constant and the function are cited, and the call sites deliberately
+ * are not.** The sentence this replaces enumerated two files' `runLengths(…,
+ * 0.5)` calls, and by the time it was committed none of it was true: one of
+ * the two paths named a module that has never existed, the other resolved only
+ * in a different directory, and the same commit had already replaced the
+ * literal `0.5` in `metamorphic.real.test.ts` with `ABSOLUTE_INK_DEPTH`. A
+ * named export moves with its rename; a census of who calls it does not. The
+ * census itself has been run — see this file's `names no source path that does
+ * not resolve`, which is the half of that lesson a machine can hold.
  */
 function inkExtent(depth: ArrayLike<number>, w: number, h: number): number {
   let peak = 0
