@@ -164,3 +164,92 @@ relies on `SendMessage` alone, its work does not exist.**"*
 `src/core/testing/sourceclosure.ts`** — ~750 new lines whose other exports went to no
 control. **Findings 1 and 3 are now both discharged by that one module, so its unverified
 surface is load-bearing for two closures, not one.** Orchestrator's to route.
+
+---
+
+## Appended by PM-SHELL-P3b-7 — four items this document did not carry
+
+*Appended beside, nothing above rewritten or deleted, per the standing boundary. These are
+the pieces that existed only in `docs/plans/handover/P3B-REVIEW-FINDINGS.md`, a duplicate
+of this file that I created before this one reached me. **I have deleted that duplicate in
+the same commit** — two documents for one finding set is the "two instruments to keep in
+step" defect that findings 1 and 3 were ruled into a single cure to avoid, and it applies
+to documents.*
+
+### 1. The cure converges on ONE task, and an unmeasured step gates it
+
+§9's own row calls `build.rollupOptions.onwarn` *"a genuine complement"*. A P3b worker
+measured the player side independently: **`onwarn` is one config line covering 9 of 9
+routes**, including the two that no output-reading check can ever see, where porting the
+site-side check is ~90 lines and covers 3 of 5 reachable routes. **Neither
+`vite.player.config.ts` nor `vite.site.config.ts` currently sets `external` or `onwarn`.**
+
+So **one `onwarn` task plausibly closes finding 2, finding 5 (Deviation B) and the
+re-scoped player queue item.** Cost them as one task, not three.
+
+> **OPEN MEASUREMENT, OWED BEFORE ADOPTION AND BEFORE ANY SECOND MECHANISM IS BUILT:**
+> nobody has wired `onwarn` and confirmed it fires for the **default-import** spelling
+> specifically. Every route warns on stderr, but **the cure is unmeasured against the
+> spelling that motivates it.** Do not adopt on the strength of §9's claim — that claim is
+> computed over the four-spelling population this finding shows is incomplete.
+
+### 2. Evidence bearing on the NEW-vs-rediscovery ruling — recorded, not contested
+
+**The ruling stands and the action is unchanged; this is the evidence beside it.** The
+ruling applied the reviewer's decision procedure — *"if the recorded leak leaves a
+browser-external chunk or any `node:` substring, mine is different"* — against the row's
+**dynamic**-form half. The row has a second half, and it says the opposite of the static
+forms:
+
+> *"the dynamic form hides **behind a rewrite**, so grepping the stub cures it; the static
+> forms hide by **leaving no artifact at all** — vite inlines `export default {}` and
+> rollup drops the bare import... **Both static forms — `import 'node:fs'` and `import * as
+> fs from 'node:fs'` — are missed by every instrument in the repo at both commits.**"*
+
+`import os from 'node:os'` is a **third static spelling**, and the row's mechanism sentence
+— *"vite inlines `export default {}`"* — is literally the thing that makes a **default**
+import bind where a named one reddens. So the mechanism is not merely adjacent; it is the
+one recorded.
+
+**Why this is recorded rather than argued:** the ruling's direction is the safe one, and
+being wrong about the label costs nothing while being wrong about loss costs the finding.
+**But the label carries one real risk** — if finding 2 is treated as a distinct route
+needing a distinct cure, someone builds a **second mechanism where one suffices**, which is
+the defect findings 1 and 3 were ruled into a single cure to avoid. **The open measurement
+in item 1 settles the classification and the cure at the same time** and should be taken
+before either is acted on.
+
+What is new beyond dispute, and is the part worth keeping either way: **the row's
+enumeration is incomplete.** *"catches ZERO of four"*, *"onwarn + `dist.test.ts` together
+cover all four"* and *"neither alone covers more than three"* are all computed over a
+population of four with **at least five** members — enumeration-complete, not
+class-complete, inside the row that documents that failure.
+
+### 3. The avoidance that is a result — the G-3 tripwire
+
+The reviewer **deliberately did not touch `site/controls.test.ts`'s G-3 tripwire block**,
+and reported the avoidance rather than staying silent. `theLegacyErasureIsStillReachable`
+asserts that **a hole is open** and deliberately carries no `@ts-expect-error`. It is the
+one block in the diff where the correct action is the **opposite** of every other item in
+the round, and **a closed tripwire reads as a passing test**, so the damage would be
+undetectable afterwards. The block is well-built: three retirement cases enumerated, the
+right one named per case, and a `@ts-expect-error` paired control proving the literal form
+is still refused.
+
+### 4. Two carried risks that resolved AGAINST the brief
+
+Recorded because they are corrections, and a brief's wrong premises should not survive the
+round that disproved them.
+
+- **"The cheapest route to green is deleting `store.test.ts`'s escape report" is FALSE.**
+  Measured: deleting `...escaped` from the return **reddens its own control**. The real
+  residue is narrower and worse-shaped — the docblock's one prohibition is keyed to the
+  **false-negative** trigger, and the file gives **no instruction at all** for the
+  false-positive case the risk actually describes. A reader hitting a legitimate
+  `globalThis` red finds nothing telling them what to do.
+- **`forwardedFrom` "closed by the grammar" is not load-bearing.** Any missing
+  value-forwarding node kind makes `isGlobalRoot` return false → `isDecidedReceiver` fails
+  → the value is pushed to `escaped`: **a false RED, not a false green.** Traced through
+  `await`, assignment and `Reflect.get`. **The claim is safe because it fails in the safe
+  direction, not because the set is closed** — and the docblock argues closedness, which is
+  the wrong reason and the one a future reader would rely on.
