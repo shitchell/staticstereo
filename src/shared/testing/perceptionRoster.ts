@@ -168,6 +168,26 @@ type _NoArityDrift = AssertNever<ArityDrift>
  * has to read the verdict. A function declared `objective` is not required to
  * carry a grade and must not be made to.
  *
+ * **That paragraph described the whole witness until 2026-10-16 and it was a
+ * sensor on criterion 2, not on this column.** V-4 censused all thirteen rows:
+ * flipping one `graded → objective` was detectable **0 times in 13**, because
+ * demoting a row only takes it out of the sweep, and `objective → graded` was
+ * detectable 9 times in 13 — blind for any function already answering with an
+ * object that carries a number. So the declaration below could be wrong in
+ * either direction and nothing would say so, which is how `cardboarding` sat
+ * here as `graded` while `perception.ts` called it *"Objective and ungraded"*
+ * for as long as both files existed. The contradiction was settled on the
+ * module's side (orchestrator, 2026-10-16: *"the roster is wrong and the
+ * module is right"*), and the gap it exposed is closed by
+ * `owns a grade field exactly where the roster says graded`, which makes the
+ * two values of {@link Grading} differ observably in **both** directions.
+ *
+ * **Criterion 2 was not violated under either declaration** and that is worth
+ * keeping straight: `cardboarding` returns a verdict plus three quantities, so
+ * it satisfied *"quantities and a grade"* whichever way it was classified. The
+ * defect was that the column had no operative difference, not that a row broke
+ * a criterion.
+ *
  * The hole this closes was live until 2026-10-15: `legibilityOf` returned a
  * bare `Legibility` string union — a grade with no quantities at all — while
  * `fusionComfort` beside it returned `{budget, plateau, cliff, grade}`. The
@@ -186,7 +206,7 @@ export const GRADING = {
   collidingPairs: ['objective', 'Which layer pairs encode identically: a fact about the encoder, not the viewer'],
   depthStops: ['objective', 'Separations spaced across the encodable range; each stop carries its own numbers'],
   reliefOf: ['objective', 'Does this layer\'s depth vary across its surface — geometry, and the one quantity it derives (restingDepth) is an export the caller can call on the same argument'],
-  cardboarding: ['graded', 'Whether the scene reads as cut-out planes — a perceptual verdict, and it carries depthBlur and blurRelief beside it'],
+  cardboarding: ['objective', 'Whether every layer is a flat plane: a fold over reliefOf, which reads mode/mask/depth off the model, against a blur radius read off the StereoOpts. Nothing is positioned on a scale — the answer is a boolean with the two radii beside it, and perception.ts has said "Objective and ungraded" since it was written'],
   fusionComfort: ['graded', 'How hard the budget is to hold fused, against the 2026-10-12 sweep'],
   legibilityOf: ['graded', 'How a stroke grades against the budget, with both boundaries in scene px'],
   describeLegibility: ['objective', 'The prose formatter, not a grader: it reads legibilityOf\'s grade and renders it. Exempt by nature — its whole answer is one string and the quantities are in it as text'],

@@ -173,6 +173,40 @@ describe('a graded perception function returns quantities beside the grade', () 
     }
   })
 
+  it('owns a grade field exactly where the roster says graded', () => {
+    // **The assertion that makes `Grading`'s two values mean something.**
+    // Until this existed the column was decorative: V-4 censused all thirteen
+    // rows against the sensors above and measured `graded → objective` as
+    // **0 of 13** detectable — demoting a row only removes it from the sweep —
+    // and `objective → graded` as 9 of 13, blind wherever the function already
+    // answers with an object carrying a number (`measureInk`). So the table
+    // was a real ratchet on *membership*, proved by the `AssertNever` pair,
+    // and **no sensor at all on the value in it**.
+    //
+    // **Written as a biconditional, which is what closes both directions.**
+    // The one-line strengthening V-4 ruled on is `graded ⇒ owns a grade`, and
+    // that alone reddens exactly one row of thirteen — `cardboarding`, which
+    // `perception.ts` has always called "Objective and ungraded" while the
+    // roster said otherwise. It leaves `graded → objective` as blind as it
+    // was, because a demoted row is still a row nothing checks. Asserting the
+    // converse too — an `objective` function must *not* own a grade — costs
+    // the same line and makes a demotion of `fusionComfort` or `legibilityOf`
+    // red as well. Measured both ways, row by row, with the census recorded
+    // in this file's commit.
+    //
+    // `grade` by name rather than by shape, because the name is the contract:
+    // `FusionReading` and `LegibilityReading` both spell it, every consumer
+    // reads `.grade`, and a structural test ("some string field") would pass
+    // on `name` in a `DepthStop`.
+    for (const name of PERCEPTION_FUNCTIONS) {
+      const answer = callWith(name, DEFAULT_STEREO)
+      const owns = typeof answer === 'object' && answer !== null
+        && Object.hasOwn(answer, 'grade')
+      expect(owns, `${name} is declared ${GRADING[name][0]} but ${owns ? 'owns' : 'does not own'} a grade field`)
+        .toBe(GRADING[name][0] === 'graded')
+    }
+  })
+
   it('records a reason for every classification, graded or not', () => {
     // The half a machine cannot check is *whether* a function should be
     // graded, so the table forces the author to write the reason a reviewer
