@@ -386,6 +386,28 @@ purity sensor and it is not a type sensor either; it is a bundling sensor.
    change**, which is precisely why deleting a whole line is the weaker control and this is
    the right one.
 
+   ### The bound on hostile planting — worst INPUT is not worst FAILURE SHAPE
+
+   Raised by a verifier against its own PM, and it is the sharpest thing anyone said about
+   controls on this phase:
+
+   > **A hostile plant tests the instrument against the most dangerous INPUT. It does not
+   > test it against the most dangerous FAILURE SHAPE.** What the keybindings case exposed
+   > was not a coverage blind spot but **a red that arrives in a form the measuring
+   > instrument scores as zero.**
+
+   A planted rename is a *detectable* failure arriving in the *expected* shape, so it
+   proves the instrument can see a removal — and proves nothing about an abort. A
+   collection-time throw is a red that a count reads as zero and a title diff reads as 65
+   removals: **the same event, scored two opposite wrong ways by two reasonable
+   instruments.**
+
+   **So: plant the worst input, then check WHAT SHAPE THE RED ARRIVES IN before you
+   believe the count.** Ask of any null or any delta — *could the failure I am looking for
+   present in a form this instrument scores as success?* On this repo the answer has been
+   yes three times: an unbuilt tree that skips and reports green, a `--json` flag that
+   writes nothing at exit 0, and this.
+
    **Also check for the stray before you commit anything.** `git status --porcelain`
    showing `?? true` means someone ran the broken spelling; the file is untracked
    rubbish, delete it. It lands in the **project root**, not your cwd — it resolves
@@ -413,6 +435,49 @@ purity sensor and it is not a type sensor either; it is a bundling sensor.
    additions — or 26 phantom REMOVALS if you take them the other way round, which looks
    exactly like a catastrophic finding.** Take both censuses in the same build state. The
    2026-10-16 run took both unbuilt and its fidelity control caught this live.
+
+   ### ☠☠ A ONE-WORD DOCS EDIT CAN MANUFACTURE 65 PHANTOM REMOVALS. TWO GUARDS, NOT ONE.
+
+   **The single most dangerous thing that can happen to your census, and it is caused by a
+   typo in a markdown file.**
+
+   `site/keybindings.test.ts` calls `chromeSentence(readFileSync(from(DESIGN)))` **at
+   MODULE SCOPE, outside any `it`**. So if the anchor sentence in
+   `docs/plans/2026-10-13-editor-design.md` is perturbed — **one word inserted into a
+   prose paragraph** — the file **throws at COLLECTION time** and produces **no tests at
+   all**:
+
+   ```
+   Test Files  1 failed (1)
+        Tests  no tests
+   ```
+
+   **`vitest list site/keybindings.test.ts` therefore goes from 65 titles to 0, and a
+   name-set census over a tree in that state records 65 REMOVALS** — a hard §6.4
+   gate-blocker, manufactured by a copy-edit.
+
+   **A collection-time throw and a deleted file are INDISTINGUISHABLE to a name-set
+   diff.** Both present as every title in the file vanishing at once.
+
+   **Required: BOTH guards on every census, and neither substitutes for the other.**
+
+   ```sh
+   npx vitest list > census.txt; rc=$?
+   test -s census.txt || { echo "CENSUS EMPTY — instrument unarmed"; exit 1; }
+   test "$rc" -eq 0  || { echo "CENSUS EXIT $rc — a file failed to COLLECT; the census is short, not shrunk"; exit 1; }
+   ```
+
+   - **`test -s` alone does NOT catch it.** The census file is **non-empty** — merely 65
+     titles short.
+   - **The exit code alone is not trustworthy either.** §9 records **two** `vitest list`
+     forms that return empty or corrupted output **at exit 0**. *"Do not trust the exit
+     code on this instrument"* has precedent in this very tool.
+   - **That is precisely why you need both.** Each covers the other's blind spot.
+
+   **And the pass criterion for a collection failure is the FILE-LEVEL result — never a
+   count, never a title diff.** `Tests  no tests` **scores as ZERO FAILURES** under any
+   count-based reading. This is the summary-line discipline, now binding on the docs-reader
+   check too.
 
    ### ⚠ A SHORT GREP FRAGMENT IS NOT A PLANT CHECK — it false-positives on documentation
 
@@ -846,6 +911,28 @@ grepping for the string.
 singly. That is three fast single-file runs and it is the only sound check.** State the
 intersection in your report even when it is empty — *"the merge changed N `docs/` paths, M
 of which are in the runtime reader set"* is a measurement; *"docs-only"* is not.
+
+**⚠ READ THE RESULT AT FILE LEVEL, NOT BY COUNT OR BY TITLE.** A broken anchor in
+`keybindings` yields `Tests  no tests`, which **scores as ZERO FAILURES** on any
+count-based reading and as **65 removals** on a title diff. **The pass criterion is the
+file-level `Test Files N passed (N)` line.**
+
+**⚠ "Each reddens its own reader by name" is FALSE — do not hunt for a test name that
+cannot exist.** Measured:
+- **`views`** reproduces cleanly — six named reds, only the right reader moving.
+- **`keybindings` has NO named-test sensor for that document at all.** It is a
+  **module-scope abort**, and the matcher plus `toBe` mean the parsed value can only be
+  the exact string or a throw. **There is no reachable input on which a named keybindings
+  test goes red over that file.** The merge rule is *strengthened* by this — all three
+  readers move, none silently — but a reader expecting a named failure will search for
+  something that does not exist.
+
+**⚠ Why no grep can replace the three runs: the three readers have THREE DIFFERENT ANCHOR
+KINDS.** A positional contiguous table block (`shadings`), a single-line regex over
+backticked spans (`views`), and **a literal prose sentence in running text**
+(`keybindings`). The dangerous edit for the third is **an ordinary copy-edit — reflowing a
+paragraph** — with no table, no backticks, and nothing a roster-shaped grep would look
+for. **No single grep bounds all three.**
 
 ## Report
 
