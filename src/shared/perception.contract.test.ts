@@ -212,6 +212,29 @@ describe('a graded perception function returns quantities beside the grade', () 
     // graded, so the table forces the author to write the reason a reviewer
     // reads. Identical in kind to `PARAM_KINDS` above, and identically
     // honest about its limits.
+    //
+    // **The 20 is arbitrary-but-safe, and that is the honest account of it
+    // rather than a derivation** (invariant 3: a constant with no recorded
+    // reason is a review failure, so this is the reason). It is a vacuity
+    // floor and nothing more: its whole job is to reject the empty string and
+    // the placeholder that stands in for a reason nobody wrote — `''`,
+    // `'TBD'`, `'todo'`, `'objective'`, `'see above'` are 0 to 9 characters —
+    // while admitting any sentence that actually names where the judgement
+    // came from. There is no measurement behind the number; the length of a
+    // real reason is not a quantity this project has sampled.
+    //
+    // **The margin, measured, because an undocumented floor is the defect and
+    // a documented one still has to be shown to clear.** All 13 `GRADING`
+    // reasons were counted: the shortest is `soloLayerScene`'s 27 characters
+    // ("A Scene with one layer kept"), the longest `cardboarding`'s 310, and
+    // the median around 70. So the floor clears the nearest row by **7
+    // characters** — a 1.35× margin, and thin. A shorter-but-legitimate reason
+    // on a future one-line helper would redden this falsely, and the fix then
+    // is to lower the floor, not to pad the prose.
+    //
+    // Deliberately a different instrument from `PARAM_KINDS`' `toBeTruthy()`
+    // above, which is a floor of 1. That asymmetry is not principled either;
+    // both are vacuity floors and only this one has ever been argued about.
     for (const name of PERCEPTION_FUNCTIONS) {
       const [kind, why] = GRADING[name]
       expect(['graded', 'objective']).toContain(kind)

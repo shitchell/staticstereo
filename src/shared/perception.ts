@@ -132,9 +132,18 @@ export interface InkMeasurement {
   medianRun: number
   /** How many runs the median rests on. */
   runs: number
-  /** The largest finite depth found, which the threshold is a fraction of. */
+  /**
+   * The largest finite depth found, which the threshold is a fraction of.
+   * On the normalised depth axis, 0..1 — the axis the `depthMap` argument is
+   * already on — and **not** scene px; design §10.6 as amended wants the axis
+   * named. {@link InkMeasurement.medianRun} beside it is the px quantity.
+   */
   peak: number
-  /** The absolute depth a sample had to reach to count. */
+  /**
+   * The absolute depth a sample had to reach to count: {@link
+   * InkMeasurement.peak} × the ink fraction, so the same normalised depth
+   * axis, 0..1.
+   */
   threshold: number
   measured: boolean
 }
@@ -429,6 +438,14 @@ export interface CollidingPair {
 /**
  * A layer's depth before any animator runs — the pose design §4.5 calls the
  * resting pose.
+ *
+ * On the normalised depth axis, 0..1 — the `Depth` `Layer.depth` carries,
+ * "0 = background, 1 = nearest to viewer" — and **not** scene px; see
+ * {@link quantisationStep} for why that axis has no px to be in. Design §10.6
+ * as amended binds px quantities only, but requires a symbol in normalised
+ * depth to say so, and this one was the set's one silence: {@link
+ * CollidingPair.gap} and {@link DepthStop.depth} both named their axis and
+ * this did not.
  *
  * **`?? 1` is not a local default.** It is the one `raster.ts` composites
  * with: `const layerDepth = layer.depth ?? 1`, hoisted there because presets
@@ -1089,9 +1106,14 @@ const RELIEF_OF: { [T in Layer['type']]: (layer: LayerOf<T>) => LayerRelief } = 
  *
  * Advisory only (R22 obligation 2): never throws, and that includes a
  * discriminant no `Layer` variant has. Both validators do reject an unknown
- * `type` by name (`src/cli/scene.ts:263`, `site/scene.ts`'s `LAYER_TYPES`), so
- * the case is not reachable *through them* — but nothing obliges a caller to
- * have used one. This module is handed a `Scene` an editor is holding
+ * `type` by name — `src/cli/scene.ts`'s `validateLayer`, which tests `type`
+ * against its `LAYER_TYPES`, and `site/scene.ts`'s `LAYER_TYPES` — so the case
+ * is not reachable *through them*, but nothing obliges a caller to have used
+ * one. **Both cited by symbol, because the line this named rotted.** It read
+ * `src/cli/scene.ts:263`, which was the layer-type rejection when it was
+ * written and is this branch's `"size" must be [width, height]` cast now; a
+ * fresh line number would only restart that clock.
+ * This module is handed a `Scene` an editor is holding
  * mid-edit, and it may not refuse. The honest answer to an unreadable
  * discriminant is the same as `draw`'s.
  */
