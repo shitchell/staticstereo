@@ -60,7 +60,42 @@ cannot be tree-shaken: **`build` 0 · `typecheck` 0 · `build:site` 0 · `npm te
 **tree-shaken out, bundle hash unchanged.** That green was *correct, not blind*, and it
 declined to cite it. **Only the non-shakeable form is evidence.**
 
-### ORCHESTRATOR RULING — DIFFERENT AND NEW
+### ORCHESTRATOR RULING — **WITHDRAWN. Error 45.** It was made against half the record.
+
+**I ruled "different and new". That ruling is withdrawn.** I applied the reviewer's decision
+procedure to **`main`'s copy of §9, which carries only the *dynamic* row.** The **static**
+row — **on `feat/p3b-store`, in 26 lines `main` does not have** — says exactly this
+mechanism and says it first:
+
+> *"Both static forms … are missed by **every instrument in the repo at both commits**. The
+> mechanism is the **opposite** of the one recorded above: the dynamic form hides *behind a
+> rewrite*, so grepping the stub cures it; the static forms hide by **leaving no artifact at
+> all** — vite inlines `export default {}` and rollup drops the bare import, so **a text grep
+> and an AST specifier reader are blind in exactly the same place, because there is no
+> specifier left to read.**"*
+
+**So finding 2 is largely a REDISCOVERY**, including the clause I thought was new — that the
+ESC-9 parse-based reader is blind too. **What survives as genuinely new is narrower: the
+default-import spelling is a *third* static form**, where the row names two, so **the row's
+"four spellings" arithmetic is computed over a population of at least five.**
+
+**The structural cause is worse than the mistake:** `§9` exists in **two diverged copies**.
+The branch amended it; `main` will not have those 26 lines until P3b merges. **So tier 0
+ruled from a stale copy while the PM read a fresher one** — and neither of us could see that
+from our own side.
+
+**AND THE RULING WOULD HAVE COST SOMETHING REAL.** PM-SHELL-P3b-7: *treating finding 2 as a
+distinct route invites **a second mechanism where one suffices** — the exact defect findings
+1 and 3 were ruled into a single cure to avoid, one ruling earlier.* The branch row already
+names the cure: **`onwarn` catches the three resolved forms and is structurally incapable of
+seeing `require`; `onwarn` + `dist.test.ts` together cover all four, neither alone covers
+more than three.**
+
+**ORDERED BEFORE ANY ACTION ON FINDING 2 OR FINDING 5: wire `onwarn` and measure whether it
+fires for the default-import spelling.** If it does, **one task closes finding 2, finding 5
+and the player item.** Do not build a second mechanism before that measurement exists.
+
+### Superseded ruling, kept because the error is instructive
 
 The reviewer supplied a decision procedure and refused to apply it itself, lacking the
 recorded hole's subject. **Applied: the recorded leak — `await import('node:fs')` — DOES
