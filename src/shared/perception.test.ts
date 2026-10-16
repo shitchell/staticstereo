@@ -317,6 +317,37 @@ describe('describeLegibility, at the new path', () => {
     expect(line).not.toMatch(/rais\w*\s+sepNear|sepNear\s+to\s+\w/i)
   })
 
+  it('does not offer the budget as a legibility lever on the tight branch either', () => {
+    // **P7 criterion 5 says "both branches", and until now only one was
+    // watched.** The assertions in the test above run on `inkOf(9)`, which is
+    // under the budget and so takes the `illegible` branch; nothing graded the
+    // `tight` branch for the same advice. Measured: planting the shipped
+    // string back into `describeLegibility`'s `tight` branch alone left this
+    // file at 24 passed, and left all 128 unasserted `[measured]` values
+    // byte-identical. A sensor aimed at one branch is not a sensor for a
+    // criterion about two.
+    //
+    // The fixture is **established, not assumed**. `site/legibility.test.ts`
+    // reaches the tight branch with a literal `at(20)`; that number is only
+    // tight because that file's stereo happens to give a budget of 18, and
+    // copying it here would be a second place the boundary is written down.
+    // So the stroke is derived from the budget this file's own stereo
+    // produces, and `grade` is asserted before the string is read — if the
+    // boundaries ever move, this reddens as a wrong fixture rather than
+    // silently sliding onto `illegible` or `clear` and re-testing the half
+    // that already had a witness.
+    const budget = perception.disparityBudget(DEFAULT_STEREO)
+    const ink = inkOf(budget + 1)
+    expect(perception.legibilityOf(ink, budget).grade).toBe('tight')
+    const line = perception.describeLegibility(ink, DEFAULT_STEREO)
+    expect(line).not.toMatch(/depth range|shallower|less depth/i)
+    // Same carve-out as the illegible case: the line names `sepNear` in
+    // `(sepFar 110 − sepNear 92)` so the budget stays checkable, and that
+    // mention must survive. What must be gone is sepNear as an *instruction*.
+    expect(line).toContain('sepNear 92')
+    expect(line).not.toMatch(/rais\w*\s+sepNear|sepNear\s+to\s+\w/i)
+  })
+
   it('keeps the clear boundary visible, as a quantity and as the multiple', () => {
     // The trap in rewording this branch: `${TIGHT_MULTIPLE}×` was the grade
     // boundary's **only** user-facing appearance, so a reword that dropped it
