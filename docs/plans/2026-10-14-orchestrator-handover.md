@@ -182,6 +182,123 @@ re-confirmed once `pages` is green again.
 
 ---
 
+## 2a. THE SESSION IS OUT OF SUBAGENTS — read this first
+
+**The 2026-10-15 session exhausted its subagent pool at 200/200**, which is the built-in
+default (no `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` in the environment or in
+`~/.claude/settings.json`). **Both live PMs can dispatch nothing further.** A fresh session,
+or that variable raised, resumes everything.
+
+**Nothing is lost and nothing is half-done.** Both PMs stood down at clean boundaries with
+clean working trees, and the session's scratchpad artefacts — which would have died with it
+— are committed under **`docs/plans/handover/`**, with a README explaining that they are
+**frozen snapshots, outranked by this document and by commit messages.**
+
+**A third PM was killed mid-shift by an expired login, and left 782 green but unverified
+insertions.** Salvaged to **`salvage/p3b-criterion-22`** (`b27a315`, pushed) rather than
+onto the phase branch, which stays clean at `febb020`. Measured by the orchestrator on the
+tree as found: typecheck 0 over 455, build 0, build:site 0, test 0, **82 files / 1955
+passed / 0 skipped**, +7 tests over `62696ae`.
+
+**Recovered after the PM was resumed from its transcript, and it corrects this entry twice.**
+First: **verification is NOT owed on A-4, C-1 and C-2 — V-BC completed before the kill** and
+its report simply never reached the orchestrator. RED was re-established individually for
+all three, every plant into the real modules, grep-confirmed and built before any verdict
+was read. **Criterion 9 first half MET, second half MET WITH FINDINGS, criterion 8's A-4
+clause MET WITH FINDINGS.** The 134M worktree removed as "stale" was V-BC's, and it was
+correctly empty **by design** — it committed nothing and archived to the scratchpad.
+
+Second: **"most of H-2" overstates it.** H-1's brief forbade building H-2's sensor but
+authorised a plant-and-revert compile demonstration for its own acceptance criterion, so the
+salvage is most likely **H-1 plus its own demonstration**. **H-2's approved fourth
+`svelte-check` harness is a separate artifact** with four mandatory conditions (strip
+`CLAUDECODE`; pin `--output machine` on its own spawn, never the root script; `reject` never
+`throw` from a callback; parse-failure and criterion-not-met distinguishable) plus a
+wall-clock re-measure against the 94s budget.
+
+**Three V-BC findings to hold.** **A-4's duplication guard has a measured hole** —
+reassignment defeats `undelegated`, tag-free selection defeats `tagsNamed`, and both at once
+ship invisible at test 0 / typecheck 0, so `store.test.ts:277`'s "fails closed" claim is
+**false** for that case. **Criterion 9's vacuity floor lives in a different test from the arm
+it floors** — replacing `snapTime`'s whole body with a constant reddens 14 tests and *not*
+the agreement arm. And **C-2's clock-sensor weakness was correctly flagged but wrongly
+diagnosed**: not the hand-written-list shape but **member-name suppression** —
+`globalThis.Date.now()` evades a roster `Date` is already on, so extending the roster cures
+nothing.
+
+**On the salvage, now evidenced rather than inferred.** **RED was observed** — two distinct
+RED states recovered from the killed agent's transcript, `6 failed | 44 passed` and
+`1 failed | 49 passed`, GREEN progressing 50 → 51 and the suite 1948 → 1954. **But RED
+observed is not RED attributed**: no per-claim ledger survives, which is exactly what the
+missing report would have carried. **The compile-rejection wall has been seen to fail** —
+`typecheck=1` six times against `typecheck=0` four times, with `1 ERRORS` and `2 ERRORS`
+lines — so it is not an unexercised assertion. **The residue is derived, not asserted**: the
+partition is total over `CONTROL_IDS.length` measured at 63, membership is checked against a
+registry-derived set, and there is **no `startsWith('preset.')` and no literal `'preset.*'`
+anywhere** — it also obeyed the arity trap by citing the length rather than pinning a
+written-down total. **And it was definitively mid-flight**: the agent's last output is an
+instruction to itself to extend the parser cross-check.
+
+**The adoptable path is one task, not a rebuild:** a worker reads the salvage diff,
+re-establishes RED per claim, finishes the parser cross-check, and reports the mechanism —
+**how the computed-string-key erasure was avoided is still unknown**, and `TS2322 ×32` is
+consistent with a shape that preserves field types without being proof of one.
+
+**Superseded inference, kept because it was wrong in a way worth seeing** — from added
+exports and test titles only it read as **H-1 and most of H-2, criterion 22**: `WritableControlId`, `SetAction`,
+`WRITABLE_CONTROL_IDS`, `unwritableControls`, a writable/residue partition over
+`CONTROL_IDS`, and a second-clause pair asserting a wrong-typed write fails to compile.
+**If that reading holds, it answers the question briefed as permitted-to-fail** — H-1 was
+explicitly allowed to return *"this shape cannot be typed in TypeScript"*, because SPIKE-1
+had measured the counter-example and nobody had measured a solution.
+
+**Nothing about it is established.** No RED was observed by anyone, so every new test needs
+its RED re-established individually; "the residue is exactly the preset family" is an
+unchecked claim about 46 of 63 controls; a worker killed mid-flight can leave a coherent,
+passing, **half-scoped** tree; and a fails-to-compile assertion that cannot be made to
+compile-and-fail is the paired-control problem in its purest form. **Adopt it through a
+verifier that implemented none of it, or discard it and rebuild — discarding is a
+legitimate outcome, not a waste.**
+
+A stale 134M agent worktree under `.claude/worktrees/` was checked for unique commits and
+uncommitted work (**none**) and removed.
+
+**The next three actions, in order:**
+1. **P1/P7: dispatch verifier clusters V-2 and V-4.** Briefs are written and ready as
+   `docs/plans/handover/BRIEF-V2.md` and `BRIEF-V4.md`, with
+   `VERIFIER-COMMON-BRIEF.md` as the shared preamble — all three already carry the two
+   completed verifiers' cross-cluster findings as binding addenda. Then the five findings
+   below, a reviewer at two rounds, a gate runner, and a push with a green `ci` run.
+2. **P3b: continue cluster H.** Task definitions are `git show 62696ae` (authoritative;
+   the copy in `handover/` is not). Verification is still owed on A-4, C-1 and C-2.
+3. **Shaun owes a ruling on case E** (+27.4% stored on flat-graphic projects). The
+   container format is frozen until then.
+
+**P1/P7's five verifier findings that are work, not notes:**
+- **`cardboarding` is declared `graded` in the roster and "Objective and ungraded" in the
+  module**, with a *passing* test titled `reports quantities and no grade`. If the roster is
+  right, **P7 criterion 2 is violated.**
+- **The `GRADING` ratchet is blind in the objective direction** — flipping either
+  `cardboarding` or `fusionComfort` to `objective` reddens nothing. **That is how the above
+  ships green.**
+- **`src/shared/purity.test.ts:505-507` is false.** A mis-pathed `rootDir` and a moved
+  `outDir` both leave it 15/15 green, and 23/23 with the freshness file it delegates to.
+  **Both guards certify a `dist/` that `tsc` no longer writes.**
+- **Criterion 7's guard tests the fixture, not the construction.** Content-dependent method
+  selection in `writeStst` leaves 421 tests green — the exact class the criterion exists to
+  remove. Met by code today, unprotected against rot.
+- **The third purity hop is live next door.** `src/core/purity.test.ts` has no closure
+  assertion, so `shared → core → core/testing → typescript` is green on an unbuilt tree.
+  Criterion 8 is scoped to `src/shared/` and **is MET**; **ruled: the neighbour is in
+  scope** — it is the same defect one file over, removed for `src/shared` by this phase and
+  left standing, and *"a conclusion propagates; the thing that spent it does not."*
+
+**And a new instrument failure worth a §9 row:** a shell glob **silently no-opped a
+mutation and both arms reported green** — a false null that would have confirmed a commit
+for the wrong reason. **Apply mutations from patch files, never from a glob.**
+
+---
+
 ## 3. Live agents
 
 **Both slots are full, launched 2026-10-15 from `c4f4b7f`.** The cap is two.
