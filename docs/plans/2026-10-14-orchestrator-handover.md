@@ -200,8 +200,52 @@ onto the phase branch, which stays clean at `febb020`. Measured by the orchestra
 tree as found: typecheck 0 over 455, build 0, build:site 0, test 0, **82 files / 1955
 passed / 0 skipped**, +7 tests over `62696ae`.
 
-From added exports and test titles only — **inference, not a reading of the source** — it is
-**H-1 and most of H-2, criterion 22**: `WritableControlId`, `SetAction`,
+**Recovered after the PM was resumed from its transcript, and it corrects this entry twice.**
+First: **verification is NOT owed on A-4, C-1 and C-2 — V-BC completed before the kill** and
+its report simply never reached the orchestrator. RED was re-established individually for
+all three, every plant into the real modules, grep-confirmed and built before any verdict
+was read. **Criterion 9 first half MET, second half MET WITH FINDINGS, criterion 8's A-4
+clause MET WITH FINDINGS.** The 134M worktree removed as "stale" was V-BC's, and it was
+correctly empty **by design** — it committed nothing and archived to the scratchpad.
+
+Second: **"most of H-2" overstates it.** H-1's brief forbade building H-2's sensor but
+authorised a plant-and-revert compile demonstration for its own acceptance criterion, so the
+salvage is most likely **H-1 plus its own demonstration**. **H-2's approved fourth
+`svelte-check` harness is a separate artifact** with four mandatory conditions (strip
+`CLAUDECODE`; pin `--output machine` on its own spawn, never the root script; `reject` never
+`throw` from a callback; parse-failure and criterion-not-met distinguishable) plus a
+wall-clock re-measure against the 94s budget.
+
+**Three V-BC findings to hold.** **A-4's duplication guard has a measured hole** —
+reassignment defeats `undelegated`, tag-free selection defeats `tagsNamed`, and both at once
+ship invisible at test 0 / typecheck 0, so `store.test.ts:277`'s "fails closed" claim is
+**false** for that case. **Criterion 9's vacuity floor lives in a different test from the arm
+it floors** — replacing `snapTime`'s whole body with a constant reddens 14 tests and *not*
+the agreement arm. And **C-2's clock-sensor weakness was correctly flagged but wrongly
+diagnosed**: not the hand-written-list shape but **member-name suppression** —
+`globalThis.Date.now()` evades a roster `Date` is already on, so extending the roster cures
+nothing.
+
+**On the salvage, now evidenced rather than inferred.** **RED was observed** — two distinct
+RED states recovered from the killed agent's transcript, `6 failed | 44 passed` and
+`1 failed | 49 passed`, GREEN progressing 50 → 51 and the suite 1948 → 1954. **But RED
+observed is not RED attributed**: no per-claim ledger survives, which is exactly what the
+missing report would have carried. **The compile-rejection wall has been seen to fail** —
+`typecheck=1` six times against `typecheck=0` four times, with `1 ERRORS` and `2 ERRORS`
+lines — so it is not an unexercised assertion. **The residue is derived, not asserted**: the
+partition is total over `CONTROL_IDS.length` measured at 63, membership is checked against a
+registry-derived set, and there is **no `startsWith('preset.')` and no literal `'preset.*'`
+anywhere** — it also obeyed the arity trap by citing the length rather than pinning a
+written-down total. **And it was definitively mid-flight**: the agent's last output is an
+instruction to itself to extend the parser cross-check.
+
+**The adoptable path is one task, not a rebuild:** a worker reads the salvage diff,
+re-establishes RED per claim, finishes the parser cross-check, and reports the mechanism —
+**how the computed-string-key erasure was avoided is still unknown**, and `TS2322 ×32` is
+consistent with a shape that preserves field types without being proof of one.
+
+**Superseded inference, kept because it was wrong in a way worth seeing** — from added
+exports and test titles only it read as **H-1 and most of H-2, criterion 22**: `WritableControlId`, `SetAction`,
 `WRITABLE_CONTROL_IDS`, `unwritableControls`, a writable/residue partition over
 `CONTROL_IDS`, and a second-clause pair asserting a wrong-typed write fails to compile.
 **If that reading holds, it answers the question briefed as permitted-to-fail** — H-1 was
