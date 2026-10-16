@@ -184,10 +184,15 @@ re-confirmed once `pages` is green again.
 
 ## 2a. THE SESSION IS OUT OF SUBAGENTS — read this first
 
-**The 2026-10-15 session exhausted its subagent pool at 200/200**, which is the built-in
-default (no `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` in the environment or in
-`~/.claude/settings.json`). **Both live PMs can dispatch nothing further.** A fresh session,
-or that variable raised, resumes everything.
+**RESOLVED — the cap does not carry across a session restart.** *(2026-10-16.)* The
+2026-10-15 session exhausted its subagent pool at 200/200, the built-in default, and
+**both live PMs could dispatch nothing.** Shaun stopped and resumed the session; the
+counter reset and dispatches have worked since. **A later PM re-tested it rather than
+inheriting this paragraph** — by dispatching a worker that does real work, not a probe —
+and it spawned. **Do not inherit "BLOCKED" from this section; it is history.** The scratchpad
+id is shared across the restart but the task-session id is not, which is the likely
+mechanism. Raising `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION` before a long session is still
+worth doing: this one burned 200 agents.
 
 **Nothing is lost and nothing is half-done.** Both PMs stood down at clean boundaries with
 clean working trees, and the session's scratchpad artefacts — which would have died with it
@@ -438,6 +443,7 @@ orchestrator.
 | 23 | Wrote a criterion as *"assert the strip width equals the margin width"* — **true only at even `sepFar`.** `floor` versus `ceil`: at 111 the left strip is 55 against a margin of 56. An implementer would have written the equality, watched it pass at the default 110, and shipped a sensor green only because nobody swept an odd number | the PM refused to dispatch the sentence and proved it with a sweep |
 | 22 | **Recorded my own inference as a standing ruling** — "`seek` clamps to the last frame" — in §4, under *do not re-litigate*, in this document's **birth commit**, when the P2 record it claimed to settle says "P3 must decide". A ruling with no decision and no measurement behind it, wearing the format of an inheritance | the PM declined to build two tasks on it and asked for the provenance |
 | 21 | **Relayed a finding whose premise was measurably false, twice, with two different wrong counts** — "three modules absent from `toHaveLength(7)`, none reddens it", then "eight". The list is 7 of 7 correct; the eight are in neither bundle and planting them *reddens* the suite; and the check already had teeth. I propagated a P3a finding into two tier-0 documents without ever asking whether a single command would settle it | the PM's survey planted all three cases |
+| 32 | **Wrote a branch-point rule with the range direction backwards** — *"if `main..HEAD` touches `src/`, `site/`, config or tests, stop and escalate"*. That range is **the branch's own work**, which is supposed to touch `src/`; measured 39 commits over 46 files, so the rule fires on every healthy feature branch. The direction carrying the risk is **`HEAD..main`**. **The project has now had this rule wrong four times** — three in a worker boilerplate, once from me | the PM measured both directions instead of obeying one |
 | 31 | **Told reviewers to scope with `main...HEAD`, three dots — right for the diff, wrong for the count.** `rev-list --count` over three dots is the **symmetric difference**, so it adds every commit `main` gained since the merge-base: measured **58** against the true **30**. A reviewer reported 54 and re-derived it rather than quoting me. **It shipped inside the correction for error 27, which was itself a commit count** — I fixed a wrong count by handing out a command that produces a different wrong count, and both numbers were plausible | the reviewer re-derived instead of quoting |
 | 30 | **Misread a relayed "gives 0 vs 4" as evidence an instrument was blind, and wrote that into §9 as fact** — where it meant the opposite: 0 at baseline, 4 on the skipped run, i.e. the instrument discriminating correctly. A PM then applied my false row faithfully, concluded a committed document was defective, declined to cite it to workers, and flagged a landed commit's evidence as resting on an unshown instrument. **All three conclusions were sound reasoning from a premise I got wrong.** Measured over four real logs: `grep -c 'skipped'` gives 2, 2, 3 on 22/22/26-skip runs and 0 on a zero-skip run | caught by re-measuring my own row when a PM acted on it |
 | 29 | **Quoted "94s" as the CI budget in brief after brief, when it was a single sample of a quantity that varies 93–108s** — and a quarter of which is `apt-get install ffmpeg`, not the suite at all. I cited a three-significant-figure number for a thing I had measured once and never decomposed, and every PM inherited it | H-2 measured the job's composition instead of quoting mine |
