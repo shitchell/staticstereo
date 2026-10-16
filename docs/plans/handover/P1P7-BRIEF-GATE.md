@@ -14,6 +14,14 @@ timed out a merged-phase test on this box**, and the count just went from three 
 **Do not infer the slot from a quiet `ps`** — the other phase's run may not have started
 when you look. Wait to be told.
 
+**This is the ONE legitimate wait in this brief, and the distinction is directional.**
+Waiting to be **TOLD** something is safe: PM→worker messages arrive reliably, so a slot
+grant will reach you. Waiting for an **ANSWER to a question you asked** is a deadlock:
+worker→PM messages can silently fail to arrive (§1.2g, measured twice on a sibling phase),
+so the question never lands and the answer never comes. **Wait for a push; never wait on a
+pull.** See the step-0 note below, which applies that rule everywhere this brief says "ask
+your PM".
+
 Read first, in full — **its §§0, 3, 4, 6, 7, 8 bind you; ignore §1, §2, §9.**
 
 **Durable source, use this one:**
@@ -100,8 +108,25 @@ git status --porcelain          # must be EMPTY
 git diff --stat HEAD            # must be EMPTY
 ```
 
-and if either is not, **stop and ask your PM whose change it is** — do not `git checkout --`
+and if either is not, **stop and report whose change it might be** — do not `git checkout --`
 it yourself on the assumption it is rubbish. One of those 451 KB could have been real work.
+
+**⚠ "ASK YOUR PM" IS NOT A PROTOCOL — DO NOT BLOCK ON A REPLY.** The agent mesh is
+asymmetric (§1.2g): **a worker's message to a named PM can simply never arrive.** A sibling
+phase's worker got `No agent named … is reachable` **twice**, and a PM instruction to "wait
+for your worker's request and grant one at a time" was measured to be a **deadlock rather
+than a protocol** — the request never lands, so the grant never comes, and the worker waits
+forever looking like it is working.
+
+Wherever this brief says "ask your PM", read it as: **send the message, then keep going or
+stop and report — never wait.** Your PM can reach you; you may not be able to reach it, and
+a decision that must be pushed cannot be awaited.
+
+**Your FINAL REPORT is the channel of record.** Anything you would have asked goes in it,
+marked clearly as a question you could not get answered. A gate run that halts silently
+waiting for a reply has produced nothing; a gate run that stops and reports *"dirty tree,
+here is the diff, here is whose I think it is, I did not resolve it"* has produced the most
+useful thing available to it.
 
 **Stopping is not enough: capture and report WHAT is dirty and how.** *"Dirty tree,
 stopping"* hands the decision upward without the evidence needed to make it — it costs a
