@@ -117,6 +117,14 @@ export interface ZipArchive {
   readonly directories: readonly string[]
 }
 
+/**
+ * `PK\x03\x04`, `PK\x01\x02`, `PK\x05\x06` — the local file header, central
+ * directory header and end-of-central-directory signatures. Each literal is
+ * the **little-endian `uint32` read** of those four bytes, so it reads
+ * back-to-front from the bytes on disk: `50 4b 03 04` is `0x04034b50`. The
+ * ZIP64 pair below already said what it was; these three did not, and the
+ * reversal is the one thing about them a reader cannot check by eye.
+ */
 const SIG_LOCAL = 0x04034b50
 const SIG_CENTRAL = 0x02014b50
 const SIG_EOCD = 0x06054b50

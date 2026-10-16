@@ -55,6 +55,17 @@ export interface ZipEntry {
   readonly method: ZipMethod
 }
 
+/**
+ * `PK\x03\x04`, `PK\x01\x02`, `PK\x05\x06` — the local file header, central
+ * directory header and end-of-central-directory signatures.
+ *
+ * Each literal is the **little-endian `uint32` read** of those four bytes, so
+ * it reads back-to-front from the bytes on disk: `50 4b 03 04` is `0x04034b50`.
+ * Written down because the reversal is the one thing about these that cannot
+ * be checked by eye against the spec, and because `writeZip` emits them with
+ * `setUint32(…, true)` — change the endianness flag and the constants become
+ * wrong without changing.
+ */
 const SIG_LOCAL = 0x04034b50
 const SIG_CENTRAL = 0x02014b50
 const SIG_EOCD = 0x06054b50
