@@ -862,6 +862,50 @@ machine at all**, which is R17's core clause and not merely the "continue editin
 rewriting `src` on read) is innards and therefore mine; **the status is Shaun's and goes to
 him the moment it is measured, whichever way it lands.**
 
+**MEASURED 2026-10-17 — appended beside the paragraph above rather than rewriting it,
+because the inference was recorded as an inference and the record of that is worth keeping.
+It held.** With a positive control established on machine A first (depth map dumped and
+md5-compared against the same scene with `layers: []`, so "exit 0" was not the evidence):
+
+| `src` spelling | machine B, holding only the `.stst` |
+|---|---|
+| absolute path, `image` | **throws** `failed to load image "…": Invalid URL`, exit 1, no output |
+| absolute path, `gif` | **throws** `failed to read GIF "…": ENOENT` |
+| relative path, both | **throws** — resolved against **process cwd**, never against the `.stst` |
+| `data:` URI, both | **renders, byte-identical to A** |
+| `file:` URI | rejected for `image`, accepted for `gif` — the two layer types do not take the same spellings |
+
+**The shipped exporter prints `scene + 0 members`** for a scene with an image layer, and
+**no shipped code path anywhere produces a `data:` src** — so the one spelling that works is
+one the product cannot emit, and for every project the tooling can create the answer is
+**no**. It fails **loudly** rather than silently, which is the one mercy here.
+
+**Three independent missing links; repairing any one alone changes nothing.** (1) `src` is
+carried verbatim and never rebased — measured through `readStst` *and* `loadProject`, and a
+relative `src` read with cwd forced to `/` returns the literal `"ball.png"`. (2) **No code
+path connects a member to a renderer** — a recording canvas saw exactly one load request,
+the raw `src`, with the correct bytes sitting unused in `sources/` **and** `masks/` in the
+same archive. (3) Nothing writes the member in the first place.
+
+**Why nothing caught a merged, requirement-closing defect:** `grep -c "renderFrame\|rasterDepth"`
+is **0 in all four `.stst`-reading test files.** **No test anywhere renders a scene that was
+read from a `.stst`.** The existing sensor is round-trip fidelity, which is a *different
+property* from resolvability — and `containerRead.test.ts:326` only appears to exercise the
+layer→member link because its fixture's `src` is coincidentally the bare name `'spin.gif'`.
+
+**A fourth defect, found on the way and owned by nobody:** two layers whose sources share a
+basename are **unrepresentable** — `writeStst` throws `duplicate zip entry name:
+sources/logo.png`, and the only escape, a directory inside a member name, is explicitly
+refused. `layerName()` returns `"logo.png"` for both, so they are indistinguishable in the
+UI as well. **`data:` is not the cure for any of this:** §6.1 makes `.stst` *the path for
+assets too big for a URL*, so baking to `data:` reinstates the problem the container exists
+to solve.
+
+**The full acceptance test is pre-registered as plan §7's P5 criterion 6**, because the
+re-derivation half is P5's to build while the container half is already merged, and a
+criterion that lives only in a design paragraph has no owner. The pointer is deliberately
+two-way: this section states the test, that criterion owns it.
+
 Lives in `src/shared/`; **`stst` reads and writes it** (R18). A project format only the
 website could open would be the first asymmetry in an architecture that is otherwise one
 core with a CLI and a site at parity. Animated GIF layers are what it is for — multi-frame

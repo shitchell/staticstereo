@@ -82,18 +82,18 @@ export const MANIFEST_VERSION = 1
  *   inflating a thing. Putting any entry ahead of it silently costs that and
  *   nothing else notices.
  *
- *   **The "and stored" half of the convention is now vacuous here, and that is
- *   worth saying rather than leaving for a reader to wonder at.** The
- *   convention has two clauses because ODF and EPUB deflate everything else;
- *   `writeStst` stores everything (see its docblock — criterion 7), so
- *   `mimetype` is no longer special in *method*, only in *position*. The
- *   distinction that made the clause meaningful is gone, and the fixed-offset
- *   property it bought is now a consequence of the archive-wide rule rather
- *   than of an exception made for this entry. What still has to be defended,
- *   and what `container.test.ts` still asserts as an offset relation, is that
- *   `mimetype` comes **first**. If the all-store ruling is ever reversed, the
- *   exception has to come back with it, and this paragraph is the record of
- *   why it existed.
+ *   **The "and stored" half of the convention is load-bearing again**, and
+ *   the record of why it stopped being so is worth keeping. Between
+ *   2026-10-15 and 2026-10-17 `writeStst` stored every entry, so `mimetype`
+ *   was special in *position* only and this docblock said the clause had gone
+ *   vacuous. Design §6.2's case-E ruling of 2026-10-17 deflates everything
+ *   but this entry, which restores the exception and with it the distinction:
+ *   `mimetype` is now the one entry whose **method** is chosen for it, and
+ *   the fixed-offset property is bought by that exception rather than by an
+ *   archive-wide rule. Both clauses are asserted — position by
+ *   `container.test.ts`'s entry-order tests, method by the same file's
+ *   offset relation, which reads the media type at 30 + 8 bytes and cannot
+ *   pass over a deflated first entry.
  * - **`scene.json` second.** Design §6.2's stated reason for choosing a real
  *   zip is "so anyone can `unzip` it and read `scene.json`"; it is the
  *   substance of the file and sits at the front of it.
@@ -249,49 +249,69 @@ function byName(members: readonly StstMember[]): StstMember[] {
  * one carrying a key that is on no roster — fails here rather than becoming an
  * archive with a quietly reduced `scene.json` inside it.
  *
- * ## Every entry is **stored**, and that is criterion 7's whole mechanism
+ * ## `mimetype` is stored, everything else is deflated
  *
- * Criterion 7 asks for identical bytes from the CLI and the site. Deflating
- * would make that rest on two engines' deflaters agreeing, and they do not:
- * `CompressionStream('deflate-raw')` was measured byte-identical between Node
- * 22.14.0 and Chromium 151 across nine fixtures, and **Firefox 153 emits +59%
- * while WebKit 26 emits 10.7x**, diverging at byte 0 or 1. All four round-trip
- * exactly; none is wrong. The Streams spec fixes no level, no strategy, no
- * `memLevel` and no `windowBits`, so Node and Chromium agree only because both
- * wrap zlib at its default 6, and nothing holds them there.
+ * Design §6.2 case E, ruled 2026-10-17. The method is a function of the
+ * entry's **role** and of nothing else — never of the payload, which is the
+ * input-dependence criterion 7 exists to remove and which
+ * `container.test.ts` sweeps a 0-to-512-KiB matrix to refute.
  *
- * The point is not that storing is simpler. It is that **a guarantee resting
- * on an engine's undocumented default is one that stops holding somewhere
- * nobody is looking** — the criterion was satisfiable on the two runtimes
- * anyone would have tested on, and would have gone quietly false on a third.
- * Stored, it holds by construction in every engine, needs no browser in the
- * suite, and cannot rot. `container.test.ts` reads the method out of both the
- * local and the central headers rather than taking the list below on trust.
+ * ### The ruling this replaced, kept because it was true and is now false
  *
- * ### What that costs, measured rather than argued
+ * From 2026-10-15 to 2026-10-17 **every entry was stored**, and the argument
+ * was that criterion 7 asks for identical bytes from the CLI and the site
+ * while deflating would make that rest on two engines' deflaters agreeing —
+ * which they do not. That measurement stands and is the reason the criterion
+ * itself had to change rather than the writer: `CompressionStream('deflate-raw')`
+ * is byte-identical between Node 22.14.0 and Chromium 151 across nine
+ * fixtures, and **Firefox 153 emits +59% while WebKit 26 emits 10.7x**,
+ * diverging at byte 0 or 1. All four round-trip exactly; none is wrong. The
+ * Streams spec fixes no level, no strategy, no `memLevel` and no
+ * `windowBits`, so Node and Chromium agree only because both wrap zlib at its
+ * default 6, and nothing holds them there.
  *
- * On a representative scene — four text/shape layers, an imported photo PNG, a
- * logo PNG and a three-frame GIF, each with a baked mask, 2.44 MB — the stored
- * archive is **+4,777 bytes, +0.195%**. Across a sweep from "nothing imported"
- * to a 1920x1080 photo the absolute cost stayed between **+478 and +8,892
- * bytes**; the relative figure is large only where the archive is under 2 KB,
- * which is where the absolute figure is under 1.1 KB.
+ * **What changed is not that measurement but what it was defending.** Stored
+ * protected byte-level guarantees — digests, size pins, "same scene, same
+ * file" — and invariant 4 forbids the suite from asserting on those, so
+ * stored was defending a property nothing is permitted to depend on. Against
+ * that, the size cost was measured against a 5% threshold registered *before*
+ * the measurement: **+0.195%** on a representative project (photo + logo +
+ * GIF + masks, 2.44 MB) but **+27.4% (107,724 → 137,279 bytes)** on a
+ * flat-graphics one. The threshold was crossed, the call went to Shaun, and
+ * the engine-dependent output is accepted as a consequence.
  *
- * The mechanism is not quite the one the plan predicted, and the difference is
- * worth keeping. Deflating an already-compressed photo PNG makes it **larger**,
- * not equal: `sources/photo.png` went 2,234,956 stored against 2,235,641
- * deflated, because deflate's stored-block framing is pure overhead on
- * incompressible input. So the bulk of a `.stst` is *cheaper* stored. The
- * entire positive delta comes from `scene.json`, `manifest.json` and the baked
- * masks, which are small and flat and do still deflate by 18-65%.
+ * The measurement that made the cost concentrate where it does is worth
+ * keeping, because it is the opposite of what the plan predicted: deflating
+ * an already-compressed photo PNG makes it **larger**, not equal —
+ * `sources/photo.png` went 2,234,956 stored against 2,235,641 deflated, since
+ * deflate's stored-block framing is pure overhead on incompressible input.
+ * The saving is entirely in `scene.json`, `manifest.json` and the baked
+ * masks, which deflate by **18-65%** — and design §6.1 makes silhouette masks
+ * the primary import path, so the compressible files are the common case.
  *
- * **The condition under which this stops being true**, since it is a property
- * of the members and not of this module: it assumes members arrive
- * already-compressed. A baked mask handed over as raw 8-bit bytes rather than
- * as a PNG measured **+782 KB on a 5.5 KB archive**. Design §6.1 has not yet
- * chosen the baked-mask encoding, so that branch is open; this module cannot
- * see it, because choosing the method from the content is exactly the
- * input-dependence that would put criterion 7 back where it started.
+ * ### Why `mimetype` keeps the exception
+ *
+ * It is the ODF/EPUB convention and it costs **17 bytes**. Stored and first,
+ * the media type sits at a fixed offset where `file(1)`, archive managers and
+ * anything else sniffing magic can read it without inflating a thing.
+ * `container.test.ts`'s `identifies itself from the first bytes of the file`
+ * is its sensor, and it is the only assertion that sees `mimetype` stop being
+ * stored **without reading a method field** — it reads the media type at
+ * offset 30 + `'mimetype'.length`, which a deflated first entry cannot
+ * satisfy.
+ *
+ * ### Criterion 7 is no longer discharged here
+ *
+ * Identical bytes across producers is unachievable under this ruling, and the
+ * criterion was rewritten rather than quietly dropped. It is now discharged
+ * by **there being exactly one writer**: `src/cli/index.ts` is the only
+ * production caller of `writeStst`, `site/` has no `.stst` writer, and
+ * `container.test.ts`'s `criterion 7 — one production producer of .stst
+ * bytes` is the sensor that reddens the day a second one appears without
+ * routing through here. That replacement is **weaker than byte equality** and
+ * **weaker than the two-sided CLI-versus-site comparison** that was specified
+ * in its place and then withdrawn as unbuildable; it is not equivalent to
+ * either and is not more robust than either.
  */
 export async function writeStst(
   scene: Scene,
@@ -340,17 +360,18 @@ export async function writeStst(
   // on the spec rather than on an emitter of mine.
   const manifestText = `${JSON.stringify(manifest, null, 2)}\n`
 
-  // `'store'` on every entry, unconditionally and never chosen from the
-  // content — see the docblock. A method that depended on what the bytes look
-  // like would make the archive's layout a function of its payload rather than
-  // of its inputs, which is the same class of accident as the engine default
-  // it replaces.
+  // The method is a function of the entry's **role** and of nothing else —
+  // `mimetype` stored so the media type sits at a fixed offset, every other
+  // entry deflated. Never chosen from the content: a method that depended on
+  // what the bytes look like would make the archive's layout a function of its
+  // payload rather than of its inputs, and `container.test.ts` sweeps a matrix
+  // from 0 to 512 KiB across both compressibility arms to say so.
   const utf8 = new TextEncoder()
   const entries: ZipEntry[] = [
     { name: MIMETYPE, data: utf8.encode(STST_MIMETYPE), method: 'store' },
-    { name: SCENE, data: utf8.encode(sceneText), method: 'store' },
-    { name: MANIFEST, data: utf8.encode(manifestText), method: 'store' },
-    ...placed.map((p): ZipEntry => ({ name: p.name, data: p.data, method: 'store' })),
+    { name: SCENE, data: utf8.encode(sceneText), method: 'deflate' },
+    { name: MANIFEST, data: utf8.encode(manifestText), method: 'deflate' },
+    ...placed.map((p): ZipEntry => ({ name: p.name, data: p.data, method: 'deflate' })),
   ]
 
   return writeZip(entries)

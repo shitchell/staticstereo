@@ -351,6 +351,22 @@ describe('writeZip', () => {
     expect(unzip(['-p', onDisk(mutant), UNICODE_NAME]).status).not.toBe(0)
   })
 
+  /**
+   * **SAME-ENGINE ONLY. This is not a cross-engine byte-identity claim, and
+   * design §6.2 requires every determinism pin in this repo to say so in the
+   * file rather than in a document** — without the sentence it reads, six
+   * months on, as the guarantee that died with case E.
+   *
+   * Every arm below runs in one process on one engine. What is pinned is that
+   * `writeZip` reads no clock, which is a real property of this writer and
+   * the reason `DOS_DATE_1980_01_01` exists. It says nothing about two
+   * engines producing the same archive: the fixture deflates, and
+   * `CompressionStream('deflate-raw')` is measured to emit **+59% in Firefox
+   * 153 and 10.7x in WebKit 26** against Node and Chromium, diverging at byte
+   * 0 or 1. `.stst` no longer claims cross-producer byte identity at all —
+   * see `container.ts` — so nothing downstream is entitled to read this
+   * assertion as though it did.
+   */
   it('writes byte-identical archives for the same input, whatever the clock says', async () => {
     const first = await writeZip(fixtureEntries())
 

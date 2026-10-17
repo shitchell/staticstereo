@@ -404,27 +404,81 @@ describe('readStst', () => {
     writeFileSync(join(dir, 'masks', UNICODE_MASK), MASK_UNICODE)
     writeFileSync(join(dir, 'sources', 'a-source.gif'), SOURCE_A)
 
-    const path = join(dir, 'hand.stst')
     // Named one by one rather than `-r`: the argument order is the central
     // directory's order, which is the thing the manifest has to agree with.
     // `-X` drops the extra fields `zip` would otherwise attach, which is the
-    // variant `zipRead.ts` documents; the methods are left to `zip`, so it
-    // stores what deflate would not shrink and both branches get exercised.
+    // variant `zipRead.ts` documents.
     // `env: CHILD_ENV`, never inherited — see `testing/spawnEnv.ts`. The
     // non-ASCII member name makes this the spawn where an inherited locale
     // would be most likely to matter; measured, it does not — `zip` sets the
     // UTF-8 name flag from the bytes, identically under six environments
     // including `env -i`. Pinned anyway so it cannot start to.
-    const zipped = spawnSync('/usr/bin/zip', [
-      '-X', '-q', path,
+    const members = [
       'mimetype', 'scene.json', 'manifest.json', `masks/${UNICODE_MASK}`, 'sources/a-source.gif',
-    ], { cwd: dir, env: CHILD_ENV })
-    expect(zipped.status, `/usr/bin/zip: ${String(zipped.stderr)}`).toBe(0)
+    ]
+    const pack = (name: string, flags: readonly string[]): string => {
+      const out = join(dir, name)
+      const zipped = spawnSync('/usr/bin/zip', [...flags, '-X', '-q', out, ...members],
+        { cwd: dir, env: CHILD_ENV })
+      expect(zipped.status, `/usr/bin/zip ${flags.join(' ')}: ${String(zipped.stderr)}`).toBe(0)
+      // `unzip -t` verifies every member's CRC and extracts nothing, so this
+      // says the fixture is a sound archive — it says nothing about layout,
+      // and is not asked to.
+      expect(spawnSync('/usr/bin/unzip', ['-t', out], { env: CHILD_ENV }).status, 'unzip -t').toBe(0)
+      return out
+    }
 
-    // `unzip -t` verifies every member's CRC and extracts nothing, so this
-    // says the fixture is a sound archive — it says nothing about layout, and
-    // is not asked to.
-    expect(spawnSync('/usr/bin/unzip', ['-t', path], { env: CHILD_ENV }).status, 'unzip -t').toBe(0)
+    /**
+     * The method of each entry, in central-directory order, read out of the
+     * archive here rather than taken from `readZip`.
+     *
+     * The claim is about what `/usr/bin/zip` put in the file, and asking our
+     * own reader would make it a claim about our reader — the same argument
+     * this file's docblock makes about `writeStst`, one field down.
+     */
+    const methodsOf = (path: string): number[] => {
+      const bytes = new Uint8Array(readFileSync(path))
+      const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+      let eocd = -1
+      for (let i = bytes.length - 22; i >= 0; i--) {
+        if (v.getUint32(i, true) === 0x06054b50) { eocd = i; break }
+      }
+      expect(eocd, 'end-of-central-directory signature').toBeGreaterThanOrEqual(0)
+      const out: number[] = []
+      let at = v.getUint32(eocd + 16, true)
+      for (let i = 0; i < v.getUint16(eocd + 10, true); i++) {
+        expect(v.getUint32(at, true), `central record ${i}`).toBe(0x02014b50)
+        out.push(v.getUint16(at + 10, true))
+        at += 46 + v.getUint16(at + 28, true) + v.getUint16(at + 30, true) + v.getUint16(at + 32, true)
+      }
+      return out
+    }
+
+    const STORE = 0
+    const DEFLATE = 8
+
+    /* -- default compression: zip picks, and both branches must be present -- */
+
+    const path = pack('hand.stst', [])
+
+    // **Asserted, where it used to be a sentence.** The comment here used to
+    // say the methods are "left to `zip`, so it stores what deflate would not
+    // shrink and both branches get exercised" — true when measured
+    // (`mimetype`, the mask and the source stored; `scene.json` and
+    // `manifest.json` deflated), and nothing could see it stop being true.
+    // §9's row: a recorded note is not a sensor, and the sibling fixture in
+    // `zipRead.test.ts` already asserts exactly this about its own archive.
+    // The *coverage* is asserted rather than the assignment, because which
+    // entries `zip` stores is `zip`'s heuristic and not a guarantee: if a
+    // future `zip` deflates everything, this goes red and says the fixture
+    // stopped reaching method 0.
+    //
+    // It is load-bearing where it was not before. Until 2026-10-17 `writeStst`
+    // stored every entry, so a foreign *deflated* manifest was the unusual
+    // case; under design §6.2's case-E ruling our own manifest is deflated and
+    // this fixture is what says a foreign one inflates too.
+    expect(new Set(methodsOf(path)), 'zip chose only one method, so one branch is unexercised')
+      .toEqual(new Set([STORE, DEFLATE]))
 
     const back = await readStst(new Uint8Array(readFileSync(path)))
     expect(back.scene).toEqual(scene())
@@ -432,6 +486,22 @@ describe('readStst', () => {
       { name: UNICODE_MASK, role: 'mask', data: MASK_UNICODE },
       { name: 'a-source.gif', role: 'source', data: SOURCE_A },
     ])
+
+    /* -- `-0`: every entry stored, which nothing else covers any more ------- */
+
+    // Design §6.2: "a valid `.stst` may arrive from `zip` or any other tool,
+    // and refusing one would break the `unzip`-parity promise." The stored
+    // branch of that promise was covered incidentally until 2026-10-17 —
+    // `writeStst` stored everything, so every round trip in this file read a
+    // fully-stored archive — and the case-E ruling removed that coverage
+    // without removing the promise. `-0` restores it deliberately: an archive
+    // where `scene.json` and `manifest.json` are **stored**, which no other
+    // fixture in this file now produces.
+    const stored = pack('hand-0.stst', ['-0'])
+    expect(new Set(methodsOf(stored)), '`zip -0` must store every entry').toEqual(new Set([STORE]))
+
+    const back0 = await readStst(new Uint8Array(readFileSync(stored)))
+    expect(back0).toEqual(back)
   })
 
   it('refuses a manifest version it does not know, before it parses the entries', async () => {

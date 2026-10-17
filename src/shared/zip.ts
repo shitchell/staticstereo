@@ -26,10 +26,14 @@
  * 2. **Order.** Entries are emitted in the order the caller's array gives
  *    them, and nothing here sorts. See `writeZip`.
  * 3. **Compression level.** Not settable, and therefore asserted instead —
- *    see `deflateRaw`. **Not how criterion 7 is met, as of 2026-10-15:** the
- *    level is the same across engines only by coincidence, so `container.ts`
- *    stores every entry and never reaches the deflate branch at all. This
- *    writer still has one, and this is still the only thing anchoring it.
+ *    see `deflateRaw`. **Not how criterion 7 is met, and the reason has
+ *    changed twice.** From 2026-10-15 the container stored every entry and
+ *    never reached the deflate branch; since design §6.2's case-E ruling of
+ *    2026-10-17 it deflates everything but `mimetype` and reaches it for
+ *    nearly every entry — and the criterion still does not rest here,
+ *    because cross-engine byte identity was abandoned rather than defended.
+ *    Criterion 7 is now discharged by there being exactly one producer; see
+ *    `container.ts`. The level pin stays for the reason `deflateRaw` gives.
  *
  * ## Deliberately not implemented
  *
@@ -187,11 +191,20 @@ export function crc32(bytes: Uint8Array): number {
  * 2026-10-15 the `.stst` container deflated its members, so cross-engine
  * byte-identity rested on this level being the same everywhere — and it is
  * not: Firefox 153 emits +59% and WebKit 26 10.7x against Node and Chromium,
- * which agree only because both wrap zlib at the default. `container.ts` now
- * stores every entry, so the container's guarantee holds by construction and
- * owes nothing to this function. The pin stays because `writeZip` is a
- * general writer whose `'deflate'` branch is still public surface and still
- * unconfigurable; `zip.test.ts` carries the full reasoning.
+ * which agree only because both wrap zlib at the default.
+ *
+ * **The container deflates again as of design §6.2's case-E ruling,
+ * 2026-10-17 — and that does not restore the proxy.** What was abandoned is
+ * the cross-engine byte-identity *claim*, not the measurement that killed it;
+ * the engine divergence above is accepted as a consequence, and criterion 7
+ * is now discharged by there being one producer rather than by two producers
+ * agreeing. So this function is on the container's hot path once more while
+ * owing it nothing.
+ *
+ * The pin stays for its own reason: `writeZip` is a general writer whose
+ * `'deflate'` branch is public surface and still unconfigurable, so the day a
+ * runtime changes its default is the day something should go red.
+ * `zip.test.ts` carries the full reasoning.
  *
  * `'store'` is not a `CompressionFormat` — it throws `TypeError` — so the
  * stored path in `writeZip` is a plain copy and never comes through here.

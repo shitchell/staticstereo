@@ -93,8 +93,13 @@ export function parseSceneText(text: string, label: string): unknown {
  * extension to a meaning — and deliberately not a sniff of the first two
  * bytes. A sniffing loader opens a mislabelled file without ever telling the
  * author the name is wrong, and it makes "which reader ran" a function of the
- * content: the same input-dependence `container.ts` refuses when it picks
- * `'store'` unconditionally rather than from the bytes.
+ * content: the same input-dependence `container.ts` refuses when it picks an
+ * entry's compression method from its **role** rather than from its bytes.
+ *
+ * (That sentence read "when it picks `'store'` unconditionally" until
+ * 2026-10-17. Design §6.2's case-E ruling deflates everything but `mimetype`,
+ * so the method is no longer one literal — but it is still not a function of
+ * the content, which is the only part of it this comment was ever relying on.)
  */
 
 /**

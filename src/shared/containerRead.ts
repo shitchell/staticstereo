@@ -231,10 +231,28 @@ function checkNamesAgree(
  * Check the three fixed entries, which are the only ones whose name *and* role
  * the layout fixes.
  *
- * Position is checked, not just presence. `mimetype` first and stored is what
- * puts the media type at a fixed offset for anything sniffing magic bytes —
- * `container.ts` sets out the ODF/EPUB argument — and a reader that accepted
- * the three in any order would let that property rot with nothing to notice.
+ * **Name, role and position. Not the compression method — and the comment
+ * here used to imply otherwise, which was false against this code from the
+ * day it was written.** It read *"`mimetype` first **and stored** is what
+ * puts the media type at a fixed offset"*, which is a true sentence about the
+ * convention and describes a check this function does not perform: it reads
+ * the manifest, which records no method, and nothing downstream of it looks
+ * at the central directory's method field either. §9 fixes a false assertion
+ * on sight, so the sentence is corrected rather than left as a near-miss.
+ *
+ * Position is checked, not just presence: `mimetype` first is half of what
+ * puts the media type where `file(1)` can read it — `container.ts` sets out
+ * the ODF/EPUB argument — and a reader that accepted the three in any order
+ * would let that property rot with nothing to notice.
+ *
+ * **The method half is deliberately not enforced, and that is a decision
+ * rather than the gap it looks like.** Our writer stores `mimetype` and
+ * deflates the rest (design §6.2, 2026-10-17), and `container.test.ts` holds
+ * the sensor for that on the write side. Requiring it on the *read* side
+ * would reject a `.stst` assembled by `/usr/bin/zip` or any other tool, which
+ * deflates `mimetype` like anything else — and §6.2's `unzip`-parity promise
+ * says such a file must still open. A writer-side convention enforced by the
+ * reader stops being a convention and becomes a compatibility break.
  */
 function checkFixedEntries(manifest: readonly ManifestEntry[]): void {
   for (let i = 0; i < STST_ENTRY_ORDER.length; i++) {
