@@ -1564,15 +1564,55 @@ expectation."* **That is §6.5a's rule written where the person tempted to flip 
 it**, rather than in a document they will not open.
 
 **R22 obligation 1 has no criterion and no sensor — plan §3's lesson, third firing, same
-requirement.** Measured citation counts: obligation 2 nine times, obligation 4 three times,
-obligation 3 once, **obligation 1 zero**. Nothing asserts *"perceptual predicates live in
-the model, not in any view."* It **holds today** — the reviewer censused `site/*.ts` — but
-this phase made it cheaper to break, since `site/legibility.ts` is now a bare `export *` and
-**nothing guards `site/*.ts` imports.**
+requirement.** ~~Measured citation counts: obligation 2 nine times, obligation 4 three
+times, obligation 3 once~~ — **RE-MEASURED 2026-10-17, source-only (`site/` + `src/`,
+`.ts`/`.svelte`), with a positive control (`criterion` → 315) and a negative control
+(`zzzdefinitelyabsent` → 0) in the same invocation: obligation 2 = 14, obligation 3 = 3,
+obligation 4 = 12.** **`obligation 1` = 0 is confirmed** and is the finding that matters.
+**The old figures were probably not wrong so much as DIFFERENTLY SCOPED AND UNLABELLED** —
+an unscoped grep also matches `docs/`. **Recording the scope beside the number is the
+durable fix; a bare "14" drifts exactly the same way.**
 
-> **Criterion 25: no perceptual predicate is evaluated in a view.** *(Added 2026-10-16.)*
-> Pairs with the unguarded `site/*.ts` import hole, which is the same gap from the other
-> side.
+It **holds today** — but this phase made it cheaper to break, since `site/legibility.ts` is
+a bare `export *`. ~~and nothing guards `site/*.ts` imports~~ — **false, corrected:**
+`externalizedImportGuard` is wired into `rollupOptions.onwarn` in **both** vite configs and
+catches static *and* dynamic node-builtin imports. It is a **platform-purity** guard scoped
+to app closures, **not an architectural-layer guard** — which is the real, narrower hole.
+
+> **Criterion 25 — REWORDED 2026-10-17. The original text was false at the tip against
+> correct code.**
+>
+> > **No perceptual threshold or judgement is computed outside the perception model
+> > module. A caller may call a model function and render what it returns; it may not
+> > compare against a perceptual constant, re-derive one, or grade a result itself.**
+>
+> **The definition it turns on, carried HERE and not only in the design**, because a
+> criterion whose key term is defined in another document is a criterion the next reader
+> cannot apply — this phase has hit that shape three times:
+>
+> > **A predicate is PERCEPTUAL if its output depends on a constant whose VALUE, OR WHOSE
+> > BOUNDARY CONDITION, was selected to model human vision** — fusion, legibility,
+> > comfort, depth discrimination, or a prior the visual system supplies (such as
+> > light-from-above). **A constant chosen for engineering reasons** — buffer sizes,
+> > iteration caps, numerical tolerances — **does not make a predicate perceptual.**
+>
+> **Four defects in tier 0's first draft, found by the survey and fixed here.** *(1)* The
+> definition shipped in a message while the criterion shipped in the plan — now adjacent.
+> *(2)* **"Value or boundary condition" is tier 0's ruling on the value/rule question the
+> survey correctly refused to decide** — see the `auditShadings` entry in §7z. *(3)* The
+> prohibition said *"outside `perception.ts`"* (everywhere) while the permission said
+> *"a view"*, so **strictly read the CLI could not call a model function and print it** —
+> the other half R22 exists for. Now *"a caller"*. *(4)* It named a **file path**: `site/
+> legibility.ts` is a bare `export *`, so every symbol is already reachable under a second
+> specifier, and a future split into a directory would make the criterion false-by-wording
+> on correct code. Now *"the perception model module"*, **derived** the way
+> `PerceptionFunctionName` already derives from the module's own type.
+>
+> **Verified against three acceptance tests before adoption:** the prescribed
+> call-and-render shape in `site/main.ts` is **GREEN** (every comparison in its enclosing
+> function is structural equality — measured, not read); and both planted violations are
+> caught, the literal-threshold one **redundantly**, so the wording does not depend on
+> anyone recognising `32` as a perceptual constant.
 
 ### P4 — Canvas, layers, depth strip, diagnostics · PM-CANVAS · design §5.2–§5.6, §10.7
 
@@ -1712,6 +1752,32 @@ phase, which has no gate that fails when it is dropped, and it must not be struc
    explicit that a recorded note is not a sensor.
 5. **Re-deferring is allowed; silence is not.** An entry may move to another phase with a
    reason recorded. It may not quietly fail to come up.
+
+### §7z entry — `auditShadings`'s light-from-above constraint · OWNER: **P4** · TRIGGER: **`relief` ships**
+
+**Ruled 2026-10-17 by tier 0, on a question a survey correctly refused to decide.** The
+survey found `site/shadings.ts::auditShadings` enforcing design §5.2a's *"relief azimuth is
+constrained above the horizon **or the surface inverts**"* — and noted that tier 0's first
+definition did not settle it: **the RULE is unambiguously chosen to model human vision (the
+light-from-above prior, which `shadings.test.ts:450` names outright), while the VALUE — 0°,
+the horizon — is geometrically forced rather than tuned by observation.**
+
+**RULING: the RULE reading. The definition now says "value, OR BOUNDARY CONDITION".** On
+the value reading, every perceptual constraint whose number is geometrically forced escapes
+the model — which defeats what R22 is for. **The reason the boundary is there is the
+light-from-above prior; that it lands on a round number is incidental.**
+
+**AND IT IS NOT A LIVE VIOLATION TODAY**, which is why it is an entry here rather than a
+defect. `relief` is `shipped: false`; **no hillshade is computed anywhere.** What exists is
+*data* plus a *conformance check on that data* — nothing perceptual is computed about an
+image. **It becomes live the day P4 ships `relief`** (plan P4 item 2, *"azimuth constrained
+above horizon"*), and **under criterion 25's letter it is a violation on that day** unless
+the constraint moves into the perception model first.
+
+**Two-way pointer:** P4's section cites this entry; this entry is P4's. **P4 must not
+start without reading it.** The authors' own reasoning for putting the constraint on the
+data is good and should survive the move — *"a constraint that lives in a widget is a
+constraint the second widget does not have"* (`shadings.test.ts:418-421`).
 
 **Entries are authored by the PM that measures them and signed off by tier 0.** P3b's
 three — criterion 14(b) (trigger: teardown ships), 15b and 23 (owner: cluster F/G, which
@@ -2037,6 +2103,15 @@ Each already cost a correction. Hand this table to every worker.
 | a documented claim about your own tooling is the safe thing to trust | **It is the thing nobody re-measures, and it is load-bearing for everyone who reads it.** A skill file describing the `git` wrapper stated *"Plugin messages go to stderr so plumbing stdout stays clean"* — **false, and false in the exact way that stops the next reader from measuring.** The wrapper had never written a byte to fd 2. **A confident sentence about infrastructure is a measurement nobody will repeat**, because the reason to check is the sentence that says you needn't. **When a tool surprises you, read its source, not its documentation** — and when you fix the tool, fix the sentence in the same change. |
 | the fix is parked safely on a branch | **Not when the deployed artifact is a SYMLINK INTO THE WORKING TREE.** `~/.local/bin/git` is `ln -sf` to the repo's `bin/git`, so **the repository's checked-out branch IS the live tool** — an unmerged feature branch is not a parking state, it is production, and a `git switch` back to `main` silently un-deploys the fix. **Check how an artifact is deployed before reasoning about where it is safe to leave work**; copy-installed and symlink-installed have opposite risk profiles. *(Also: the guidance that `~/.local/bin` holds copies is "often", not always — this one is a symlink, and nothing reinstalled.)* |
 | redirect it to `>&2` inside the process substitution | **Bash applies redirections LEFT TO RIGHT, so by the time `1> >(…)` is expanded, fd 2 is already the stderr filter's pipe — the stdout filter would feed its sibling.** The working form routes both through **fd 3 opened on the enclosing group** (`{ … } 3>&2`), and it must be a **group, not a subshell**, or the captured exit code does not survive. Recorded because the obvious spelling is wrong in a way that still runs. |
+| merging a fix is a safe moment | **When the deployed artifact IS the working tree, `git switch` is a DEPLOY, and the obvious procedure ships a broken tool for the length of the merge.** `~/.local/bin/git` symlinks into the repo, so `git switch main && git merge` would have handed **every concurrent agent an unfixed `git`** until the merge completed. The worker refused that shape unasked: **merged in a detached worktree, then switched the primary to an already-merged `main`** — fixed-branch → fixed-main, **no unfixed window at any instant.** Ask what is live *during* a procedure, not only what is live after it. |
+| a regression test that passes proves the fix | **A test that passes BEFORE and AFTER proves nothing, and a regression test is exactly where that is easiest to miss** — the suite is green, the change is in, the inference writes itself. The worker ran its three new tests against the **unfixed** `bin/git` in a throwaway worktree: **all three fail there and pass against the fix**, so they are sensors rather than ornaments. **§6.5a applied to a test suite, not to production code** — the same obligation, the place nobody applies it. |
+| **ask whether the thing exists before auditing how well it is measured** | **NINE PM SHIFTS RAN ON A PHASE NAMED "store, undo, scene time, teardown" AND UNDO WAS NEVER BUILT.** No undo, no redo, no mark concept, no history stack — measured by survey, after nine shifts of rulings on sensor vacuity, census arming, paired controls and review budget. **Tier 0 evaluated every one of those reports and never asked whether the phase's named deliverables existed** (orchestrator error 52). The reports were all about measurement, and **a phase can be audited to a very high standard while being empty** — every instrument question is well-posed whether or not the feature is there, so nothing in the measurement discipline generates the question. **Tier 0's brief even said the criteria "need a verifier who implemented none of the work", which PRESUMES the work exists.** First question of every phase survey, before any sensor question: **does the mechanism exist, with file:line?** |
+| derive the roster from the registry | **Sometimes the registry is blind BY CONSTRUCTION, and deriving is worse than enumerating because it looks rigorous.** Tier 0 instructed a survey to derive criterion 25's predicate list from the compiler-derived `PerceptionFunctionName` roster — an excellent roster, `AssertNever` both directions, runtime witness. The worker refused the shape: **"a perceptual predicate implemented in a view is, by construction, not an export of `perception.ts`, so it is not on the roster and never will be. The roster-derived list enumerates precisely the predicates that are already compliant."** **Check that the registry's membership rule and the violation's definition are not complements** — when they are, the derived instrument has 100% coverage of the compliant set and zero of the violating one. |
+| a survey that reports only holes is measuring | **It is prosecuting.** The same survey measured three evasions of an import guard and **reported the one that FAILED** — `await import('node:fs')` is still caught, *"credit where due"* — which corrected tier 0's premise that nothing guarded those imports. **The accurate hole was narrower and sharper than the record claimed**, and a survey that had only listed successes would have left the record wrong in the alarming direction. **Negative results about the instrument are findings.** |
+| the scratchpad is session-isolated | **IT IS NOT, AND TIER 0 TREATED IT AS IF IT WERE.** A concurrent agent **overwrote a live worker's `census.mjs` mid-survey**; the directory holds ~100 files from other workers. That survey's results survive only because the overwrite **post-dated its census run** — luck, not design. **A collision landing BEFORE a census would be invisible.** Mandatory: **every worker prefixes its tooling with a unique token**, and generic filenames (`census.mjs`, `compare.mjs`, `tmp.json`) are banned outright. |
+| the sweep found it, so the sweep would find the next one | **A SWEEP'S EXCLUSION RULE CAN EXCLUDE EXACTLY THE CASE THAT MATTERS, and the worker who built it said so against its own result.** Its 106-comparison sweep flagged `altitudeDeg <= 90` and `azimuthDeg < 360` but **NOT `altitudeDeg > 0`** — the literal `0` was excluded as structural, **and `0` is precisely the perceptual half** (the horizon, below which the surface inverts). It found that candidate by a **different net entirely** — a prose grep for "perceptual" followed by a design cross-reference. Its own words: *"a reader trusting the sweep alone would have missed the one comparison that matters."* **State a sweep's exclusion rule beside its result, and run a second net of a different kind before believing a null.** |
+| the number was wrong, so correct the number | **Correct the number AND RECORD ITS SCOPE, or it drifts the same way.** Three citation counts in the plan read 9 / 1 / 3; re-measured they are 14 / 3 / 12 — **and the originals were probably not wrong so much as differently scoped and unlabelled**, since an unscoped grep also matches `docs/`. The worker's framing: *"a bare 14 will drift exactly the same way."* **An unlabelled count is a measurement with its method deleted**, which is why the same figure can be re-derived wrongly by someone who is also being careful. |
+| a worker's self-correction is a small thing | **It is the load-bearing one, and this project has seen it three times in a day.** A survey that had spent a section of its previous report correcting someone else's stale count **opened its next report by correcting its own**: *"I reported 24 such unions; the true count is 32. My round-1 sweep under-counted."* Unprompted, before anything else, in the same breath as flagging why it mattered. **The reports worth trusting are the ones that attack their own prior numbers first** — and every blind instrument found here was found by someone doing exactly that. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | **the row above, now that its site half has been measured** | **CORRECTED BESIDE IT 2026-10-16 by W-MX, P3b. `build:site` catches ZERO of four, not one of four — and the catching instrument was never `build:site`.** All four spellings build **exit 0** under the shipped config; there is no configuration in the repo today under which `build:site` reddens for any of them. What catches anything is **`site/dist.test.ts`**, a different instrument in a different CI step: **one** of four on `main` (`require`), **two** of four on `feat/p3b-store` (`require`, plus `await import` via `166b6da`'s `__vite-browser-external` stub-chunk detector). **Both static forms — `import 'node:fs'` and `import * as fs from 'node:fs'` — are missed by every instrument in the repo at both commits.** The mechanism is the **opposite** of the one recorded above and that is the durable part: the dynamic form hides *behind a rewrite*, so grepping the stub cures it; the static forms hide by **leaving no artifact at all** — vite inlines `export default {}` and rollup drops the bare import, so **a text grep and an AST specifier reader are blind in exactly the same place, because there is no specifier left to read.** They look independent and are not. **And it does not throw**: the code receives an empty object and proceeds silently, so "ships green" understates it — there is no stack and nothing to notice. **`build.rollupOptions.onwarn` is a genuine complement** — it catches the three resolved forms and is **structurally incapable** of seeing `require`, because the warning fires only when vite's resolver resolves the specifier and the commonjs plugin is scoped to `node_modules`. **onwarn + `dist.test.ts` together cover all four; neither alone covers more than three.** Full measurement, costs, and the latent `node_modules` false-positive surface: `git show be122ac`. |
