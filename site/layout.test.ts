@@ -28,6 +28,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CENTRE_SLOT,
   DEFAULT_LAYOUT,
+  REFUSED_LAYOUT_FIELDS,
   REFUSED_PLACEMENTS,
   SLOTS,
   SLOT_FLOWS,
@@ -172,6 +173,61 @@ describe('the default layout', () => {
       'the layout mounts no more panels than it has slots, so no slot holds a pair and the ' +
       'centre is a bare canvas',
     ).toBeGreaterThan(SLOTS.length)
+  })
+})
+
+describe('what a LayoutConfig refuses to declare', () => {
+  it('declares no visibility, no mode and no filter on a layout', () => {
+    // Plan §7's criterion 11, clause 5: *"**The visibility set is a third
+    // value**, not a field on `LayoutConfig` and never the specs argument of
+    // `unmountedControls`. `CONTROLS` stays complete and visibility sets
+    // select from it; a filtered registry would fail criterion 6, which is
+    // already met."*
+    //
+    // This file's module under test already argues that in prose, under
+    // "What is deliberately NOT in `LayoutConfig`" — and §9's trap is that *"a
+    // recorded note is not a sensor"*. `REFUSED_PLACEMENTS` cites that line at
+    // itself for the top slot; the visibility paragraph three headings above it
+    // had no such table, so until this test the forbidden move was free.
+    //
+    // **The failure this catches is not a redundant field.** A layout that can
+    // say which panels are shown is a layout that has absorbed the visibility
+    // set, and at that point §11's architecture test — *"a different
+    // `LayoutConfig` **plus a visibility set**, not a second app"* — is two
+    // things that have become one, with nothing left to assert.
+    //
+    // The literals are the *refused spellings*, which is the one place naming a
+    // string is the point, exactly as `panels.test.ts` names `'slot'` and
+    // `fit.ts` keys `REJECTED_FIT_MODES` by `'cover'`. A field called something
+    // else is not caught; that is true of both sibling guards too, and the
+    // trade is that the names a simple mode would actually reach for cannot be
+    // typed by accident.
+    //
+    // **This is the half of the claim `npm test` can see, and it is not the
+    // whole claim.** Clause 5 is about the *interface*, and line 80 above
+    // records that nothing here can read a type. Every layout in this file is
+    // swept rather than `DEFAULT_LAYOUT` alone, because the second instance is
+    // what criterion 11 is actually about and is where a copy-pasted field
+    // would land. The compile-time half is `layout.ts`'s
+    // `_NoRefusedLayoutField`, whose list this one shares.
+    const layouts: readonly (readonly [string, LayoutConfig])[] = [
+      ['DEFAULT_LAYOUT', DEFAULT_LAYOUT],
+      ['SIMPLE_LAYOUT', SIMPLE_LAYOUT],
+    ]
+    // Two floors, both derived. An empty refusal list makes the loop below
+    // vacuous, and an object whose keys did not come back makes every
+    // `not.toContain` pass against nothing — §9's "a universally quantified
+    // claim over an empty set" in both of its spellings.
+    expect(REFUSED_LAYOUT_FIELDS.length, 'nothing is refused').toBeGreaterThan(0)
+    for (const [name, layout] of layouts) {
+      const fields = Object.keys(layout)
+      expect(fields, `${name} declares nothing at all, so the sweep reads an empty object`)
+        .toContain('slots')
+      for (const refused of REFUSED_LAYOUT_FIELDS) {
+        expect(fields, `${name} declares '${refused}', which is the visibility set folded in`)
+          .not.toContain(refused)
+      }
+    }
   })
 })
 

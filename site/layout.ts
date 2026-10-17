@@ -250,6 +250,47 @@ export interface LayoutConfig<P extends string = string> {
 }
 
 /**
+ * Field names {@link LayoutConfig} refuses, as runtime data.
+ *
+ * Plan §7's criterion 11, clause 5: *"**The visibility set is a third value**,
+ * not a field on `LayoutConfig` and never the specs argument of
+ * `unmountedControls`. `CONTROLS` stays complete and visibility sets select
+ * from it; a filtered registry would fail criterion 6, which is already met."*
+ *
+ * This file's header already argues that under "What is deliberately NOT in
+ * `LayoutConfig`", and §9's trap is that *"a recorded note is not a sensor"* —
+ * {@link REFUSED_PLACEMENTS} cites that line at itself for the top slot, and
+ * the visibility paragraph three headings above it had no equivalent. Measured
+ * before this pair existed: adding `readonly visible?: readonly P[]` to
+ * {@link LayoutConfig} above and populating it on {@link DEFAULT_LAYOUT} left
+ * all four site registries' tests passing and `npm run typecheck` at 0 errors.
+ *
+ * **Why the names rather than a closed field set.** `Exclude<keyof
+ * LayoutConfig, 'id' | 'label' | 'slots'>` would refuse every future field, and
+ * would therefore have to be edited by whoever adds a legitimate one — which
+ * makes it a chore rather than an argument, and chores get deleted. These are
+ * the *refused spellings*, the one place naming a string is the point, as
+ * `fit.ts` keys `REJECTED_FIT_MODES` by `'cover'` and `panels.test.ts` names
+ * `'slot'`. A field called something else is not caught; both sibling guards
+ * make the same trade, and what it buys is that the names a simple mode would
+ * actually reach for cannot be typed by accident.
+ *
+ * **A tuple and a type pair, for {@link SLOTS}' reason.** The `AssertNever`
+ * below is the half that reads the interface, and it is enforced by
+ * `npm run typecheck` alone — `layout.test.ts` records that nothing in
+ * `npm test` can read a type. The tuple is what lets a test witness the other
+ * half, the one that lives on a layout *value*. Neither half subsumes the
+ * other: a field added to the interface and left unpopulated is invisible to
+ * the test, and a layout built at run time from a stored preference is
+ * invisible to the compiler.
+ */
+export const REFUSED_LAYOUT_FIELDS = ['visible', 'hidden', 'modes', 'mode', 'filter'] as const
+
+type _NoRefusedLayoutField = AssertNever<
+  Extract<keyof LayoutConfig, typeof REFUSED_LAYOUT_FIELDS[number]>
+>
+
+/**
  * The editor's default arrangement — design §5.1's, exactly.
  *
  * `as const satisfies` rather than a plain annotation, following
