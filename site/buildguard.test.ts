@@ -10,10 +10,10 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join, sep } from 'node:path'
+import { dirname, extname, join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { EXTERNALIZED_PHRASE, externalizedImportGuard } from './buildguard.js'
+import { EXTERNALIZED_PHRASE, GUARDED_DIRS, externalizedImportGuard } from './buildguard.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 
@@ -603,5 +603,272 @@ describe('the version whose prose this guard is a contract with', () => {
     // the only mechanism available that makes removing it cost something.
     expect(pkg['//vite'], 'the note explaining why vite is pinned exactly has been removed')
       .toMatch(/externalized/)
+  })
+})
+
+/**
+ * **Whether {@link GUARDED_DIRS} is a COMPLETE list — the one question the
+ * guard's own tests could not ask.**
+ *
+ * ## The residue this closes, declared by the pass that left it
+ *
+ * The attribution repair two commits back ended on a stated boundary: an
+ * absolute path **under `root` but outside `GUARDED_DIRS`** still forwards **by
+ * design**, because the guard is deliberately scoped to the directories that
+ * hold our source rather than to everything under the root. That scoping is
+ * correct and must stay — inverting it (*under root and not `node_modules` ⇒
+ * ours*) would redden the build on `vite.site.config.ts`, `vite.player.config.ts`
+ * and `vitest.config.ts`, which **legitimately** import node builtins and are
+ * not browser code. **The list is necessary. What was missing was a sensor on
+ * its completeness**, so the consequence of the scope stood unwatched: *the
+ * guard goes quiet the day someone adds a first-party source directory and
+ * forgets to add it to the list.*
+ *
+ * That is the one remaining way to reach `theirs` without positive evidence.
+ * The predecessor's rule — **`ours` and `unplaceable` both throw, so being
+ * wrong about either is loud and gets fixed the same afternoon; `theirs` goes
+ * quiet, and a branch that goes quiet must carry positive evidence** — is
+ * satisfied per-path by the existence check in `attribute()`. It is **not**
+ * satisfied at the level of the list: a path can be a real file, provably
+ * outside every guarded directory, and still be ours. This block supplies the
+ * missing evidence there, one level up from the path.
+ *
+ * ## The predicate, stated, because an enumeration is what went wrong
+ *
+ * > **A first-party source directory is a top-level directory of this
+ * > repository that git tracks at least one file in.**
+ *
+ * Three deliberate choices in that sentence:
+ *
+ *  - **Top-level**, because `GUARDED_DIRS` is consumed as
+ *    `startsWith(join(root, dir) + sep)` — a nested directory is already
+ *    covered by whichever top-level ancestor is guarded, so completeness is
+ *    only ever a question about the top level. Entries are compared on their
+ *    first segment so that a future `src/core` entry does not read as a gap.
+ *  - **git tracks**, because tracked-ness is this repository's own record of
+ *    what *we wrote*, maintained by everybody who commits and by nothing in
+ *    this file. It is what separates our source from a dependency's and from
+ *    build output in one stroke: `node_modules/`, `dist/`, `dist-site/` and
+ *    `dist-player/` are all ignored, so none of them can enter the set and no
+ *    list of them has to be typed here. `--others` is deliberately **not**
+ *    passed: an untracked scratch directory is somebody's working mess, not a
+ *    source directory, and a sensor that reddens on one gets switched off.
+ *    The boundary that buys is stated rather than hidden — a new directory
+ *    becomes visible here when it is tracked, which is before it can be
+ *    merged, not at the instant it is created.
+ *  - **At least one file, of any kind** — there is no extension filter in the
+ *    derivation, and that absence is the point. An extension list is an
+ *    enumeration someone typed, and §9 records four successive enumerations of
+ *    one population each believed complete by its author. Here it would fail
+ *    in the quiet direction: a first-party module arriving in a spelling
+ *    nobody listed would leave its directory out of the derived set entirely.
+ *    {@link MODULE_EXTENSIONS} exists, but only to *invalidate* an exclusion
+ *    that has already been justified — never to decide whether a directory is
+ *    seen at all.
+ *
+ * Root-level modules — `vite.site.config.ts` and its two siblings — are outside
+ * this predicate **by construction rather than by exclusion**: they are files,
+ * not directories, so no entry has to be typed for them and none can rot. That
+ * is the same set tier 0 named as the reason the guard's scope cannot be
+ * inverted, which is a pleasant accident worth recording.
+ *
+ * ## The two inputs, and why they are independent
+ *
+ * §9: *"a guard derived from the roster it guards … proves only that the
+ * derivation ran twice."* So, explicitly:
+ *
+ *  - **Input 1** is `git ls-files` over the repository, reduced to first path
+ *    segments. It is produced by git's index and reads neither
+ *    {@link GUARDED_DIRS} nor {@link UNGUARDED_DIRS}.
+ *  - **Input 2** is `GUARDED_DIRS` (declared in `site/buildguard.ts`, for the
+ *    build) plus {@link UNGUARDED_DIRS} (declared here, for this check).
+ *
+ * Neither is computed from the other, which is the only reason the comparison
+ * below can fail. **If a future edit ever seeds the exclusion list from the
+ * tree, or `GUARDED_DIRS` from this walk, this block silently becomes a
+ * tautology and nothing here will say so.**
+ */
+const MODULE_EXTENSIONS: readonly string[] = ['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.svelte']
+
+/** A directory the derivation finds and the guard deliberately does not cover. */
+interface UnguardedDir {
+  /** Top-level directory name, exactly as git spells it. */
+  readonly dir: string
+  /** **Why** its files are not ours for this guard's purposes. Not what it holds. */
+  readonly reason: string
+  /**
+   * Whether {@link reason} rests on the directory holding no module a bundler
+   * could load. Where it does, the warrant is re-established on every run
+   * against {@link MODULE_EXTENSIONS}, so dropping a `.ts` into a directory
+   * excluded for holding none reddens instead of inheriting the old decision.
+   * Where it does not, the exclusion is a judgement and only a human can
+   * revisit it — which is exactly why the two kinds are distinguished rather
+   * than flattened into one list of names.
+   */
+  readonly holdsNoModule: boolean
+}
+
+/**
+ * The exclusions, each with its reason, because an unexplained exclusion is a
+ * hole with a name on it — and because tier 0's whole instruction here was that
+ * the exclusions be **stated rather than implied**. Seven entries against two
+ * guarded directories looks lopsided and is the honest shape: the predicate is
+ * deliberately wide so that nothing can slip past it unseen, and the price of a
+ * wide predicate is that the uninteresting directories have to be named once.
+ */
+const UNGUARDED_DIRS: readonly UnguardedDir[] = [
+  {
+    dir: '.github',
+    reason:
+      'CI workflow definitions. They describe when the builds run; they are not inputs to one, ' +
+      'so no file here can ever be the importer in a bundler warning.',
+    holdsNoModule: true,
+  },
+  {
+    dir: 'assets',
+    reason:
+      'Vendored font binaries and their licences, reached by PATH rather than by import — ' +
+      'src/shared/fontspec.ts composes "assets/fonts/inter-<weight>.<ext>" as a string and ' +
+      'src/node/canvas.ts registers the file. Nothing resolves a module here, so the directory ' +
+      'cannot appear on the importer side of anything.',
+    holdsNoModule: true,
+  },
+  {
+    dir: 'docs',
+    reason:
+      'Prose, plus docs/experiments/*.mjs — one-off research scripts run by hand under node, ' +
+      'which the first of them says of itself: "deliberately NOT in the repo". They import by ' +
+      'absolute path out of node_modules/ and dist/, nothing in site/ or src/ references them, ' +
+      'and they are node programs, so "externalized for browser compatibility" is not a defect ' +
+      'in one. That is the same reason the guard\'s scope cannot be inverted to cover the root ' +
+      'configs, arriving one directory over.',
+    holdsNoModule: false,
+  },
+  {
+    dir: 'examples',
+    reason:
+      'Scene documents in YAML, read as data by the examples loader and shipped as sample input. ' +
+      'Content, not code.',
+    holdsNoModule: true,
+  },
+  {
+    dir: 'query-sweep-fixture',
+    reason:
+      'An input tree handed to a spawned detector by site/query.test.ts, which plants ' +
+      'StrayPanel.svelte to prove the sweep can see a violation. Its contents are chosen to be ' +
+      'wrong; guarding them would assert this project builds its own positive controls.',
+    holdsNoModule: false,
+  },
+  {
+    dir: 'svelte-free-fixture',
+    reason:
+      'The positive control for src/svelte-free.test.ts — five of its seven modules import ' +
+      'svelte precisely so the purity sweep has something to catch. Same reason as the sweep ' +
+      'fixture above: a deliberately-violating tree is evidence, not source.',
+    holdsNoModule: false,
+  },
+  {
+    dir: 'typecheck-fixture',
+    reason:
+      'Mistyped.svelte and a tsconfig of its own, spawned at svelte-check by ' +
+      'site/typecheck-gate.test.ts to prove the gate still reports an error. The file is wrong ' +
+      'on purpose and is kept out of the real typecheck config for the same reason it is kept ' +
+      'out of here.',
+    holdsNoModule: false,
+  },
+]
+
+/**
+ * Input 1. Every top-level directory git tracks a file in.
+ *
+ * `-z` because a path may contain anything but NUL, and because it makes the
+ * contamination check below exact: the `git` wrapper on this machine writes two
+ * identity banner lines to **stdout** for some subcommands, which would arrive
+ * glued to the first record. Measured for this one — `git ls-files` through a
+ * pipe is byte-identical to `/usr/bin/git ls-files`, 266 lines each — and
+ * asserted anyway rather than trusted, since the wrapper's behaviour is
+ * per-subcommand and a banner here would silently manufacture a directory.
+ */
+function trackedFiles(): readonly string[] {
+  const r = spawnSync('git', ['-C', ROOT, 'ls-files', '-z'], { encoding: 'utf8' })
+  expect(r.status, `git ls-files failed in ${ROOT}: ${r.stderr ?? ''}`).toBe(0)
+  const files = (r.stdout ?? '').split('\0').filter(p => p !== '')
+  // Non-vacuity and non-contamination in one pair. An empty list would make
+  // every "is this directory accounted for" question vacuously true, and a
+  // banner line would add a phantom directory nobody could explain.
+  expect(files.length, 'git ls-files returned nothing, so the derivation below is vacuous')
+    .toBeGreaterThan(0)
+  expect(files.filter(p => p.includes('\n')), 'a tracked path contains a newline, which is the git wrapper\'s stdout banner glued to the first record')
+    .toEqual([])
+  return files
+}
+
+/** git always reports `/`, on every platform, so this is not `sep`. */
+function topSegment(path: string): string {
+  return path.split('/')[0] ?? path
+}
+
+describe('GUARDED_DIRS is complete, and completeness is derived rather than declared', () => {
+  it('accounts for every top-level directory this repository tracks', () => {
+    const tracked = trackedFiles()
+    const derived = [...new Set(tracked.filter(p => p.includes('/')).map(topSegment))].sort()
+
+    // A known-answer control in the same invocation, written as literals and
+    // NOT as `GUARDED_DIRS`: seeding it from the roster would make it agree
+    // with the subject by construction. It answers the one question the
+    // equality below cannot — whether this derivation can see a directory it
+    // ought to see at all. §9: "nothing inside an unarmed instrument can report
+    // that it is unarmed."
+    expect(derived, 'the derivation cannot see site/ and src/, so it cannot see a new directory either')
+      .toEqual(expect.arrayContaining(['site', 'src']))
+
+    const accounted = [...new Set([
+      ...GUARDED_DIRS.map(topSegment),
+      ...UNGUARDED_DIRS.map(u => u.dir),
+    ])].sort()
+
+    // Equality, not containment, and in this direction deliberately. Containment
+    // would let the exclusion list accrete entries for directories that no
+    // longer exist, which is the same rot one list over; equality makes a
+    // deletion redden too.
+    expect(
+      derived,
+      'a top-level directory is tracked that neither GUARDED_DIRS nor UNGUARDED_DIRS mentions, ' +
+      'or one of them mentions a directory that is gone. If the new directory holds source we ' +
+      'wrote, add it to GUARDED_DIRS in site/buildguard.ts — that is the whole point of this ' +
+      'check, because until it is there the guard forwards its files SILENTLY as a dependency\'s. ' +
+      'If it does not, add it to UNGUARDED_DIRS with a reason saying why its files are not ours. ' +
+      'Do NOT edit this expectation: the two lists are what the build reads and what the next ' +
+      'reader reads, and this assertion is only their shadow. When you cannot decide, guard it — ' +
+      'over-guarding costs a build failure somebody sees within the minute, under-guarding costs ' +
+      'the silence this entire file exists to prevent.',
+    ).toEqual(accounted)
+  })
+
+  it('re-establishes every exclusion that rests on holding no loadable module', () => {
+    const tracked = trackedFiles()
+    // Only the exclusions whose stated reason is checkable. The others are
+    // judgements about what a directory is FOR, and no test can re-derive those
+    // — recorded as a boundary rather than quietly skipped, since a reader who
+    // believed this row covered all seven would be wrong about four of them.
+    const checkable = UNGUARDED_DIRS.filter(u => u.holdsNoModule).map(u => u.dir)
+    const offenders = Object.fromEntries(
+      checkable
+        .map(dir => [dir, tracked.filter(p =>
+          topSegment(p) === dir && MODULE_EXTENSIONS.includes(extname(p)))] as const)
+        .filter(([, hits]) => hits.length > 0),
+    )
+    expect(
+      offenders,
+      'a directory excluded from the guard BECAUSE it holds no module a bundler could load now ' +
+      'holds one. Either move the module somewhere guarded, or change that exclusion\'s reason ' +
+      'to say what really keeps its files out of the guard\'s scope and set holdsNoModule false.',
+    ).toEqual({})
+
+    // The roster this row runs over must not be empty, or it reports clean
+    // while checking nothing — and it would do so forever after someone flipped
+    // the last `holdsNoModule` to false.
+    expect(checkable.length, 'no exclusion claims to hold no loadable module, so this row asserts nothing')
+      .toBeGreaterThan(0)
   })
 })

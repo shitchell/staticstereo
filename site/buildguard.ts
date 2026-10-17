@@ -142,6 +142,18 @@ const IMPORTER = /imported by "([^"]+)"/
  * reason this is a scope and not a blanket rule: a dependency importing `util`
  * is that dependency's business and builds fine, while the identical warning
  * from `site/main.ts` is a module that silently becomes `{}` in a browser.
+ *
+ * **Scoping to a list has a cost, and the cost is watched rather than
+ * tolerated.** An absolute path under `root` but outside these directories
+ * forwards — correctly, since inverting the rule would redden the build on
+ * `vite.site.config.ts`, which legitimately imports node builtins — so an
+ * incomplete list is a first-party directory going quiet. That is the last way
+ * to reach `theirs` without positive evidence, and it is closed one level up
+ * from the path: `site/buildguard.test.ts` derives the repository's top-level
+ * source directories from `git ls-files` and asserts each is either here or in
+ * its own justified exclusion list. **Adding a directory and forgetting this
+ * line reddens by name; it does not go quiet.** Adding one here that no longer
+ * exists reddens too.
  */
 export const GUARDED_DIRS: readonly string[] = ['site', 'src']
 
