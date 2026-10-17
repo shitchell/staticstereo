@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { join, sep } from 'node:path'
+import { isAbsolute, join, sep } from 'node:path'
 import type { LoggingFunction, RollupLog } from 'rollup'
 
 /**
@@ -79,8 +79,22 @@ import type { LoggingFunction, RollupLog } from 'rollup'
  * matcher quietly ceasing to match after a vite upgrade reworded the sentence —
  * and a guard that has gone quiet is indistinguishable from a clean build, which
  * is this project's defining defect. So: a warning carrying
- * {@link EXTERNALIZED_PHRASE} whose specifier or importer cannot be extracted is
- * an **error**, never a pass-through. Loud and wrong beats silent and blind.
+ * {@link EXTERNALIZED_PHRASE} that cannot be **attributed** is an **error**,
+ * never a pass-through. Loud and wrong beats silent and blind.
+ *
+ * **Attributable, not merely extractable — and the gap between those two words
+ * was a live fail-open for the length of a review round.** The first version of
+ * this paragraph said *"cannot be extracted"*, and the code matched the
+ * paragraph: it threw when the regex missed, and forwarded otherwise. But a
+ * reword can keep the clause and change the *path form* inside it, and an
+ * importer that is read successfully and then cannot be placed is not a
+ * dependency — it is an unknown, and it went down the dependency branch.
+ * Measured: a first-party importer spelled relative to the project root threw
+ * nothing and forwarded silently, where the absolute spelling of the same file
+ * threw. **Extraction and attribution are two steps; only the first one used to
+ * fail closed.** {@link Attribution} is the repair and its tri-state is the
+ * point — see its docblock for why the undecided case cannot be folded into
+ * either neighbour.
  *
  * Two further things stand behind that, because fail-closed only helps if the
  * phrase still matches at all:
@@ -123,17 +137,57 @@ const IMPORTER = /imported by "([^"]+)"/
 export const GUARDED_DIRS: readonly string[] = ['site', 'src']
 
 /**
- * True when `importer` is a file in one of {@link GUARDED_DIRS} under `root`.
+ * Whose file the importer is — **three answers, because the question has
+ * three.**
  *
- * Absolute containment rather than a substring test, so that a dependency that
- * happens to have a `src/` directory of its own — most of them do — cannot be
- * read as first-party. The explicit `node_modules` rejection is belt to that
- * brace: it is unreachable through the containment test today and is here so
- * that it stays unreachable if the containment test is ever loosened.
+ * This returns a tri-state rather than a boolean, and that is the whole repair
+ * rather than a stylistic preference. The predicate it replaced was
+ * `isFirstParty(): boolean`, and a boolean has nowhere to put *"I cannot
+ * tell"* — so `false` carried both *"this is a dependency, forward it"* and
+ * *"I could not place this path"*, and the handler acted on the first reading
+ * for both. **Measured: an importer spelled relative to the project root — the
+ * one reword a path-carrying field is most likely to receive — went down the
+ * forward-silently branch, which is the fail-open direction this entire file
+ * exists to close.** A boolean cannot be made safe here by reordering its
+ * tests; the third answer has to exist for the caller to be forced to handle
+ * it.
  */
-function isFirstParty(root: string, importer: string): boolean {
-  if (importer.split(sep).includes('node_modules')) return false
-  return GUARDED_DIRS.some(dir => importer.startsWith(join(root, dir) + sep))
+export type Attribution = 'ours' | 'theirs' | 'unplaceable'
+
+/**
+ * **`node_modules` is tested first, and the order is load-bearing.** It is the
+ * only one of these tests that reads the same on every path form: a dependency
+ * is `…/node_modules/@napi-rs/canvas/geometry.js` absolute and
+ * `node_modules/@napi-rs/canvas/geometry.js` relative, and the component scan
+ * answers `theirs` for both. So the reword that breaks placement **does not**
+ * also convert every dependency's warning into a build failure.
+ * `@napi-rs/canvas` is a direct dependency that emits this exact warning today
+ * (header hazard 2), so that is not a hypothetical: a guard that failed closed
+ * on everything it could not place *after* losing the ability to place
+ * anything would redden the build on somebody else's `util` import.
+ *
+ * **Then absoluteness, because containment is only a decision procedure over
+ * absolute paths.** `startsWith(join(root, dir) + sep)` asks *"does this path
+ * begin at this directory"*, which is answerable for an absolute path and
+ * meaningless for a relative one — a relative path's base is not in the
+ * string. For an absolute path the answer is total and the negative is a real
+ * deduction: first-party is *defined* as living under `root/site` or
+ * `root/src`, so an absolute path that does not is provably not one of those
+ * files, and forwarding it is correct rather than a guess. For a relative path
+ * there is no deduction in either direction, and **the two mistakes are not
+ * symmetric** — guessing `ours` costs a false build failure that someone sees
+ * and fixes within the minute, and guessing `theirs` costs silence, which is
+ * the failure this project keeps finding years-equivalent later. So the
+ * undecided case is named, not folded into the cheaper-looking neighbour.
+ *
+ * Containment rather than a substring test throughout, so that a dependency
+ * with a `src/` directory of its own — most of them have one — cannot be read
+ * as first-party.
+ */
+function attribute(root: string, importer: string): Attribution {
+  if (importer.split(sep).includes('node_modules')) return 'theirs'
+  if (!isAbsolute(importer)) return 'unplaceable'
+  return GUARDED_DIRS.some(dir => importer.startsWith(join(root, dir) + sep)) ? 'ours' : 'theirs'
 }
 
 /**
@@ -171,9 +225,11 @@ export function externalizedImportGuard(
     const specifier = SPECIFIER.exec(message)?.[1]
     const importer = IMPORTER.exec(message)?.[1]
 
-    // CONDITION A — fail closed. The shape is here, so this IS an externalized
-    // module; we simply cannot say whose. Passing it through would be a guard
-    // that has gone quiet, which reads exactly like a clean build.
+    // CONDITION A, first half — fail closed on what cannot be READ. The shape
+    // is here, so this IS an externalized module; we simply cannot say whose.
+    // Passing it through would be a guard that has gone quiet, which reads
+    // exactly like a clean build. The second half, below, is what cannot be
+    // PLACED — the two are separate steps and both of them fail closed.
     if (!specifier || !importer) {
       throw new Error(
         `externalizedImportGuard: a module was externalized for browser compatibility, but the ` +
@@ -184,9 +240,32 @@ export function externalizedImportGuard(
       )
     }
 
+    const whose = attribute(root, importer)
+
+    // CONDITION A, second half — fail closed. We read the importer and still
+    // cannot say whose file it is, which is a different failure from not
+    // reading it and used to be silently indistinguishable from "a
+    // dependency's". The route named below is the cheap one on purpose: the
+    // satisfying action has to be teaching the guard the new spelling, because
+    // the lazier alternative — widening the forward branch — is precisely the
+    // hole this replaced.
+    if (whose === 'unplaceable') {
+      throw new Error(
+        `externalizedImportGuard: vite says "${specifier}" was externalized for browser ` +
+        `compatibility, imported by ${importer} — but that importer could not be placed inside ` +
+        `or outside this project, because it is not an absolute path and a relative path carries ` +
+        `no base to resolve it against. The guard cannot tell our source from a dependency here, ` +
+        `and it refuses to guess: guessing "dependency" is silence, which is how every blind ` +
+        `instrument on this project read. Vite has probably changed how it spells the importer; ` +
+        `resolve the new spelling against the project root in attribute() in site/buildguard.ts — ` +
+        `do NOT widen the forwarding branch to cover it. See the exact vite pin in package.json. ` +
+        `The message was:\n${message}`,
+      )
+    }
+
     // A dependency's own node import. Real, measured, and not a regression —
     // hazard 2. Through the default handler, never swallowed.
-    if (!isFirstParty(root, importer)) {
+    if (whose === 'theirs') {
       defaultHandler(warning)
       return
     }

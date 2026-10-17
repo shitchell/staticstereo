@@ -9,7 +9,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
 import { EXTERNALIZED_PHRASE, externalizedImportGuard } from './buildguard.js'
@@ -366,6 +366,83 @@ describe('what the guard does when it can no longer read vite', () => {
     expect(() => externalizedImportGuard(ROOT)({ message: reworded }, () => {
       throw new Error('passed through to defaultHandler instead of failing closed')
     })).toThrow(/could not be read out of vite's message/)
+  })
+
+  it('fails closed on an importer it cannot PLACE, not only on one it cannot READ', () => {
+    /**
+     * The other half of "vite reworded the sentence", and the half the first
+     * version of this guard did not cover. The row above varies the *clause
+     * structure*; this one varies the **path form**, which is the same reword
+     * arriving through a different field.
+     *
+     * The hole it pins: containment (`startsWith(join(root, dir) + sep)`) is a
+     * question about an **absolute** path and answers `false` for every
+     * relative one. A `false` there used to mean *"not ours — forward it"*, so
+     * a vite that spelled the importer relative to the project root would route
+     * every first-party offender down the third-party path and the guard would
+     * report nothing. **Fail-open, in the exact direction this file exists to
+     * prevent: UNDECIDABLE is not THEIRS.**
+     *
+     * All four arms run in **one invocation** off **one** substitution helper,
+     * so a harness that silently stopped substituting cannot let an arm pass by
+     * accident — it breaks every arm at once. Two of them are known-answer
+     * controls and two are discriminating:
+     *
+     * - `absolute` already threw before this row existed — the control that
+     *   says the probe is wired to a working guard.
+     * - `relative` is the subject: it forwarded silently, and must now throw.
+     * - `absoluteDependency` is the **real** captured message, untouched, and
+     *   `relativeDependency` is the same warning under the hypothesised reword.
+     *   Both must still **forward**. A fix that makes everything fail closed
+     *   breaks the build on `@napi-rs/canvas`, which is a direct dependency and
+     *   emits this warning today — so these two are what separate a fix from a
+     *   blanket `throw`, and the `node_modules` rejection is what carries them.
+     */
+    expect(real, 'the captured dependency warning names no node_modules path, so the two dependency arms below prove nothing')
+      .toContain(`${sep}node_modules${sep}`)
+    const withImporter = (path: string): string => {
+      const swapped = real.replace(/imported by "[^"]+"/, `imported by "${path}"`)
+      expect(swapped, `the importer clause was not substituted for ${path}, so this arm is vacuous`)
+        .not.toBe(real)
+      return swapped
+    }
+    // Built outside the try, so a failing non-vacuity assertion escapes as a
+    // failure rather than being read as the throw the arm is testing for.
+    const run = (message: string): { threw: boolean; forwarded: boolean; why: string } => {
+      let forwarded = false
+      let error: unknown
+      try {
+        externalizedImportGuard(ROOT)({ message }, () => { forwarded = true })
+      } catch (e) {
+        error = e
+      }
+      return { threw: error !== undefined, forwarded, why: error instanceof Error ? error.message : '' }
+    }
+    const arms = {
+      absolute: run(withImporter(join(ROOT, 'site', 'main.ts'))),
+      relative: run(withImporter(join('site', 'main.ts'))),
+      relativeDependency: run(withImporter(join('node_modules', '@napi-rs', 'canvas', 'geometry.js'))),
+      absoluteDependency: run(real),
+    }
+    const outcome = ({ threw, forwarded }: { threw: boolean; forwarded: boolean }) => ({ threw, forwarded })
+    expect({
+      absolute: outcome(arms.absolute),
+      relative: outcome(arms.relative),
+      relativeDependency: outcome(arms.relativeDependency),
+      absoluteDependency: outcome(arms.absoluteDependency),
+    }).toEqual({
+      absolute: { threw: true, forwarded: false },
+      relative: { threw: true, forwarded: false },
+      relativeDependency: { threw: false, forwarded: true },
+      absoluteDependency: { threw: false, forwarded: true },
+    })
+    // Named, not merely non-zero: the two throwing arms must throw for
+    // *different* reasons, or the relative arm could be passing because the
+    // guard mistook it for a first-party file it had placed.
+    expect(arms.relative.why, 'the relative arm threw, but not as an unplaceable importer')
+      .toMatch(/could not be placed/)
+    expect(arms.absolute.why, 'the absolute first-party arm stopped naming the offending import')
+      .toMatch(/which vite externalized/)
   })
 
   it('errors when its root does not hold site/ and src/, instead of passing everything through', () => {
