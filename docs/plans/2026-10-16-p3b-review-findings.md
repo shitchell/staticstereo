@@ -1,7 +1,7 @@
 ---
 title: P3b review findings — six, transcribed before they evaporated
 description: The P3b phase reviewer's findings 1-6 with their controls and dispositions, written down because the enumeration reached no tier and existed only in one agent's context
-status: open; finding 2 is BLOCKING and NEW. Findings 4, 5, 6 travel as separate recorded deviations
+status: open; finding 2's NEW/BLOCKING ruling is WITHDRAWN (orchestrator error 45) — it is largely a REDISCOVERY, and is blocked on one measurement: does `onwarn` fire for the default-import spelling. Findings 4, 5, 6 travel as separate recorded deviations
 date: 2026-10-16
 tags: [review, findings, staticstereo, p3b]
 ---
@@ -26,7 +26,14 @@ and give the mechanism instead. Nothing below is relayed."*
 
 ---
 
-## Finding 2 — BLOCKING, OPEN, and RULED **NEW**, not a rediscovery
+## Finding 2 — OPEN; the **NEW, not a rediscovery** ruling is **WITHDRAWN** (error 45)
+
+> **Frontmatter and heading corrected in a later commit than the body.** For one commit this
+> document asserted *"finding 2 is BLOCKING and NEW"* at the top while its own body withdrew
+> that ruling — **the exact frontmatter-staleness trap recorded in §9 the same day**,
+> reproduced in the document recording the ruling it summarises. Rule unchanged, now with a
+> second witness: **update the frontmatter in the same commit as the body.**
+
 
 **`site/dist.test.ts`** · vacuous sensor · **the subject is the parse-based
 `forbiddenImportsIn` check — the ESC-9 deliverable — not `build:site`.** The build's
