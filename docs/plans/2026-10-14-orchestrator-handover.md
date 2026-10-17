@@ -337,6 +337,67 @@ uncommitted work (**none**) and removed.
      `deflate`/`CompressionStream` path — test-only, no production consumer — **becomes the
      production write path.** Read side keeps **stored** support; a valid `.stst` may come
      from `zip`.
+   - **P1 CRITERION 7 RE-SCOPES TO STRUCTURAL PARITY — ruled 2026-10-17, mine, not
+     escalated.** Its text justifies CLI/site byte-identity **by `method:'store'`**.
+     Deflate kills it outright rather than weakening it: Node's `CompressionStream` is
+     zlib-backed, Firefox's and WebKit's are not, so byte identity is **unachievable**, and
+     an unsatisfiable criterion is a permanent red or a lie. **Replacement must be the
+     strongest achievable form** — identical entry names and order, identical per-entry
+     **decoded** bytes, identical manifest and `scene.json` — **with a paired control that
+     reddens it** (omit or reorder one entry on the CLI path). **The old text stays beside
+     the new, marked superseded.** **It must be stated as WEAKER than byte equality**, not
+     as "more robust": we traded a strong witness for an achievable one. Not escalated
+     because Shaun delegated the innards explicitly (*"not too plussed about the innards"*)
+     and CLI-vs-site byte identity is innards; **recording that as my call.**
+   - **ORCHESTRATOR ERROR 47 — I required a comparison my own handover says cannot
+     exist.** Condition (b) above demanded *"identical entry names and order"* between CLI
+     and site — **a two-sided comparison** — eight hours after committing **§5d:611**,
+     which states criterion 7 *"is discharged by there being only one writer … none exists
+     or could today."* **There is no site-side `.stst` producer at all**; `site/main.ts`'s
+     only `download()` consumers are PNG and GIF. **The PM found my own words and quoted
+     them back.** Condition (b) is **WITHDRAWN as written** and replaced by its proposal,
+     adopted intact: a **single-producer structural pin**, **plus** the §5d reword put
+     *into the criterion* rather than left in a ledger nobody reads while editing, **plus
+     a sensor that reddens the day a second writer appears that does not route through
+     `writeStst`** — the element I would have dropped and the only one that survives P5.
+     **Both losses get stated:** the replacement is weaker than byte equality *and* weaker
+     than the comparison I over-specified.
+   - **ORCHESTRATOR ERROR 46 — CONFIRMED, not a negative.**  Flipping all four `'store'`
+     literals reddens **5 tests** (`container.test.ts:322`, `:430`, `:585`, `:638`;
+     `cli/scene.test.ts:527` collateral), baseline taken **before** the plant. **And
+     condition (e) fires at the same time, which I had framed as the alternative:**
+     criterion 7 is **over-asserted on its means** (`method:'store'` live in four tests,
+     read independently from both local header and central directory) **and unsensored on
+     its end** (CLI/site byte-identity is document text with nothing comparing two
+     producers, because there is only one). **Not either/or. Both, at once.**
+   - **MIMETYPE STAYS STORED** (design §6.2) — ODF/EPUB convention, 17 bytes, and the
+     property that lets the file identify itself from its first bytes. I wrote
+     *"deflated"* unqualified without knowing the entry existed.
+   - **THE BYTE CONSTRAINT WAS TOO BROAD AND IS NARROWED, NOT EXCEPTED** — *no assertion
+     may claim or depend on byte identity **across engines or across producers***;
+     same-engine determinism pins are permitted **if they say in-file that they are**.
+     Three classes were already merged and live when I wrote the broad version.
+   - **ESCALATION 4 — THE FINDING OF THE SHIFT, AND IT MAY REOPEN A CLOSED REQUIREMENT.**
+     See design §6.2b: the layer→container-member link exists nowhere in the data, and
+     `layer.src` resolves as a filesystem path or URL. If it holds, **a `.stst` does not
+     render on another machine at all** — R17's *core* clause, which I merged and reported
+     to Shaun as closed. **Measurement ordered ahead of the cold-container sensor.** Fix
+     shape is innards and mine; **the status is his and goes to him either way.**
+   - ~~**PENDING ORCHESTRATOR ERROR 46, awaiting measurement.**~~ I justified the deflate
+     ruling partly on *"invariant 4 forbids asserting on bytes, and no requirement asks for
+     reproducible bytes"* — **so stored defended a property nothing depends on.** If
+     criterion 7's assertion is live, **that predicate was false when I wrote it**:
+     something did depend on it, it was **merged**, and I did not check. Same shape as most
+     of the forty-five above — a predicate asserted at the wrong level without measurement.
+     **PM-STST-PORT-1's survey question 4 settles it; the error gets committed either way,
+     including a negative.** **And if the text claims byte-identity with nothing asserting
+     it, that is worse, not a relief** — a documented guarantee with no sensor.
+   - **P5 BOUNDARY HELD.** §6.1's re-derivation on resize/threshold is **P5's and P5 is not
+     started**, so TASK 2 is scoped to what is honest today: **the container alone, cold,
+     yields every byte needed to resume.** The *"continue editing"* half is handed forward
+     as a **pre-registered numbered P5 criterion in a committed file**, cited from §6.2a in
+     both directions — **not as a note.** A finding that lived in a message instead of a
+     document has been lost three times here.
    - **NEW AND NOT YET SENSORED — R17 sharpened into an acceptance test (design §6.2a):**
      *"everything one would need to copy a project to another machine and continue editing
      it."* **Export on A → import on B with an EMPTY IndexedDB → re-derive a mask at a new

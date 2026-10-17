@@ -783,7 +783,32 @@ stored was defending a property nothing is permitted to depend on. The size cost
 user-facing and **grows exactly on the path R17 names**: multi-frame GIF masks, where baked
 silhouettes compress **18–65%** and an attachment limit is a real wall. Engine-dependent
 output (**Firefox +59%**, **WebKit 10.7×** vs Chromium on the same input) is accepted as a
-consequence; **nothing may assert on `.stst` byte length or digest.**
+consequence.
+
+**`mimetype` IS FIRST AND STORED; EVERYTHING ELSE IS DEFLATED** — the ODF/EPUB convention,
+ruled 2026-10-17. **Not a concession to a test:** it is what lets the file **identify
+itself from its first bytes** to `file`, to archive managers, and to anything sniffing
+magic, and it costs **17 bytes**. The unqualified *"deflated"* above was written without
+knowing the `mimetype` entry existed; `src/shared/container.test.ts:638` is its sensor and
+was nearly deleted by that inattention.
+
+**THE BYTE CONSTRAINT, NARROWED 2026-10-17 — it was first written too broadly.** It read
+*"nothing may assert on `.stst` byte length or digest"*, and **three classes of byte-level
+assertion turned out to be merged and live when it was written** (length at
+`container.test.ts:439-440`, `:504-505`; digests at `:267`–`:305`; a byte offset at
+`:638`). **An exception list rots; a correctly-scoped rule does not:**
+
+> **No assertion may claim or depend on byte identity ACROSS ENGINES or ACROSS PRODUCERS.**
+> **Same-process, same-engine determinism pins are permitted** — member-order independence
+> and clock independence are real properties of our own writer and are not what the
+> prohibition was aimed at. **Each such pin must state in-file that it is same-engine-only
+> and is not a cross-engine claim**, or it is read later as the byte-identity guarantee
+> that died with case E.
+
+**Byte-length assertions encoding *stored* overhead become false under deflate.**
+**Re-express structurally or delete with the reason recorded — never relax the constant
+until it passes**, which is the cheapest wrong action here. **A surviving assertion that
+cannot fail is worse than an honest gap.**
 
 **Shaun's ruling, verbatim:** *"i leave it with you :p i think as long as its one file we're
 good. i'm not too plussed about the innards of the content so long as it contains
@@ -810,6 +835,32 @@ assertion** — nothing currently fails if an item silently stops being written.
 optional in the container, whatever IndexedDB does locally. **The empty-IndexedDB clause is
 the whole point** — importing on the machine that exported proves nothing, because the
 cache is still warm and every re-derivation silently succeeds from it.
+
+**CORRECTION 2026-10-17, placed beside rather than in place.** The sentence above —
+*"nothing currently fails if an item silently stops being written"* — **is false as
+written, and was measured false:** neutralising the source-writing path reddens **12 tests
+across 5 files**, four naming a source member by its exact archive path. The honest
+restatement, the surveyor's own words, adopted verbatim:
+
+> **The transport is well sensored. The origination does not exist yet, so it is trivially
+> unsensored, and §6.2a's sentence misattributes an absent feature to an absent test.**
+
+`writeStst` faithfully carries any `source` member it is handed; **nothing in production
+ever constructs one.** And the ground is emptier than either of us assumed: **no IndexedDB
+code, no source caching, and no mask-baking code at all** exist outside docblock prose, so
+**§6.2a is unfalsifiable in its full form today and R17 rests on code nobody has written.**
+
+**§6.2b — A SECOND PORTABILITY GAP, UPSTREAM OF THIS ONE AND POSSIBLY WORSE.** A `Layer`
+carries `src: string` and nothing else; the manifest carries only `{name, role}`. **The
+link from a layer to its container members is represented nowhere in the data** — it exists
+only as a naming convention (`masks/logo.png` ↔ `sources/logo.png`) that nothing asserts —
+and `layer.src` is resolved by the platform adapter as a **filesystem path** or a **URL
+fetch**, with **no code path by which a `sources/` member reaches a renderer.** If that
+holds, a `.stst` exported carrying `src: /home/alice/ball.png` **does not render on another
+machine at all**, which is R17's core clause and not merely the "continue editing" half.
+**Being measured; inference until then.** The fix shape (a layer→member mapping, or
+rewriting `src` on read) is innards and therefore mine; **the status is Shaun's and goes to
+him the moment it is measured, whichever way it lands.**
 
 Lives in `src/shared/`; **`stst` reads and writes it** (R18). A project format only the
 website could open would be the first asymmetry in an architecture that is otherwise one
