@@ -1593,6 +1593,49 @@ this phase made it cheaper to break, since `site/legibility.ts` is now a bare `e
 4. Heightmap imports warn on URL viability; `.stst` is the supported path when they do not
    fit.
 5. Link-size meter with a shareability band.
+6. **Portability is the acceptance test — PRE-REGISTERED 2026-10-17, before any of P5
+   exists.** Design §6.2a, from R17's sharpening in the repo owner's own words: *"i'm not
+   too plussed about the innards of the content so long as it contains everything one would
+   need to copy a project to another machine and continue editing it"*.
+
+   > **Export on machine A → import on machine B with an EMPTY IndexedDB → continue
+   > editing, including an operation that needs the source image.**
+
+   **The empty-cache clause is load-bearing and it is the whole of the test.** A round-trip
+   on the *exporting* machine succeeds from a warm cache **no matter what the container
+   actually holds** — every re-derivation reads the source out of IndexedDB and the
+   container is never consulted, so the test passes identically whether or not sources were
+   ever written. That is the shape of every vacuous sensor this project has found. **A test
+   that imports without clearing the cache is worth nothing and must not be written.**
+
+   The operation that discharges *"continue editing"* is §6.1's: **masks re-derive from the
+   source image on scene resize and on threshold change.** A container that omits original
+   sources passes *render* and fails *continue editing* — and **only the cold path can tell
+   those two apart.**
+
+   **Why this is registered before its phase starts.** The container half is already merged
+   (P1), the requirement it serves — **R17 — is already recorded closed**, and §6.2's file
+   list names "original sources" with nothing asserting it. **A list is not an assertion.**
+   A criterion adopted in a message rather than in a document has been lost three times
+   here; orchestrator error 15 adopted nine criteria in messages and wrote none of them
+   down. Registering it before the owning phase exists is what stops the second half of an
+   acceptance test evaporating between two phases.
+
+   **Measured 2026-10-17, so this criterion starts life knowing it is unmet.** A `.stst`
+   carried to a machine holding only the file: **absolute path → throws, exit 1, no output;
+   relative path → throws, resolved against process cwd and never against the `.stst`;
+   `data:` URI → renders byte-identical.** The shipped `--save-project` emits `scene + 0
+   members`, and **no shipped code path produces a `data:` src** — so for every project the
+   tooling can currently create, the answer is **no**. See design §6.2b: the failure is
+   *render*, upstream of the *continue editing* clause this criterion was written about.
+
+   **Scope boundary, stated so neither half is dropped.** The **cold-container half** — *the
+   container alone, with no IndexedDB and no ambient state, yields every byte needed to
+   resume* — is testable today and is being sensored outside P5. **The re-derivation half is
+   reserved for P5**, because §6.1's resize/threshold path is P5's to build and a phase must
+   not implement the thing its own test exists to judge. **Criterion 6 is not discharged by
+   the cold-container half alone**; that half is a *prerequisite*, and the criterion passing
+   its prerequisite is exactly what would make the remainder invisible.
 
 ### P8 — Polish
 
