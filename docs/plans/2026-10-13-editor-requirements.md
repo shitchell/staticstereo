@@ -265,6 +265,26 @@ thing being designed against.
 > would also save the multi-frame / gif layer if i want to share the full editable project
 > with someone else -- not just the exported .gif"
 
+**Sharpened 2026-10-17, verbatim, while ruling case E:**
+
+> "i think as long as its one file we're good. i'm not too plussed about the innards of the
+> content so long as it contains everything one would need to copy a project to another
+> machine and continue editing it"
+
+**Two binding constraints, not preferences.** (1) **One file** — settled; `.stst` is a zip
+and both compression choices are a single file, so nothing here constrains case E. (2)
+**Another machine, continue editing** — this is stronger than *import* and stronger than
+*render*, and it is the acceptance test. Design §6.1 re-derives masks from the source image
+on resize or threshold change, so a container that omits sources passes *render* and fails
+*continue editing*. **It must be verified with an empty IndexedDB**, because re-importing on
+the exporting machine succeeds from a warm cache regardless of what the file contains.
+**This settles R19 in one direction** for the container: sources ship in the `.stst`
+whatever the local cache policy is. See design §6.2a.
+
+**Rationale, Shaun's, for the delegation itself:** *"i leave it with you :p … i'm not too
+plussed about the innards"* — the container's internals are explicitly not his axis; the
+**single-file property and the portability outcome** are.
+
 ### R18 — `.stst` logic shared by CLI and UI
 
 > "we can bake some of the .stst logic into a shared area for both the cli / ui to use?"

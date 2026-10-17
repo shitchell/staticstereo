@@ -762,6 +762,55 @@ A **real zip** — `CompressionStream('deflate-raw')` plus a hand-written centra
 no dependency — containing `scene.json`, baked masks, original sources, and a manifest.
 Chosen over a bespoke container so anyone can `unzip` it and read `scene.json`.
 
+**CASE E RULED 2026-10-17 — deflated, and the reasoning changed direction mid-decision, so
+both halves are recorded.** I had recommended **stored** (uncompressed) on the grounds that
+the bytes would then be identical in every engine. Measured cost of stored against a 5%
+threshold registered before measuring: **+0.195%** on a representative project (photo +
+logo + GIF + masks, 2.44 MB) but **+27.4%** on a flat-graphics one (**108 KB → 137 KB**),
+so the threshold was crossed and the call went to Shaun.
+
+**He first leaned compressed for a reason that does not exist** — *"i might lean compressed
+zip just to keep the download / copy easier"* — which rested on **my** sloppy use of
+"uncompressed". **Both options are one file.** Stored-vs-deflated is a per-entry flag
+inside the zip; download, copy, double-click and `unzip` are byte-identical experiences.
+That correction was given to him before he ruled.
+
+**What actually decided it, and it is a concession rather than a preference.** The
+determinism argument for stored protects **byte-level** guarantees — digests, size pins,
+"same scene, same file". **Invariant 4 already forbids the suite from asserting on those**
+(*assert on structure, not values*), and no requirement asks for reproducible bytes. So
+stored was defending a property nothing is permitted to depend on. The size cost is
+user-facing and **grows exactly on the path R17 names**: multi-frame GIF masks, where baked
+silhouettes compress **18–65%** and an attachment limit is a real wall. Engine-dependent
+output (**Firefox +59%**, **WebKit 10.7×** vs Chromium on the same input) is accepted as a
+consequence; **nothing may assert on `.stst` byte length or digest.**
+
+**Shaun's ruling, verbatim:** *"i leave it with you :p i think as long as its one file we're
+good. i'm not too plussed about the innards of the content so long as it contains
+everything one would need to copy a project to another machine and continue editing it"* —
+the second clause is a **requirement sharpening**, not a nicety; see R17 and §6.2a.
+
+**Consequence: `NOT-COVERED 6` is discharged by wiring, not deletion.** The write-side
+`deflate`/`CompressionStream` path — test-only until now, a named mechanism with no
+production consumer — **becomes the production write path.** The read side must continue to
+accept **stored** entries, since a valid `.stst` may arrive from `zip` or any other tool,
+and refusing one would break the `unzip`-parity promise above.
+
+### 6.2a Portability is the acceptance test, not the file list (R17)
+
+**Ruled 2026-10-17 from Shaun's clause above.** R17 says *"the full editable project"*; the
+operative test is now stated so it can fail: **export on machine A, open on machine B with
+an empty IndexedDB, and continue editing — including the operations that need the source
+image.** §6.1 makes masks re-derive from the source on **resize or threshold change**, so a
+`.stst` without original sources satisfies *render* and fails *continue editing*. §6.2's
+file list already names "original sources"; **this section exists because a list is not an
+assertion** — nothing currently fails if an item silently stops being written.
+
+**This also resolves R19's "no stated preference" in one direction**: sources are not
+optional in the container, whatever IndexedDB does locally. **The empty-IndexedDB clause is
+the whole point** — importing on the machine that exported proves nothing, because the
+cache is still warm and every re-derivation silently succeeds from it.
+
 Lives in `src/shared/`; **`stst` reads and writes it** (R18). A project format only the
 website could open would be the first asymmetry in an architecture that is otherwise one
 core with a CLI and a site at parity. Animated GIF layers are what it is for — multi-frame

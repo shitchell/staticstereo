@@ -323,8 +323,28 @@ uncommitted work (**none**) and removed.
    below, a reviewer at two rounds, a gate runner, and a push with a green `ci` run.
 2. **P3b: continue cluster H.** Task definitions are `git show 62696ae` (authoritative;
    the copy in `handover/` is not). Verification is still owed on A-4, C-1 and C-2.
-3. **Shaun owes a ruling on case E** (+27.4% stored on flat-graphic projects). The
-   container format is frozen until then.
+3. ~~**Shaun owes a ruling on case E**~~ — **RULED 2026-10-17: DEFLATED. Container format
+   is unfrozen.** Design §6.2 amended with both halves of the reasoning, including that
+   **my recommendation (stored) was conceded, not overruled** — it defended byte-level
+   determinism, which **invariant 4 forbids the suite from asserting on**, against a size
+   cost that lands on R17's own path. **He first leaned compressed for a reason that does
+   not exist** (*"keep the download / copy easier"*) — an artifact of **my** loose use of
+   "uncompressed"; both options are one file. He was corrected **before** ruling, and the
+   ruling survived the correction. **Standing constraint: nothing may assert on `.stst`
+   byte length or digest**, since deflate output is engine-dependent (Firefox +59%, WebKit
+   10.7× vs Chromium).
+   - **`NOT-COVERED 6` is DISCHARGED BY WIRING, NOT DELETION.** The write-side
+     `deflate`/`CompressionStream` path — test-only, no production consumer — **becomes the
+     production write path.** Read side keeps **stored** support; a valid `.stst` may come
+     from `zip`.
+   - **NEW AND NOT YET SENSORED — R17 sharpened into an acceptance test (design §6.2a):**
+     *"everything one would need to copy a project to another machine and continue editing
+     it."* **Export on A → import on B with an EMPTY IndexedDB → re-derive a mask at a new
+     resolution.** §6.1 re-derives from the source, so a container omitting sources passes
+     *render* and fails *continue editing*. **The empty-cache clause is the whole test** —
+     round-tripping on the exporting machine succeeds from a warm cache no matter what the
+     file holds, which is the shape of every vacuous sensor on this project. **P1/P7 is
+     already merged, so this is a check against shipped behaviour, not a design item.**
 
 **P1/P7's five verifier findings that are work, not notes:**
 - **`cardboarding` is declared `graded` in the roster and "Objective and ungraded" in the
