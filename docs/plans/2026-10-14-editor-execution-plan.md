@@ -706,8 +706,16 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    wrongly, so the message has to make the correct route the path of least resistance —
    not merely mention it.
 6. Deviations either reverted or recorded in the design document.
+7. **Every obligation pre-registered against this phase in §7z is discharged, or
+   explicitly re-deferred with a reason and a new owner.** *(Added 2026-10-17.)*
+   **This clause is the whole point of §7z.** A registry of inherited obligations is just
+   a tidier note unless something **fails** when an entry is dropped — §9's rule is that
+   *a phase cannot be trusted to steward an obligation it will never be measured on*, and
+   a central list is measured by nobody for exactly the same reason. **This clause is what
+   makes a dropped entry somebody's red.** Re-deferring is permitted and is not a failure;
+   **silently not mentioning it is.**
 
-The orchestrator reads the report of 1–6 and merges. It does not re-verify.
+The orchestrator reads the report of 1–7 and merges. It does not re-verify.
 
 ---
 
@@ -1439,7 +1447,11 @@ real blind spot.** Both halves named, as the rule requires.
 
 **Landed:** `24392c3` the write path (adopted with RED attributed per claim) · `f8d931b` its
 clause-2 sensor · `5f11f93` six blind sensors closed. **Criteria 8, 9, 15 and 22 done.**
-Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23.
+~~Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23.~~ **SUPERSEDED 2026-10-17 — and this is the
+list a worker grepping "Outstanding" hits first, which is why it is corrected here and not
+only downstream.** Current: **GENUINELY OPEN — 7, 11, 16, 21, 25.** **10 struck · 14(a) met
+and verifier-evidenced, 14(b) NOT YET DUE (teardown has not shipped) · 15b and 23 NOT YET
+DUE (cluster F/G's).** See §7z for the three not-yet-due obligations and their owners.
 
 **The "94s CI budget" was one sample of a varying quantity and every brief on this phase
 cited it, the orchestrator's included.** Measured instead of quoted: a 93s job of which
@@ -1668,6 +1680,44 @@ this phase made it cheaper to break, since `site/legibility.ts` is now a bare `e
 
 Eyedropper, motion paths, onion skin, `U` key, Option-drag timing scale. **Closes no
 requirement.** Cut without ceremony.
+
+---
+
+## 7z. Obligations pre-registered against phases that have not started
+
+*(Created 2026-10-17, after **PM-SHELL-P3b-9 measured that the three "pre-registered"
+not-yet-due criteria were not pre-registered at all.** `PRE-REGISTERED` occurred **exactly
+once in the whole `docs/` tree** — P5 criterion 6 — and the other three survived only as
+prose inside a withdrawal bullet, a frozen ledger snapshot, and a criterion pointing at a
+cluster section **that does not exist**. Tier 0 had asserted in a brief that all three were
+safely registered. That assertion was **orchestrator error 51**, and it is the precise
+failure §9 names: a confident sentence about our own records is the thing nobody
+re-measures, because the reason to check is the sentence saying you needn't.)*
+
+**What this section is for.** A criterion whose **trigger has not occurred** is **NOT YET
+DUE**, which is a different state from NOT MET — see §9. It must not sit in the finding
+phase, which has no gate that fails when it is dropped, and it must not be struck, because
+"gated on something that did not happen" reads as "unachievable" to the next reader.
+
+**Rules.**
+1. **Each entry is NUMBERED and carries its text VERBATIM**, not a summary. Nine criteria
+   once rebuilt from memory came back with five rows wrong and one deleted.
+2. **Each entry names its OWNING PHASE and its TRIGGERING EVENT**, separately — the owner
+   is who discharges it, the trigger is what makes it due.
+3. **The pointer is TWO-WAY.** The owning phase's section cites the entry; the entry cites
+   the section. **If the owning phase has no section yet, say so in the entry** rather
+   than omitting the pointer — a one-ended pointer is a dropped obligation with a tidy
+   appearance.
+4. **§6 clause 7 is what enforces this.** Without it this section is a note, and §9 is
+   explicit that a recorded note is not a sensor.
+5. **Re-deferring is allowed; silence is not.** An entry may move to another phase with a
+   reason recorded. It may not quietly fail to come up.
+
+**Entries are authored by the PM that measures them and signed off by tier 0.** P3b's
+three — criterion 14(b) (trigger: teardown ships), 15b and 23 (owner: cluster F/G, which
+**has no section in this plan** — three mentions, all inside P3b's own text) — are owed
+here and are **PM-SHELL-P3b-9's to write.** P5 criterion 6 at §7's P5 block is the
+existing model and the only one that was ever done properly.
 
 ---
 
@@ -1983,7 +2033,10 @@ Each already cost a correction. Hand this table to every worker.
 | the prediction held, so skipping the measurement would have been fine | **No — the thing that would have falsified it WAS PRESENT, and only measurement separated "cancels" from "didn't happen".** Tier 0 ordered a re-census the PM expected to be a formality. It was: zero net removals. But `a40902d` **genuinely removed two test titles**, and they cancel only because that commit is an ancestor of **both** ends. A prediction of cancellation reaches the right answer **by a route that cannot tell the two cases apart** — and the disambiguating fact (P3b's removals entirely under `site/`, main's entirely under `src/`, sets disjoint) exists nowhere except in the measurement. **Also measured: the commit whose message says "deleted a derivation as well as a relation" is census-NEUTRAL — it RECORDS a deletion, it does not perform one.** A commit message is not a census input. |
 | grep the vanished title to triage it | **BOTH NAIVE TRIAGES FAIL, IN OPPOSITE DIRECTIONS, FROM THE SAME EVIDENCE.** Whole-line `grep -F` found the vanished title **zero** times → *"gone without trace"*. A 40-char prefix sweep found **two** copies → *"still there"*. Both wrong: the title survives as **line-wrapped prose** under the keep-beside convention, so the full line matches nothing and the prefix matches quotations. **An AST census sidesteps both, because comments are not call expressions.** This completes the keep-beside hazard row: the convention does not merely create false negatives, **it creates a false positive and a false negative depending on needle length.** |
 | an arming check that fires is proved sound | **A CHECK THAT ALWAYS THROWS IS AS USELESS AS ONE THAT NEVER DOES.** Fifteen arming throws were each provoked and watched to fire — and the step that made that evidence rather than ceremony was **a positive control on a valid fixture, confirming the check correctly does NOT throw.** Nobody here had tested an arming check in that direction before. **Provoke it, then prove it stays quiet when it should.** |
-| the tooling under a measurement is neutral | **A wrapper's diagnostics on STDOUT corrupt every `$(…)` that reads them, and the result LOOKS LIKE THE GUARD WORKING.** Measured: the `git` wrapper banners on stdout for `commit-tree`, `hash-object` and `mktree`, so fixture SHAs captured banner text and two arming checks reported **"FIRED"** while actually failing on a malformed object name — **a false green dressed as a red**, which is the worst available failure because the instrument appears to prove itself sound while proving nothing. (`show`, `ls-tree`, `ls-files`, `rev-parse`, `merge-base` measured clean.) **Diagnostics belong on fd 2; when a harness result surprises you, suspect the harness's own output stream before the code.** |
+| the tooling under a measurement is neutral | **A wrapper's diagnostics on STDOUT corrupt every `$(…)` that reads them, and the result LOOKS LIKE THE GUARD WORKING.** Measured: the `git` wrapper emitted **plugin diagnostics on stdout**, so a fixture SHA captured banner text and two arming checks reported **"FIRED"** while actually failing on a malformed object name — **a false green dressed as a red**, the worst available failure because the instrument appears to prove itself sound while proving nothing. **Diagnostics belong on fd 2; when a harness result surprises you, suspect the harness's own output stream before the code.**<br><br>**CORRECTED 2026-10-17 — this row first said "`commit-tree`, `hash-object` and `mktree`" and "write-path plumbing". Both wrong, and tier 0 relayed them as measured (orchestrator error 50).** `hash-object` and `mktree` were **never affected** — measured byte-identical to `/usr/bin/git` with empty stderr *before* any change. **The trigger is not read-versus-write: it is "a plugin is wired to this subcommand and printed something."** `commit-tree` has two plugins; `hash-object` and `mktree` have none, **which is the only reason they looked clean** — as were the five commands cited as a contrast. **Real blast radius: `status`, `clone`, `push`, `commit`, `stash`, `notes`, `subtree`, plus a global plugin matching every subcommand.** The root cause was not a stray `echo`: **every plugin correctly wrote `>&2`**, and the wrapper's `run-plugin` threw it away by giving both `awk` filters the wrapper's fd 1 — *it never wrote a byte to fd 2*. **A correct diagnosis of the wrong population is still the wrong population**, and the narrow one would have shipped a per-subcommand list, which is the enumeration cure §9 records failing three times. |
+| a documented claim about your own tooling is the safe thing to trust | **It is the thing nobody re-measures, and it is load-bearing for everyone who reads it.** A skill file describing the `git` wrapper stated *"Plugin messages go to stderr so plumbing stdout stays clean"* — **false, and false in the exact way that stops the next reader from measuring.** The wrapper had never written a byte to fd 2. **A confident sentence about infrastructure is a measurement nobody will repeat**, because the reason to check is the sentence that says you needn't. **When a tool surprises you, read its source, not its documentation** — and when you fix the tool, fix the sentence in the same change. |
+| the fix is parked safely on a branch | **Not when the deployed artifact is a SYMLINK INTO THE WORKING TREE.** `~/.local/bin/git` is `ln -sf` to the repo's `bin/git`, so **the repository's checked-out branch IS the live tool** — an unmerged feature branch is not a parking state, it is production, and a `git switch` back to `main` silently un-deploys the fix. **Check how an artifact is deployed before reasoning about where it is safe to leave work**; copy-installed and symlink-installed have opposite risk profiles. *(Also: the guidance that `~/.local/bin` holds copies is "often", not always — this one is a symlink, and nothing reinstalled.)* |
+| redirect it to `>&2` inside the process substitution | **Bash applies redirections LEFT TO RIGHT, so by the time `1> >(…)` is expanded, fd 2 is already the stderr filter's pipe — the stdout filter would feed its sibling.** The working form routes both through **fd 3 opened on the enclosing group** (`{ … } 3>&2`), and it must be a **group, not a subshell**, or the captured exit code does not survive. Recorded because the obvious spelling is wrong in a way that still runs. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | **the row above, now that its site half has been measured** | **CORRECTED BESIDE IT 2026-10-16 by W-MX, P3b. `build:site` catches ZERO of four, not one of four — and the catching instrument was never `build:site`.** All four spellings build **exit 0** under the shipped config; there is no configuration in the repo today under which `build:site` reddens for any of them. What catches anything is **`site/dist.test.ts`**, a different instrument in a different CI step: **one** of four on `main` (`require`), **two** of four on `feat/p3b-store` (`require`, plus `await import` via `166b6da`'s `__vite-browser-external` stub-chunk detector). **Both static forms — `import 'node:fs'` and `import * as fs from 'node:fs'` — are missed by every instrument in the repo at both commits.** The mechanism is the **opposite** of the one recorded above and that is the durable part: the dynamic form hides *behind a rewrite*, so grepping the stub cures it; the static forms hide by **leaving no artifact at all** — vite inlines `export default {}` and rollup drops the bare import, so **a text grep and an AST specifier reader are blind in exactly the same place, because there is no specifier left to read.** They look independent and are not. **And it does not throw**: the code receives an empty object and proceeds silently, so "ships green" understates it — there is no stack and nothing to notice. **`build.rollupOptions.onwarn` is a genuine complement** — it catches the three resolved forms and is **structurally incapable** of seeing `require`, because the warning fires only when vite's resolver resolves the specifier and the commonjs plugin is scoped to `node_modules`. **onwarn + `dist.test.ts` together cover all four; neither alone covers more than three.** Full measurement, costs, and the latent `node_modules` false-positive surface: `git show be122ac`. |
