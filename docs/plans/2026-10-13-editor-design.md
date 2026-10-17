@@ -1232,6 +1232,39 @@ Every function returns the measured quantities *and* a grade, so a caller that o
 numbers never touches the judgement. This is also what makes effort #2 cheap: it edits
 bodies in one file, and the CLI's preview report and the editor's panels both follow.
 
+### 10.0 What "perceptual" means — the definition this document never had
+
+*(Written 2026-10-17. **No document in the repository defined the term**, and criterion 25
+turns on it. A survey found a live candidate violation and **correctly refused to classify
+it**, saying why both ways — the right call, because the classification was unanswerable
+against an undefined word. Tier 0 declined to rule the instance and supplied the missing
+definition instead, so the classification follows by measurement rather than by taste.)*
+
+> **A predicate is PERCEPTUAL if its output depends on a constant chosen to model human
+> vision** — fusion, legibility, comfort, depth discrimination. **A constant chosen for
+> engineering reasons** — buffer sizes, iteration caps, numerical tolerances — **does not
+> make a predicate perceptual.**
+
+**The test is what the constant was chosen to MODEL, not where it came from.** A docblock
+saying *"not derived from anything"* is evidence about **provenance** and none at all about
+**subject** — an undocumented guess at a fusion threshold is still a fusion threshold.
+
+**CRITERION 25 IS REWORDED ACCORDINGLY, because its old text was false at the tip against
+correct code:**
+
+> **No perceptual threshold or judgement is computed outside `src/shared/perception.ts`.
+> A view may call a model function and render what it returns; it may not compare against
+> a perceptual constant, re-derive one, or grade a result itself.**
+
+**The old wording — *"no perceptual predicate is evaluated in a view"* — reddened on the
+prescribed shape.** `site/main.ts` evaluates three perceptual predicates in exactly the
+compliant way: it calls the model and renders the returned string, comparing nothing and
+inlining no threshold. **A sensor written to those words would have gone red on correct
+code the day it was written, and its cheapest satisfaction was deleting the legibility
+readout — the feature R22 exists to enable.** That is this project's own tripwire rule
+violated by a criterion's text. Under the new wording `site/main.ts` must be **green**; if
+it is not, the wording is still wrong.
+
 ### 10.1 Encoding capacity — objective, no perception involved
 
 `encodableDepths(stereo)` → `sepFar − sepNear + 1`; **19 at the default 110/92**, derived
