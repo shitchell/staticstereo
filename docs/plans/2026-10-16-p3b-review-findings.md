@@ -260,8 +260,24 @@ file can detect a module becoming editor-only.** The list **is correct today** (
 > **eleven** such `site/*.ts` files. The other eight is the seven **plus
 > `src/shared/perception.ts`**, under the *unscoped* reading of the test's own predicate.
 > **Disjoint provenance, same number.** And plan §7's reading is not merely wrong: **adding a
-> neither-closure module to the list turns the suite RED**, because the presence half hunts a
-> needle for a module that is in no bundle at all.
+> neither-closure module to the list turns the suite RED.**
+>
+> > **MECHANISM CORRECTED 2026-10-17, by I-14, which ran both routes instead of reasoning.**
+> > This sentence first read *"because the presence half hunts a needle for a module that is
+> > in no bundle at all."* **That is the wrong mechanism for the module it names, and it was
+> > my inference, not a measurement.** Measured:
+> > **roster entry alone → `2 failed | 46 passed`**, via *"has enough needles to be worth
+> > asserting"* plus `toHaveLength(7)`; **the presence half never fires.**
+> > **roster entry PLUS a needle → `3 failed | 45 passed`**, now including *"finds every
+> > needle in the editor bundle — the grep works"*. That is the mechanism I named, and **it
+> > needs a second edit to appear at all.**
+> > **And for `site/store.ts` the second route does not exist:** the module contains **no
+> > string literal** — two import specifiers and an apostrophe in a docblock are the whole of
+> > it — so **it can never be given a needle.** A neither-closure module cannot be made to
+> > satisfy the roster; it has to stay off it.
+> > **The conclusion survives and the stated reason did not** — which is §9's *a right
+> > decision with an invented reason is harder to catch than a wrong one, because the outcome
+> > validates it.*
 >
 > **Also unwritten until now: the list is silently `site/`-SCOPED.** `src/shared/perception.ts`
 > is editor-only under the test's own predicate and is absent from the list; the scoping rule
