@@ -799,8 +799,51 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
 5. **Determinism specified**: fixed mtimes, fixed entry order, fixed compression level.
 6. `stst` reads and writes `.stst`. **Subcommand names are an escalation** — `args.ts`'s
    `COMMANDS` is `['render','still','preview']` and the design names no new one.
-7. CLI and site produce identical bytes for one scene — **by construction, not by the
-   coincidence of two zlib wrappers agreeing on a default.**
+7. **The `.stst` container has exactly one producer, and the layout, entry order, manifest
+   and compression rule live in it.** A second export path is permitted and expected — P5
+   adds one on the site side — **provided it routes through `writeStst`.**
+
+   **SUPERSEDED TEXT, kept beside rather than rewritten in place, 2026-10-17.** The
+   criterion read:
+
+   > CLI and site produce identical bytes for one scene — **by construction, not by the
+   > coincidence of two zlib wrappers agreeing on a default.**
+
+   **The replacement is weaker than what it replaced, in two separate ways, and neither is
+   an improvement. It is not equivalent to the old criterion and it is not more robust.**
+
+   1. **Weaker than byte equality.** Design §6.2's case-E ruling deflates the container, so
+      identical bytes across engines is *unachievable*: `CompressionStream('deflate-raw')`
+      emits **+59% in Firefox 153 and 10.7x in WebKit 26** against Node and Chromium,
+      diverging at byte 0 or 1. All four round-trip exactly; none is wrong.
+   2. **Weaker than the two-sided comparison specified in its place.** The first
+      replacement written was a CLI-versus-site comparison of *decoded* structure. That is
+      **unbuildable**: `src/cli/index.ts` is the only production caller of `writeStst` and
+      `site/` has no `.stst` writer at all, so there is no second producer to compare
+      against. **Tier 0 over-specified and has withdrawn it — its own error 47.**
+
+   The honest sentence is that a strong witness became unsatisfiable and was traded for an
+   achievable one.
+
+   **Discharged by there being one writer, stated here rather than in a ledger**, because
+   the moment anyone needs this is the moment they are editing the criterion. Three things
+   carry it, in `src/shared/container.test.ts`:
+
+   - **A single-producer structural pin** — `pins the one writer on decoded structure,
+     which is what replaced identical bytes`: entry names, entry order, decoded per-entry
+     content, the manifest and `scene.json`, compared through `/usr/bin/unzip` between two
+     caller orderings of the same writer. Paired controls omit an entry and reorder the
+     entries, and both separate.
+   - **This clause**, which says the criterion is discharged by the one-writer fact rather
+     than by a comparison.
+   - **A sensor for that fact ceasing to be true** — `criterion 7 — one production producer
+     of .stst bytes`: it reddens the day a second production module names `writeZip` or
+     `CompressionStream` without routing through `writeStst`, and its message says to route
+     through `writeStst`. **This is the only one of the three that survives P5 adding a
+     site-side writer**, and it is the part that matters.
+
+   **The 2026-10-15 ruling below is superseded by case E and is kept because its
+   measurements are still the reason the criterion had to change at all.**
 
    **Rewritten 2026-10-15 on measurement.** The survey measured
    `CompressionStream('deflate-raw')` byte-identical between Node 22.14.0 and Chromium 151
@@ -1577,6 +1620,49 @@ this phase made it cheaper to break, since `site/legibility.ts` is now a bare `e
 4. Heightmap imports warn on URL viability; `.stst` is the supported path when they do not
    fit.
 5. Link-size meter with a shareability band.
+6. **Portability is the acceptance test — PRE-REGISTERED 2026-10-17, before any of P5
+   exists.** Design §6.2a, from R17's sharpening in the repo owner's own words: *"i'm not
+   too plussed about the innards of the content so long as it contains everything one would
+   need to copy a project to another machine and continue editing it"*.
+
+   > **Export on machine A → import on machine B with an EMPTY IndexedDB → continue
+   > editing, including an operation that needs the source image.**
+
+   **The empty-cache clause is load-bearing and it is the whole of the test.** A round-trip
+   on the *exporting* machine succeeds from a warm cache **no matter what the container
+   actually holds** — every re-derivation reads the source out of IndexedDB and the
+   container is never consulted, so the test passes identically whether or not sources were
+   ever written. That is the shape of every vacuous sensor this project has found. **A test
+   that imports without clearing the cache is worth nothing and must not be written.**
+
+   The operation that discharges *"continue editing"* is §6.1's: **masks re-derive from the
+   source image on scene resize and on threshold change.** A container that omits original
+   sources passes *render* and fails *continue editing* — and **only the cold path can tell
+   those two apart.**
+
+   **Why this is registered before its phase starts.** The container half is already merged
+   (P1), the requirement it serves — **R17 — is already recorded closed**, and §6.2's file
+   list names "original sources" with nothing asserting it. **A list is not an assertion.**
+   A criterion adopted in a message rather than in a document has been lost three times
+   here; orchestrator error 15 adopted nine criteria in messages and wrote none of them
+   down. Registering it before the owning phase exists is what stops the second half of an
+   acceptance test evaporating between two phases.
+
+   **Measured 2026-10-17, so this criterion starts life knowing it is unmet.** A `.stst`
+   carried to a machine holding only the file: **absolute path → throws, exit 1, no output;
+   relative path → throws, resolved against process cwd and never against the `.stst`;
+   `data:` URI → renders byte-identical.** The shipped `--save-project` emits `scene + 0
+   members`, and **no shipped code path produces a `data:` src** — so for every project the
+   tooling can currently create, the answer is **no**. See design §6.2b: the failure is
+   *render*, upstream of the *continue editing* clause this criterion was written about.
+
+   **Scope boundary, stated so neither half is dropped.** The **cold-container half** — *the
+   container alone, with no IndexedDB and no ambient state, yields every byte needed to
+   resume* — is testable today and is being sensored outside P5. **The re-derivation half is
+   reserved for P5**, because §6.1's resize/threshold path is P5's to build and a phase must
+   not implement the thing its own test exists to judge. **Criterion 6 is not discharged by
+   the cold-container half alone**; that half is a *prerequisite*, and the criterion passing
+   its prerequisite is exactly what would make the remainder invisible.
 
 ### P8 — Polish
 

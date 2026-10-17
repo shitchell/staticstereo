@@ -1,8 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import * as ts from 'typescript'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { writeScene } from './sceneWrite.js'
 import { STST_ENTRY_ORDER, STST_MIMETYPE, writeStst, type StstMember } from './container.js'
@@ -208,6 +210,26 @@ interface Manifest {
 const METHOD_STORE = 0
 const METHOD_DEFLATE = 8
 
+/**
+ * The method of each of {@link EXPECTED_NAMES}, positionally — `mimetype`
+ * stored, everything else deflated (design §6.2, ruled 2026-10-17).
+ *
+ * Written out rather than computed as `[0, ...fill(8)]`, for the same reason
+ * `EXPECTED_NAMES` is written out: a rule expressed as an expression is the
+ * writer's rule evaluated twice, and it would stay green if the writer's rule
+ * changed shape. Two literal lists side by side are two things that have to be
+ * edited together, which is the property wanted.
+ */
+const EXPECTED_METHODS = [
+  METHOD_STORE,    // mimetype       — the ODF/EPUB fixed-offset convention
+  METHOD_DEFLATE,  // scene.json
+  METHOD_DEFLATE,  // manifest.json
+  METHOD_DEFLATE,  // masks/alpha.png
+  METHOD_DEFLATE,  // masks/<unicode>
+  METHOD_DEFLATE,  // sources/a-source.gif
+  METHOD_DEFLATE,  // sources/b-source.gif
+]
+
 function methodsOf(archive: Uint8Array): { local: number[]; central: number[]; names: string[] } {
   const v = new DataView(archive.buffer, archive.byteOffset, archive.byteLength)
   const utf8 = new TextDecoder('utf-8', { fatal: true })
@@ -261,6 +283,21 @@ describe('writeStst', () => {
     expect(namesInArchive(other)).toEqual(EXPECTED_NAMES)
   })
 
+  /**
+   * **SAME-ENGINE ONLY. This is not a cross-engine byte-identity claim, and
+   * design §6.2 requires every determinism pin in this repo to say so in the
+   * file rather than in a document.**
+   *
+   * Both arms run in one process on one engine, so what is pinned is that
+   * `writeStst` does not let the caller's member *order* reach the output —
+   * a real property of our writer, and the one criterion 7 is about. It says
+   * nothing whatever about two engines producing the same bytes: since the
+   * case-E ruling of 2026-10-17 the container deflates, and
+   * `CompressionStream('deflate-raw')` is measured to emit **+59% in Firefox
+   * 153 and 10.7x in WebKit 26** against Node and Chromium, diverging at byte
+   * 0 or 1. Read as a cross-engine guarantee this assertion is false; read as
+   * written it is true and is worth keeping.
+   */
   it('emits byte-identical archives from member lists in different orders', async () => {
     const a = await writeStst(hostileScene(), straight())
     const b = await writeStst(hostileScene(), shuffled())
@@ -278,6 +315,11 @@ describe('writeStst', () => {
     expect(sha(await writeStst(hostileScene(), moved))).not.toBe(sha(a))
   })
 
+  /**
+   * **SAME-ENGINE ONLY**, for the reason set out on the test above, which
+   * applies here unchanged: this pins clock-independence of our own writer in
+   * one process, not byte identity between two engines.
+   */
   it('emits byte-identical archives for two calls, whatever the clock says', async () => {
     const first = await writeStst(hostileScene(), straight())
     expect(sha(await writeStst(hostileScene(), straight()))).toBe(sha(first))
@@ -305,31 +347,59 @@ describe('writeStst', () => {
     expect(sha(await writeStst(other, straight()))).not.toBe(sha(first))
   })
 
-  it('stores every entry, so byte-identity does not rest on a deflater default', async () => {
+  /**
+   * **SUPERSEDED TITLE, kept because this test changed meaning rather than
+   * being fixed.** Until 2026-10-17 this test was:
+   *
+   * > `stores every entry, so byte-identity does not rest on a deflater default`
+   *
+   * and it asserted `local` and `central` were all-zero. That is not a test
+   * that broke and was repaired; it is the **criterion it witnesses changing
+   * meaning**, and the old wording is kept here so a reader meeting the new
+   * one can see what was traded and why rather than re-deriving it.
+   *
+   * **What changed.** Design §6.2 case E was ruled 2026-10-17: the container
+   * deflates. The all-store ruling of 2026-10-15 had been defending
+   * cross-engine byte identity — a property invariant 4 forbids the suite from
+   * asserting on, and which no requirement asks for — at a size cost measured
+   * at **+27.4% (107,724 → 137,279 bytes)** on a flat-graphics project, which
+   * crossed a 5% threshold registered before the measurement. The engine
+   * divergence the old title names is **real and is now accepted**: Firefox
+   * 153 emits +59% and WebKit 26 10.7x against Node and Chromium, diverging at
+   * byte 0 or 1, and all four round-trip exactly.
+   *
+   * **`mimetype` is the exception and it is not a concession to this file.**
+   * It is first and stored so the media type sits at a fixed offset where
+   * `file(1)` and archive managers can read it without inflating anything —
+   * the ODF/EPUB convention — and it costs 17 bytes. Its sensor is
+   * `identifies itself from the first bytes of the file` below, which is also
+   * the only assertion in this file that can see `mimetype` stop being stored
+   * *without reading a method field*: it reads the media type at offset
+   * 30 + `'mimetype'.length`, which a deflated first entry cannot satisfy.
+   */
+  it('stores mimetype and deflates everything else, as ODF and EPUB do', async () => {
     const archive = await writeStst(hostileScene(), straight())
     const { local, central, names } = methodsOf(archive)
 
-    // Criterion 7, rewritten 2026-10-15 on measurement.
-    // `CompressionStream('deflate-raw')` was measured byte-identical between
-    // Node 22.14.0 and Chromium 151 across nine fixtures — and **Firefox 153
-    // emits +59% and WebKit 26 emits 10.7x**, diverging at byte 0 or 1. All
-    // four round-trip; none of them is wrong. The Streams spec fixes no level,
-    // no strategy, no `memLevel` and no `windowBits`, so the Node/Chromium
-    // agreement is two implementations happening to wrap zlib at its default
-    // and nothing holds them there. Storing every entry makes "the CLI and the
-    // site emit identical bytes" true by construction in every engine instead.
     expect(names).toEqual(EXPECTED_NAMES)
-    expect(local).toEqual(new Array(EXPECTED_NAMES.length).fill(METHOD_STORE))
+    expect(local).toEqual(EXPECTED_METHODS)
     // The format writes the method twice and a reader may consult either; a
     // writer that let the two drift produces an archive that extracts
     // differently depending on which half the tool trusts.
     expect(central).toEqual(local)
 
-    // The control (§6.5a). "Every method field read 0" is a null measurement,
-    // and a null cannot be told from a parser that returns 0 whatever it is
-    // pointed at. The same function over an archive built one layer down with
-    // an explicitly deflated entry must report 8 — and must report it in both
-    // halves, or the local-versus-central comparison above is vacuous too.
+    // The control (§6.5a), and **the flip discharged half of it**. While every
+    // field was expected to read 0, "they all read 0" was a null that a parser
+    // returning 0 whatever it is pointed at would also produce. The expected
+    // vector now contains **both** 0 and 8, so a constant-returning reader is
+    // refuted by the assertion itself — that is a strengthening the deflate
+    // ruling bought, not something this file arranged.
+    //
+    // The explicit control below is kept anyway, and it is now corroboration
+    // rather than the only thing separating a reading from a constant: it
+    // pins the two values against an archive built one layer down whose
+    // methods are chosen by the caller, in both halves, so the
+    // local-versus-central comparison above is not vacuous either.
     const deflated = await writeZip([
       { name: 'mimetype', data: te.encode(STST_MIMETYPE), method: 'store' },
       { name: 'scene.json', data: te.encode(writeScene(hostileScene())), method: 'deflate' },
@@ -342,11 +412,25 @@ describe('writeStst', () => {
    * The same claim as the test above, but about the **writer** rather than
    * about one fixture — and the two are not the same claim.
    *
+   * **SUPERSEDED TITLE, kept for the same reason as the test above's.** Until
+   * 2026-10-17 this was:
+   *
+   * > `stores every entry whatever the payload is, not merely for this fixture`
+   *
+   * The claim it makes about the writer is unchanged in *kind* — the method is
+   * not a function of the bytes — and changed in *value*: the answer is now
+   * "deflate for every member, store for `mimetype`" rather than "store for
+   * everything". Retitled rather than left alone because the old title is a
+   * false sentence about the archive, and §9 fixes false assertions on sight;
+   * recorded rather than simply replaced because a vanished test name is a
+   * §6.4 census event and the triage needs the rename visible in the file.
+   *
    * The test above reads the method fields of an archive built from
    * `straight()`, whose members are four 300-byte pseudo-random blobs. That is
-   * "all-store holds for this fixture". Criterion 7 asks for something
-   * stronger: that the method is never *chosen* — that it is a property of the
-   * module and not of the bytes handed to it. The difference is measurable.
+   * "the role-keyed rule holds for this fixture". Criterion 7 asks for
+   * something stronger: that the method is never *chosen from the content* —
+   * that it is a property of the entry's **role** and not of the bytes handed
+   * to the module. The difference is measurable.
    * `method: p.data.length > 100000 ? 'deflate' : 'store'` — a textbook content
    * dependence, and the exact class criterion 7 exists to remove — leaves the
    * test above green, because no member in `straight()` reaches 100,000 bytes.
@@ -360,9 +444,9 @@ describe('writeStst', () => {
    * to 512 KiB across six orders of magnitude, crossing 64 KiB (the classic
    * chunk boundary) and 100 KiB; each length appears twice, once as
    * `notAPng` pseudo-random bytes and once as a single repeated byte that
-   * deflates to roughly 0.1% of itself. "Every entry stored" over that matrix
-   * is a statement about the writer. Over one fixture it is a statement about
-   * the fixture.
+   * deflates to roughly 0.1% of itself. "Every member deflated, whatever it
+   * is" over that matrix is a statement about the writer. Over one fixture it
+   * is a statement about the fixture.
    *
    * **The `notAPng` arm was described as "incompressible" and only the 1 KiB
    * one is.** Measured with `zlib.deflateRawSync`: 1 KiB → 1029 bytes (1.0:1,
@@ -383,29 +467,136 @@ describe('writeStst', () => {
    * axis is swept at one length rather than three. A content rule keyed on
    * compressibility alone, at a threshold above 1 KiB, is the gap.
    *
-   * ## The size relation, which does not read the method field at all
+   * ## The size relation — DELETED 2026-10-17, and what replaced it
    *
-   * Reading method fields and asserting they are 0 has a cheapest-wrong
-   * satisfying action (plan §6.5a): write 0 into the header while deflating the
-   * payload, and every assertion above still passes. The archive **length** is
-   * immune to that. With every entry stored, growing one member by *n* bytes
-   * grows the archive by exactly *n*, so `archive.length - payload.length` is
-   * one constant across the whole matrix — whatever the payload is. Deflate
-   * anything, by any rule, and that number moves: measured under the planted
-   * `> 100_000` rule, by **523,763** on the repeated 512 KiB member and by
-   * **512,239** on the `notAPng` one. (This said "a few bytes on the
-   * incompressible ones", which was the same mistake as above: the 512 KiB
-   * `notAPng` member is not incompressible and moves by half a megabyte. The
-   * members that genuinely move by a few bytes are the sub-100 KiB ones, and
-   * under *this* rule they do not move at all, because it does not deflate
-   * them.) It is a single number, derived from no literal of the module's,
-   * and it is checked for every arm.
+   * **The deleted text, kept because the relation was true and is now false,
+   * not because it was wrong.** Restored to literally verbatim on 2026-10-17:
+   * the first version of this preservation dropped the section heading and
+   * elided a parenthetical with a `…`, and a preservation that elides is a
+   * preservation a reader cannot check against the source.
    *
-   * Nothing here greps `container.ts` for `'store'`. A source grep is satisfied
-   * by the word appearing in a comment, which is the cheapest wrong action of
-   * all, and it goes blind the moment the literal moves behind a helper.
+   * > ## The size relation, which does not read the method field at all
+   * >
+   * > Reading method fields and asserting they are 0 has a cheapest-wrong
+   * > satisfying action (plan §6.5a): write 0 into the header while deflating
+   * > the payload, and every assertion above still passes. The archive
+   * > **length** is immune to that. With every entry stored, growing one
+   * > member by *n* bytes grows the archive by exactly *n*, so
+   * > `archive.length - payload.length` is one constant across the whole
+   * > matrix — whatever the payload is. Deflate anything, by any rule, and
+   * > that number moves: measured under the planted `> 100_000` rule, by
+   * > **523,763** on the repeated 512 KiB member and by **512,239** on the
+   * > `notAPng` one. (This said "a few bytes on the incompressible ones",
+   * > which was the same mistake as above: the 512 KiB `notAPng` member is
+   * > not incompressible and moves by half a megabyte. The members that
+   * > genuinely move by a few bytes are the sub-100 KiB ones, and under
+   * > *this* rule they do not move at all, because it does not deflate them.)
+   * > It is a single number, derived from no literal of the module's, and it
+   * > is checked for every arm.
+   *
+   * ### The control that went with it, and its derivation — RESTORED 2026-10-17
+   *
+   * **`a40902d` deleted a second thing and recorded only the first.** Along
+   * with the relation it removed the relation's control —
+   * `expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)`
+   * — and the measurement block that derived its floor, with no record
+   * anywhere and no mention in the commit message. At that commit `400_000`,
+   * `4.2:1`, `1000:1` and `124 KB` were each **0 hits** across the file.
+   *
+   * **Why that mattered more than the relation did.** The derivation was the
+   * discharge of a review finding: the floor had been reported as a magic
+   * number, someone measured the real spread and wrote the derivation down,
+   * and the writing-down is what closed the finding. Deleting it silently
+   * reopens a closed finding without reopening it — the next reader meets a
+   * floor with no recorded reason and files the same finding again.
+   *
+   * Verbatim, as it stood at `2c192e8`:
+   *
+   * > Half two: the size relation moves, and it moves on the *values*, not on
+   * > a pass/fail. Under the forbidden rule the excess-over-payload figure
+   * > spans a range of hundreds of kilobytes instead of being one number.
+   * >
+   * > **Where 400_000 comes from**, measured over this exact payload list and
+   * > this exact rule rather than chosen to clear today's number. The six
+   * > members at or below 100,000 bytes are untouched by the rule and sit at
+   * > a constant excess of **+230**; the two 512 KiB members are deflated,
+   * > to **-512,009** (`notAPng`) and **-523,533** (the repeated byte). So
+   * > `max - min` is **523,763**, and the floor has ~124 KB of headroom.
+   * >
+   * > The headroom is the part that needed a reason, because the floor is
+   * > *not* independent of zlib: clearing 400,000 requires the repeated 512
+   * > KiB member to deflate to under ~124 KB, i.e. better than **4.2:1** on a
+   * > run of 524,288 identical bytes. Measured, zlib gets 525 bytes — about
+   * > 1000:1 — so the margin is three orders of magnitude, and no deflate
+   * > implementation that emits a compressed block at all comes near 4.2:1 on
+   * > a constant run. A floor nearer 523,000 would instead redden on an
+   * > engine or level change, which is §9's "a numeric floor chosen from
+   * > today's count is a check". The floor's job is to exclude 0 — the spread
+   * > `flat` asserts on the next line — not to pin a ratio.
+   *
+   * **Corrected beside the quote, never inside it** (§9: editing a preserved
+   * block falsifies the record of what it said): the closing reference to
+   * *"the spread `flat` asserts on the next line"* no longer resolves. `flat`
+   * was the production-side relation and it is correctly gone. Everything
+   * else in the block still does resolve.
+   *
+   * **The assertion survives deflate, and that is a measurement rather than a
+   * preference.** `lengths` is not read off the writer's archives — it is read
+   * off the **control's own** `writeZip` call under the forbidden `> 100_000`
+   * rule, and that call is unchanged, so the figures are unchanged. Re-run
+   * 2026-10-17 against this file as it now stands: `[230, 230, 230, 230, 230,
+   * 230, -512009, -523533]`, `max - min` **523,763** — the derivation's
+   * numbers exactly. So the assertion is restored as live code rather than as
+   * prose, which is also what §9 asks for ("convert the note into a test").
+   *
+   * What it witnesses now is narrower than what it witnessed then, and is
+   * stated rather than left to read as unchanged: it is no longer half of the
+   * production-side relation's control, because that relation is gone. It is
+   * the **control arm's own** byte-level witness — proof that the forbidden
+   * rule really deflated, rather than that a header said so.
+   *
+   * It is the writer that now deflates, so the constant is gone. Measured over
+   * this exact matrix under the role-keyed rule, `archive.length -
+   * payload.length` runs from **+716** (1 KiB random) to **−523,052** (512 KiB
+   * repeated) — a spread of **523,768**. The number could be made to pass
+   * again by widening the equality into a tolerance, and that is the cheapest
+   * wrong action available here: it would leave an assertion in the file whose
+   * only remaining content is "the archive is roughly the size of its
+   * payload". **The constant was not loosened. The relation was deleted and
+   * the threat it covered was re-expressed.**
+   *
+   * **What covers the threat now.** The threat is unchanged in shape and
+   * inverted in direction: under the role-keyed rule the cheapest-wrong
+   * satisfying action for the method-field assertions is to write **8** into
+   * both headers while **storing** the payload — never calling the deflater at
+   * all — and every method-field assertion in this test still passes. The
+   * replacement is `/usr/bin/unzip -p`, over every arm of the matrix, asserted
+   * byte-exact against the payload: an inflater that is not ours, acting on
+   * the method field rather than reading it, so a header that lies in either
+   * direction produces bytes that are not the payload. Measured on this
+   * matrix: all eight arms extract byte-exact, and with both method fields
+   * patched 8 → 0 and the payload untouched all eight fail with
+   * `unzip` status **2**.
+   *
+   * **What was lost and is not covered.** The deleted relation needed no
+   * external tool; the replacement makes `/usr/bin/unzip` load-bearing for
+   * eight more assertions. This file already has no `HAVE_UNZIP` guard and
+   * fails closed on a missing binary (`status === null`), so that is a
+   * dependency rather than a hole — but it is a real difference and is not
+   * an improvement in every direction.
+   *
+   * **And `mimetype` is covered by neither of these.** Its stored-ness is
+   * witnessed, without reading a method field, by the byte-offset assertion in
+   * `identifies itself from the first bytes of the file`: the media type is
+   * read at offset 30 + `'mimetype'.length`, which only holds while the first
+   * entry is stored.
+   *
+   * Nothing here greps `container.ts` for `'store'` or `'deflate'`. A source
+   * grep is satisfied by the word appearing in a comment, which is the
+   * cheapest wrong action of all, and it goes blind the moment the literal
+   * moves behind a helper.
    */
-  it('stores every entry whatever the payload is, not merely for this fixture', async () => {
+  it('keys the method on the role and never on the payload, not merely for this fixture', async () => {
     // Deliberately **not** derived from `notAPng`'s seed list or from
     // `straight()`: these exist to be unlike the fixture. The repeated-byte
     // arms are the ones a size-and-compressibility rule would deflate.
@@ -420,24 +611,44 @@ describe('writeStst', () => {
       ['512 KiB repeated', new Uint8Array(512 * 1024).fill(0xff)],
     ]
 
-    // One member, one name, one scene, so that archive length varies with the
-    // payload and with nothing else. A varying name would change the header
-    // overhead and make the size relation below unreadable.
-    const overheads = new Map<string, number>()
+    // One member, one name, one scene. Four entries each time — `mimetype`,
+    // `scene.json`, `manifest.json`, `masks/p.bin` — so the expected vector is
+    // written out rather than filled, the same argument `EXPECTED_METHODS`
+    // carries.
+    const ONE_MEMBER_METHODS = [
+      METHOD_STORE,    // mimetype
+      METHOD_DEFLATE,  // scene.json
+      METHOD_DEFLATE,  // manifest.json
+      METHOD_DEFLATE,  // masks/p.bin
+    ]
+    const archives = new Map<string, Uint8Array>()
     for (const [label, data] of payloads) {
       const archive = await writeStst(hostileScene(), [{ name: 'p.bin', role: 'mask', data }])
-      const { local, central, names } = methodsOf(archive)
-      expect(local, `local methods · ${label}`).toEqual(new Array(names.length).fill(METHOD_STORE))
+      const { local, central } = methodsOf(archive)
+      expect(local, `local methods · ${label}`).toEqual(ONE_MEMBER_METHODS)
       expect(central, `central methods · ${label}`).toEqual(local)
-      overheads.set(label, archive.length - data.length)
+      archives.set(label, archive)
     }
 
-    // The size relation. Reported as a label→value map rather than as a set
-    // size, so a failure names *which* payload was treated differently
-    // instead of only saying that one of eight was.
-    const flat = [...overheads.values()]
-    expect(Object.fromEntries(overheads), 'archive bytes in excess of the payload')
-      .toEqual(Object.fromEntries([...overheads.keys()].map(k => [k, flat[0]])))
+    // What replaced the deleted size relation — see the docblock. An inflater
+    // that is not ours, *acting* on the method field rather than reading it,
+    // over every arm. A header claiming 8 over a stored payload and a header
+    // claiming 0 over a deflated one both land here, and neither is visible to
+    // any assertion above.
+    //
+    // Compared on length and then on digest rather than with `toEqual`, for a
+    // measured reason and not a stylistic one: `toEqual` over a 512 KiB
+    // `Uint8Array` costs **1680 ms** in vitest 2.1.9, against **7 ms** for the
+    // `unzip` spawn and **24 ms** for the deflate — it is the assertion's
+    // diffing machinery, not the work being measured, and two such arms alone
+    // put this test past the 5 s default timeout. Length first so the common
+    // failure reports a number rather than "the digests differ".
+    for (const [label, data] of payloads) {
+      const path = onDisk(archives.get(label) as Uint8Array)
+      const got = extract(path, 'masks/p.bin')
+      expect(got.length, `unzip -p length · ${label}`).toBe(data.length)
+      expect(sha(got), `unzip -p bytes · ${label}`).toBe(sha(data))
+    }
 
     // The scene is a payload too. `writeStst` serialises it itself, so a rule
     // keyed on `sceneText.length` would never touch a member — and the member
@@ -449,15 +660,32 @@ describe('writeStst', () => {
     layers[0] = { ...(layers[0] as { text: string }), text: 'я'.repeat(200_000) }
     const fatArchive = await writeStst(fat, straight())
     const fatMethods = methodsOf(fatArchive)
-    expect(fatMethods.local, 'local methods · 200k-character scene')
-      .toEqual(new Array(EXPECTED_NAMES.length).fill(METHOD_STORE))
+    expect(fatMethods.local, 'local methods · 200k-character scene').toEqual(EXPECTED_METHODS)
     expect(fatMethods.central, 'central methods · 200k-character scene').toEqual(fatMethods.local)
 
-    // The control (§6.5a), both halves. Every assertion above is a null —
-    // "nothing read 8, nothing moved" — and a null is indistinguishable from
-    // an instrument that cannot move. So the same two instruments are run over
-    // archives built one layer down with the methods chosen from the content,
-    // and both must report the difference rather than merely failing to be 0.
+    // The control (§6.5a), both halves, and **both halves inverted when the
+    // ruling did.**
+    //
+    // Half one: the method-field reader must be shown moving, or "every
+    // member read 8" is indistinguishable from a reader that returns 8. The
+    // forbidden rule now shows up as **stores appearing where the writer
+    // always deflates**, which is the same mutation read from the other side:
+    // under `> 100_000` the six small payloads are stored and the two 512 KiB
+    // ones are deflated, against the writer's constant 8 for every member.
+    //
+    // **Superseded text, kept beside rather than replaced in place** — the
+    // standing convention here, and `a40902d` overwrote this one. Until
+    // 2026-10-17 the paragraph above read:
+    //
+    // > Half one: the method-field reader moves. 0,0,0,0,0,0,8,8 against the
+    // > all-zero vector the writer produces — so the zeros above are a reading
+    // > and not a constant.
+    //
+    // It is the same control with both vectors inverted by the deflate
+    // ruling, which is why replacing it was defensible and keeping it is
+    // cheaper: a reader meeting `toHaveLength(6)` can see that the 6 used to
+    // be a 2 and why, without a `git log -S` that would not find it anyway
+    // (the pickaxe is blind to an edit that preserves the occurrence count).
     const asWritten: number[] = []
     const asChosen: number[] = []
     const lengths: number[] = []
@@ -470,39 +698,116 @@ describe('writeStst', () => {
         { name: 'masks/p.bin', data, method: data.length > 100_000 ? 'deflate' : 'store' },
       ])
       asChosen.push(methodsOf(chosen).local[1] as number)
-      asWritten.push(METHOD_STORE)
+      asWritten.push(METHOD_DEFLATE)
       lengths.push(chosen.length - data.length)
     }
-
-    // Half one: the method-field reader moves. 0,0,0,0,0,0,8,8 against the
-    // all-zero vector the writer produces — so the zeros above are a reading
-    // and not a constant.
     expect(asChosen).not.toEqual(asWritten)
-    expect(asChosen.filter(m => m === METHOD_DEFLATE)).toHaveLength(2)
+    expect(asChosen.filter(m => m === METHOD_STORE)).toHaveLength(6)
 
-    // Half two: the size relation moves, and it moves on the *values*, not on
-    // a pass/fail. Under the forbidden rule the excess-over-payload figure
-    // spans a range of hundreds of kilobytes instead of being one number.
+    // **The control's own control, restored 2026-10-17.** Everything above
+    // this line is a *header* reading, and a `writeZip` that wrote 8 into the
+    // header without ever calling the deflater would satisfy all of it — the
+    // same cheapest-wrong action the deleted size relation existed to rule
+    // out, now aimed one layer down at the control arm instead of at the
+    // writer. Archive length is immune to it.
     //
-    // **Where 400_000 comes from**, measured over this exact payload list and
-    // this exact rule rather than chosen to clear today's number. The six
-    // members at or below 100,000 bytes are untouched by the rule and sit at
-    // a constant excess of **+230**; the two 512 KiB members are deflated,
-    // to **-512,009** (`notAPng`) and **-523,533** (the repeated byte). So
-    // `max - min` is **523,763**, and the floor has ~124 KB of headroom.
+    // This assertion and its derivation were deleted together with the
+    // production-side size relation in `a40902d`. The relation was correctly
+    // deleted — the writer deflates, so `archive.length - payload.length` is
+    // no longer one constant — but **these archives are not the writer's.**
+    // They are built by the control's own `writeZip` call under the forbidden
+    // `> 100_000` rule, which is unchanged, so the figures are unchanged:
+    // measured again on 2026-10-17, `[230, 230, 230, 230, 230, 230, -512009,
+    // -523533]`, `max - min` **523,763** — byte-for-byte the numbers the
+    // derivation below records. The derivation is quoted verbatim in the
+    // docblock under "## The size relation — DELETED"; the one sentence in it
+    // that no longer resolves is noted there rather than edited inside it.
     //
-    // The headroom is the part that needed a reason, because the floor is
-    // *not* independent of zlib: clearing 400,000 requires the repeated 512
-    // KiB member to deflate to under ~124 KB, i.e. better than **4.2:1** on a
-    // run of 524,288 identical bytes. Measured, zlib gets 525 bytes — about
-    // 1000:1 — so the margin is three orders of magnitude, and no deflate
-    // implementation that emits a compressed block at all comes near 4.2:1 on
-    // a constant run. A floor nearer 523,000 would instead redden on an
-    // engine or level change, which is §9's "a numeric floor chosen from
-    // today's count is a check". The floor's job is to exclude 0 — the spread
-    // `flat` asserts on the next line — not to pin a ratio.
+    // **Its control (§6.5a), measured both ways.** With `writeZip`'s deflate
+    // branch planted to return `entry.data` — the header still says 8, the
+    // bytes are stored, which is precisely the cheapest-wrong writer — this
+    // vector collapses to `[230 × 8]` and `max - min` is **0**, so the
+    // assertion fails. Clean tree, same probe, **523,763**. *Inside this test
+    // it is shadowed*: the same plant reddens the `unzip -p` sweep two blocks
+    // up first, so the control was taken standalone against `writeZip`
+    // directly. Recorded because "the suite went red" would not have shown
+    // that this assertion can move.
+    //
+    // ## DO NOT DELETE THIS LINE AS REDUNDANT. It is the only assertion in
+    // ## this test that catches a compressor which compresses nothing.
+    //
+    // The paragraph above explains this line as a restored record and says
+    // its control is shadowed, and both halves are true. Read together they
+    // invite exactly one wrong conclusion — *nothing here can only be seen by
+    // this line, so a tidy-up may take it* — and that conclusion is false.
+    // Measured 2026-10-17, planting into `zip.ts` and reading which assertion
+    // line fired rather than whether the suite went red:
+    //
+    // - **The mutation it uniquely catches: a deflater that emits a valid
+    //   stream and compresses nothing.** `deflateRawSync(data, {level: 0})`
+    //   is a *legal raw-deflate stream* — stored blocks with deflate framing
+    //   — so it inflates byte-identically. Every method field still reads 8
+    //   and is honest; `/usr/bin/unzip -p` round-trips all eight arms
+    //   byte-exact; the `asChosen`/`asWritten` vectors are unmoved; the
+    //   `lied === 3` patch and its `unzip` refusal are unmoved. The whole of
+    //   this test passes **except this line**, which fails with
+    //   `expected 75 to be greater than 400000`.
+    // - **The shadowing is real and applies to the OTHER mutation only.**
+    //   Under the store-the-bytes plant the first failure in this test is at
+    //   the `unzip -p` sweep above (`extract` → `unzip -p masks/p.bin:
+    //   expected 2 to be +0`), so this line genuinely never executes — seven
+    //   tests redden and this is not one of the sensors. Under the level-0
+    //   plant the sweep is **green**, nothing shadows this line, and it is
+    //   reached. Two mutations, opposite outcomes; the note that records the
+    //   shadowing is not a statement about this line's worth.
+    // - **Scope, stated because the obvious overstatement is false.** "Only
+    //   assertion in **this test**" is what was measured; it is *not* the
+    //   only assertion in the *file*. The level-0 plant also reddens
+    //   `round-trips a non-ASCII member name` on `expect(patched).toBe(2)`
+    //   (`expected 3 to be 2`) — level 0's stored blocks put `manifest.json`'s
+    //   plaintext copy of the member name back in the archive, the exact
+    //   mechanism that test's own comment documents. That is an **incidental**
+    //   detector of a different property, in a different test, and it is not
+    //   a substitute: delete this line and `keys the method on the role` goes
+    //   blind to a compressor that compresses nothing, which is the claim this
+    //   test is named for.
     expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)
-    expect(Math.max(...flat) - Math.min(...flat)).toBe(0)
+
+    // Half two, replacing the deleted size relation's control. The extraction
+    // sweep above is a positive assertion rather than a null, but §6.5a's
+    // question still applies to it: could it have seen a header that lies? So
+    // the same instrument is pointed at an archive whose method fields have
+    // been patched 8 → 0 in **both** headers with the payload left alone —
+    // exactly the cheapest-wrong writer — and must stop agreeing.
+    //
+    // A byte patch rather than a second `writeZip` call, because `writeZip`
+    // has no way to express the lie: it derives the payload from the method,
+    // which is the property under test and cannot be the control for itself.
+    const honest = archives.get('512 KiB repeated') as Uint8Array
+    const liar = honest.slice()
+    const lv = new DataView(liar.buffer, liar.byteOffset, liar.byteLength)
+    let eocd = -1
+    for (let i = liar.length - 22; i >= 0; i--) {
+      if (lv.getUint32(i, true) === 0x06054b50) { eocd = i; break }
+    }
+    expect(eocd, 'end-of-central-directory signature').toBeGreaterThanOrEqual(0)
+    let at = lv.getUint32(eocd + 16, true)
+    let lied = 0
+    for (let i = 0; i < lv.getUint16(eocd + 10, true); i++) {
+      const nameLen = lv.getUint16(at + 28, true)
+      const localAt = lv.getUint32(at + 42, true)
+      if (lv.getUint16(at + 10, true) === METHOD_DEFLATE) {
+        lv.setUint16(at + 10, METHOD_STORE, true)
+        lv.setUint16(localAt + 8, METHOD_STORE, true)
+        lied++
+      }
+      at += 46 + nameLen + lv.getUint16(at + 30, true) + lv.getUint16(at + 32, true)
+    }
+    // Three: `scene.json`, `manifest.json` and the member. `mimetype` is
+    // already stored and is left alone, which is also why this count is
+    // asserted — if it ever read 4 the mimetype exception has gone.
+    expect(lied, 'deflated entries whose method field was patched to store').toBe(3)
+    expect(unzip(['-p', onDisk(liar), 'masks/p.bin']).status).not.toBe(0)
   })
 
   it('passes /usr/bin/unzip -t', async () => {
@@ -562,27 +867,51 @@ describe('writeStst', () => {
       patched++
       i += nameBytes.length - 1
     }
-    // **Three**, and the third one is the news. The local header, the central
-    // record, and `manifest.json`'s own copy of the name.
+    // **Two**: the local header and the central record.
     //
-    // This read 2 until 2026-10-15, with a comment saying so and saying why:
-    // "the manifest is deflated, so its copy is not findable as plain bytes…
-    // if this ever reads 3, the manifest has started being stored, and the
-    // archive grew a plaintext copy of every name." It then read 3, for
-    // exactly that reason — criterion 7's all-store ruling. The number is
-    // updated rather than the assertion relaxed, because the prediction was
-    // the point: this is a sensor that fired, named its own cause in advance,
-    // and was right.
+    // ## The record of this number, which has now moved twice and both moves
+    // ## were predicted in advance by the comment that was here at the time
     //
-    // The consequence it warned about is real and is now a property of the
-    // format: every member name appears in a `.stst` as plain bytes three
-    // times over. That is not a secret anyone was keeping — the central
-    // directory has always held the names uncompressed, so `strings` on a
-    // `.stst` listed them before this change too — but the manifest also
-    // carries each member's *role*, which was previously only readable by
-    // inflating. Nothing in the threat model cares; it is recorded so that a
-    // reader meeting "3" does not have to re-derive why.
-    expect(patched).toBe(3)
+    // **Until 2026-10-15 it read 2**, under the text:
+    //
+    // > "the manifest is deflated, so its copy is not findable as plain
+    // > bytes… if this ever reads 3, the manifest has started being stored,
+    // > and the archive grew a plaintext copy of every name."
+    //
+    // **From 2026-10-15 to 2026-10-17 it read 3**, under the text:
+    //
+    // > "**Three**, and the third one is the news. The local header, the
+    // > central record, and `manifest.json`'s own copy of the name. … The
+    // > number is updated rather than the assertion relaxed, because the
+    // > prediction was the point: this is a sensor that fired, named its own
+    // > cause in advance, and was right. … every member name appears in a
+    // > `.stst` as plain bytes three times over. … Nothing in the threat model
+    // > cares; it is recorded so that a reader meeting '3' does not have to
+    // > re-derive why."
+    //
+    // **It now reads 2 again**, because design §6.2's case-E ruling of
+    // 2026-10-17 deflates `manifest.json` once more. Changing the digit is
+    // the cheapest wrong action available here, so the cause was isolated
+    // before the digit was touched rather than inferred from the direction it
+    // moved. Measured over this fixture, varying nothing but the method rule:
+    //
+    // ```
+    // all stored                      len 2805  occurrences 3
+    // all deflated                    len 2377  occurrences 2
+    // mimetype stored, rest deflated  len 2375  occurrences 2   ← the ruling
+    // manifest STORED, rest deflated  len 2724  occurrences 3
+    // ```
+    //
+    // The fourth row is the one that makes this a measurement rather than a
+    // story: the count is `2 + (manifest.json stored ? 1 : 0)` and nothing
+    // else in the ruling touches it. The `mimetype` exception does not —
+    // rows two and three differ by 2 bytes and not by an occurrence.
+    //
+    // The property the old text recorded as "now a property of the format" is
+    // therefore withdrawn: a member's *role* is once again readable only by
+    // inflating, and `strings` on a `.stst` lists each member name twice, from
+    // the two header copies that have always been uncompressed.
+    expect(patched).toBe(2)
     expect(unzip(['-p', onDisk(mutant), stored]).status).not.toBe(0)
   })
 
@@ -611,6 +940,138 @@ describe('writeStst', () => {
     expect(text).toContain('\n  "entries": [')
   })
 
+  /**
+   * ## CRITERION 7, part 1 of 3 — the single-producer structural pin
+   *
+   * **The criterion's old text, kept beside the new because it changed
+   * meaning and was not merely edited** (plan §7, P1 criterion 7):
+   *
+   * > "CLI and site produce identical bytes for one scene — **by
+   * > construction, not by the coincidence of two zlib wrappers agreeing on a
+   * > default.**"
+   *
+   * **It is superseded as of 2026-10-17 and the replacement is weaker in two
+   * separate ways, both of which are losses and neither of which is an
+   * improvement.** This is not an equivalent restatement, it is not more
+   * robust, and calling it either would hide what was traded:
+   *
+   * 1. **Weaker than byte equality.** Case E deflates the container, so
+   *    identical bytes across engines is *unachievable*: Firefox 153 emits
+   *    +59% and WebKit 26 10.7x against Node and Chromium on the same input,
+   *    diverging at byte 0 or 1. What is pinned below is the archive's
+   *    **decoded** content — names, order, per-entry bytes after extraction,
+   *    the manifest and `scene.json`. Two producers could satisfy all of that
+   *    and still ship files that differ byte for byte, and under case E they
+   *    would.
+   * 2. **Weaker than the two-sided comparison that was specified in its
+   *    place.** The first replacement tier 0 wrote was a CLI-versus-site
+   *    comparison of the decoded structure. That is **unbuildable**, because
+   *    there is no second producer: `src/cli/index.ts:159` is the only
+   *    production call of `writeStst` in the repository and `site/` has no
+   *    `.stst` writer at all. Tier 0 withdrew it as its own error 47. So the
+   *    comparison below is **one producer against itself** across two caller
+   *    orderings, which cannot see a disagreement between two producers for
+   *    the plain reason that there is only one.
+   *
+   * The honest sentence is that a strong witness became unsatisfiable and was
+   * traded for an achievable one. What carries the rest of the criterion's
+   * weight is part 2 — the criterion reworded to say it is discharged by
+   * there being one writer — and part 3, the sensor that reddens the day that
+   * stops being true, which is the only part that survives P5 adding a
+   * site-side writer.
+   *
+   * **Why through `/usr/bin/unzip` and not `readStst`.** Decoded content is
+   * the claim, and decoding it with our own reader would let a writer and a
+   * reader sharing one misreading agree perfectly — the argument
+   * `zip.test.ts` and the head of this file already make. `unzip -Z1` lists
+   * names in central-directory order and does not sort them, measured.
+   *
+   * ## What this test adds today, stated honestly, because it is less than it
+   * ## looks and §9 says a duplicated witness is one that cannot fail for a
+   * ## new reason
+   *
+   * **On today's tree the straight-versus-shuffled half of this is subsumed**
+   * by `emits byte-identical archives from member lists in different orders`
+   * two tests up: same engine, same process, so identical bytes implies
+   * identical decoded content and the digest comparison is strictly stronger.
+   * Every plant that reddens this half reddens that one too — measured, not
+   * assumed. The two external anchors below likewise restate
+   * `gives back exactly the bytes writeScene produced for scene.json` and
+   * `emits a manifest that names every entry in the archive, itself included`.
+   *
+   * **So what is it for.** It is the form the criterion takes **when the two
+   * archives cannot be byte-compared** — a second producer, or the same
+   * producer in another engine, where under case E the bytes legitimately
+   * differ and a digest tells you nothing. Writing it now rather than when
+   * P5 lands means the structural description exists and has been exercised,
+   * instead of being derived under time pressure by whoever adds the second
+   * writer. It is **not** an additional sensor over today's tree and should
+   * not be counted as one.
+   *
+   * ## The blind spot, found by a plant rather than by reading
+   *
+   * **A writer bug that affects both callers equally is invisible to the
+   * comparison half of this test, and the first control run against it
+   * demonstrated exactly that.** Deleting the `source` role from the writer's
+   * placement loop — one entry omitted from every archive it produces —
+   * reddened **five** tests in this file (`lays the archive out in the
+   * declared order`, the two method tests, `carries member bytes verbatim`,
+   * `emits a manifest that names every entry`) **and left this one green**,
+   * because both arms lost the same entry and the manifest lost it too, so
+   * every relation still held.
+   *
+   * That is the right behaviour for a two-arm comparison and the wrong thing
+   * to assume about it. **The comparison half sees order-dependence and
+   * nothing else**; the reordering control below, and the reordering plant
+   * that reddened this test by name, are what it is sensitive to. The
+   * omission case is covered — by the five tests above — but not here, and
+   * reading this test as "the whole layout is pinned" would be wrong.
+   */
+  it('pins the one writer on decoded structure, which is what replaced identical bytes', async () => {
+    /** Names in order, every entry's extracted bytes, and the two text members. */
+    const decoded = (path: string): Record<string, unknown> => {
+      const names = namesInArchive(path)
+      return {
+        names,
+        contents: Object.fromEntries(names.map(n => [n, [...extract(path, n)]])),
+        manifest: JSON.parse(td.decode(extract(path, 'manifest.json'))) as unknown,
+        sceneJson: td.decode(extract(path, 'scene.json')),
+      }
+    }
+
+    const a = decoded(onDisk(await writeStst(hostileScene(), straight())))
+    const b = decoded(onDisk(await writeStst(hostileScene(), shuffled())))
+    expect(b).toEqual(a)
+
+    // And the two text members against what produced them, so "decoded
+    // content" is pinned to something outside the archive rather than only to
+    // the other arm: `scene.json` is `writeScene`'s own bytes, and the
+    // manifest names the archive's entries in the archive's order.
+    expect(a['sceneJson']).toBe(writeScene(hostileScene()))
+    expect((a['manifest'] as Manifest).entries.map(e => e.name)).toEqual(a['names'])
+
+    // The control (§6.5a), two mutations rather than one, because the
+    // comparison has two halves that fail independently and a single control
+    // would leave one of them unwitnessed. Both are built one layer down with
+    // `writeZip`, since `writeStst` cannot be asked to omit or reorder.
+    const utf8 = te
+    const scene = utf8.encode(writeScene(hostileScene()))
+    const full = [
+      { name: 'mimetype', data: utf8.encode(STST_MIMETYPE), method: 'store' as const },
+      { name: 'scene.json', data: scene, method: 'deflate' as const },
+      { name: 'manifest.json', data: utf8.encode('{}\n'), method: 'deflate' as const },
+      { name: 'masks/alpha.png', data: MASK_A, method: 'deflate' as const },
+    ]
+    // Reordered: the same entries, the same bytes, a different order.
+    const reordered = [full[1], full[0], full[2], full[3]] as typeof full
+    // Omitted: one member gone, everything else untouched.
+    const omitted = [full[0], full[1], full[2]] as unknown as typeof full
+
+    const base = decoded(onDisk(await writeZip(full)))
+    expect(decoded(onDisk(await writeZip(reordered)))).not.toEqual(base)
+    expect(decoded(onDisk(await writeZip(omitted)))).not.toEqual(base)
+  })
+
   it('identifies itself from the first bytes of the file, as ODF and EPUB do', async () => {
     const archive = await writeStst(hostileScene(), straight())
     const path = onDisk(archive)
@@ -619,11 +1080,17 @@ describe('writeStst', () => {
      * Written out, not read from `STST_MIMETYPE`.
      *
      * Measured: with the expectation taken from the module's own constant,
-     * changing that constant to `application/zip` left all twelve tests in
-     * this file green — §9's "a guard derived from the roster it guards
-     * proves only that the derivation ran twice", live. The media type is
-     * the one thing another program identifies a `.stst` by, so changing it
-     * is a compatibility break and has to be a deliberate edit in two files.
+     * changing that constant to `application/zip` left **the whole file**
+     * green — §9's "a guard derived from the roster it guards proves only
+     * that the derivation ran twice", live. The media type is the one thing
+     * another program identifies a `.stst` by, so changing it is a
+     * compatibility break and has to be a deliberate edit in two files.
+     *
+     * The reading used to be written here as a count of this file's tests and
+     * **the count had gone stale** — found by the same sweep that removed the
+     * `.svelte` count below, under the rule stated there. What the
+     * measurement says is that *nothing* saw the change; the size of the file
+     * at the time it was taken is not part of that and is not restated.
      */
     const MEDIA_TYPE = 'application/x-stst'
     expect(STST_MIMETYPE).toBe(MEDIA_TYPE)
@@ -675,5 +1142,523 @@ describe('writeStst', () => {
     const path = onDisk(await writeStst(hostileScene(), straight()))
     const names = namesInArchive(path)
     expect(names.slice(0, STST_ENTRY_ORDER.length)).toEqual([...STST_ENTRY_ORDER])
+  })
+})
+
+/* ===================================================================== */
+/*  CRITERION 7, part 3 of 3 — the sensor for a second producer           */
+/* ===================================================================== */
+
+/**
+ * **This is the part of criterion 7's replacement that survives P5.**
+ *
+ * Parts 1 and 2 are both *weaker* than what they replaced — part 1 weaker
+ * than byte equality and weaker than the two-sided comparison tier 0 first
+ * specified, part 2 a sentence in a document. Neither is an improvement and
+ * neither should be described as one. What they rest on is a fact about
+ * today's tree, and a fact about today's tree is exactly the thing that stops
+ * being true without anybody noticing: §9's standing row says a recorded note
+ * is not a sensor, so the note is written as a test.
+ *
+ * **The question this sensor asks**, stated rather than a list of spellings,
+ * because §9 has two rows on sensors keyed to the forms someone enumerated
+ * and defeated by one more: *is there more than one place in production code
+ * that produces `.stst` bytes?* A second place is fine — P5 is expected to
+ * add a site-side export — **provided it routes through `writeStst`**, which
+ * is what keeps the layout, the entry order and the manifest in one module
+ * rather than in two lists that agree until somebody edits one. The failure
+ * message says that, because a guard whose cheapest satisfying action is the
+ * wrong one gets satisfied wrongly, and here the cheapest route to green is
+ * also the correct one: call `writeStst`.
+ *
+ * **Two routes are checked, and the boundary between them is stated rather
+ * than left to read as exhaustive.**
+ *
+ * - **Route A:** a module that names `writeZip` in code. It is the route any
+ *   realistic second writer takes, because P1 criterion 1 forbids a zip
+ *   dependency, so there is nothing else to call. That `zip.ts` is the only
+ *   module compressing is not asserted here as a count in prose — route B
+ *   below is the assertion of it.
+ * - **Route B:** a module that names `CompressionStream` in code. A
+ *   hand-rolled writer that does not call `writeZip` still has to compress,
+ *   and with no dependency permitted that is the only way to do it.
+ *
+ * Both routes are **parsed, not grepped**, for a reason that was measured
+ * rather than anticipated — see `namesInCode` below, where the two wrong
+ * first drafts and what each of them falsely reported are recorded.
+ *
+ * **The residue, named so nobody reads the pair as complete — and rewritten
+ * 2026-10-17, because the shape it used to name is one no measured evasion
+ * takes.** It said the uncovered case was *"a second producer that hand-writes
+ * zip records and stores everything"*. A verifier then built five evasions and
+ * **none of them is that shape**, which is worse than declaring no residue at
+ * all: it tells a reader the hole is somewhere it isn't.
+ *
+ * **The uncovered class is computed access to the real symbol.** Both routes
+ * ask "does this module name the identifier?", so a module that reaches the
+ * same function or the same constructor **without ever writing its name as an
+ * identifier** is invisible to both. The two measured shapes:
+ *
+ * - `(await import('./shared/zip.js'))['writeZip'](…)` — the real `writeZip`,
+ *   reached through a string-indexed property access.
+ * - `new (globalThis as any)['CompressionStream']('deflate-raw')` — the real
+ *   constructor, same device.
+ *
+ * Both were planted in a **covered** position (`src/`, `.ts`) after the
+ * widening below and measured: **18 passed, exit 0, neither named.**
+ *
+ * The assembler count further down has a residue of its own and **it is wider
+ * than this one, not the same class.** This sentence used to say it was — *"a
+ * signature value computed rather than written (`0x06054b4f + 1`,
+ * `parseInt('02014b50', 16)`), planted and measured invisible at 18 passed"* —
+ * which is true of that pair and misses four further shapes that write the
+ * signature **verbatim**. Corrected 2026-10-17; the measurement and the two
+ * mechanisms are stated where the counter is, under "## Residue", and are
+ * deliberately not restated here. **A residue stated in two places is one that
+ * will eventually disagree with itself** (§9).
+ *
+ * **This is the known-hard class and the list above is not exhaustive**: it is
+ * two spellings of one device, and the device is "the identifier never
+ * appears". Closing it needs a checker that resolves values rather than a
+ * parser that reads names, which is a different instrument from this one. §9
+ * has two rows on sensors keyed to enumerated forms and defeated by the next
+ * one, so the boundary is stated as the class rather than as the two
+ * spellings that were tried.
+ *
+ * **What the roster is derived from — widened 2026-10-17, and the widening is
+ * the whole of this sensor's repair.** It used to walk exactly `src/` and
+ * `site/` and collect exactly `.ts` and `.svelte`. A verifier defeated it with
+ * two **byte-identical** copies of a producer it already caught, differing
+ * only in **position** (`exporter/ststExport.ts`, a new top-level directory)
+ * and in **extension** (`site/ststExport.js`). Measured before the widening,
+ * with both on disk: **17 passed (17), exit 0** — and the same bytes at
+ * `src/ststProbeCovered.ts` named by both routes in the same run, so position
+ * and extension were the only difference. After the widening both are named by
+ * both routes.
+ *
+ * So the walk is now the **whole repository**, and neither axis is enumerated:
+ *
+ * - **Position** is not a list at all. The walk starts at the repository root
+ *   and refuses only what the repository itself declares is not its content —
+ *   `git ls-files --others --ignored --exclude-standard`, one call, so
+ *   `node_modules/`, `dist/`, `dist-site/` and `dist-player/` are skipped
+ *   because `.gitignore` says so and a fifth is skipped the day it is added.
+ *   §9: a hand-written list of "the places that do X" goes stale silently.
+ *   **A new directory is in the roster the moment it is on disk**, built or
+ *   not, committed or not.
+ * - **Extension** is the one axis that is still an enumeration, stated as one
+ *   rather than left to read as derived — see `CODE` below for what bounds it.
+ * - The fixture trees at the repository root are **admitted, not excluded.**
+ *   They were measured first: no file in any of them names either symbol, so
+ *   no exclusion is needed, and inventing one by name would be the stale-list
+ *   defect in the act of repairing it. **Neither their number nor their names
+ *   is written down here**, and that is the point rather than an omission —
+ *   the first version of this bullet enumerated three of them by name inside
+ *   the sentence calling such lists a defect. Nothing needs the list: a
+ *   fixture tree that *did* name either symbol would be reported **by path**
+ *   in the failure message of one of the two route tests below, which is what
+ *   makes the enumeration unnecessary rather than merely unwritten.
+ *
+ * Production is every file in that walk that is not a test, matched on
+ * `*.test.*` across the same kinds — a convention this file applies, not a
+ * glob read from `tsconfig.json`. (`tsconfig.json`'s exclude also drops the
+ * `testing/` helper directories it names; this roster deliberately keeps
+ * them, since a producer hidden in a test helper is still a producer.)
+ *
+ * **What this costs.** The roster now depends on `/usr/bin/git` as well as on
+ * the filesystem. It fails closed on a non-zero status, for the reason the
+ * `unzip` spawns have no `HAVE_UNZIP` guard, so it is a dependency rather
+ * than a hole — but it is a real difference and is not an improvement in
+ * every direction.
+ */
+describe('criterion 7 — one production producer of .stst bytes', () => {
+  const REPO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
+  const ZIP_WRITER = join(REPO, 'src', 'shared', 'zip.ts')
+
+  /** Repo-relative and `/`-separated, so a failure reads the same everywhere. */
+  const show = (path: string): string => relative(REPO, path).split(sep).join('/')
+
+  /**
+   * The file kinds a producer can be written in — every module spelling node
+   * and vite load, plus `.svelte`. This **is** an enumeration and is the one
+   * place in this sensor that stays one, so it is keyed to something that is
+   * not ours to extend: a second producer has to be a module the toolchain
+   * will execute, and these are the extensions that get executed. A `.md`, a
+   * `.css` or a `.json` cannot produce bytes, and admitting them would make
+   * the `.svelte` text fallback below report every document under `docs/`
+   * that discusses `writeZip` or `CompressionStream` in prose as a producer,
+   * which is this repo's dominant false-reader shape and is why both routes
+   * parse in the first place.
+   */
+  const CODE = /\.(?:[cm]?[jt]sx?|svelte)$/
+  const TEST = /\.test\.[cm]?[jt]sx?$/
+
+  /**
+   * What the walk refuses to enter, **derived rather than listed.** §9: a
+   * hand-written list of "the places that do X" goes stale silently, and
+   * `dist/`, `dist-site/`, `dist-player/` and `node_modules/` are a list of
+   * exactly that shape — one that was already wrong once on this project,
+   * when a wipe instruction naming two directories missed the third.
+   *
+   * So the question asked is the one that actually defines them: *does the
+   * repository consider this path its own content?* `git ls-files --others
+   * --ignored --exclude-standard --directory` answers it in one call from the
+   * repository's own ignore rules, so a fifth build directory added to
+   * `.gitignore` tomorrow is skipped without anybody editing this file.
+   *
+   * Fails closed, like the `unzip` spawns above: a non-zero status reddens
+   * rather than degrading to "nothing is ignored", which would walk
+   * `node_modules/` and report half of npm as a second producer.
+   */
+  function ignoredPaths(): Set<string> {
+    const res = spawnSync(
+      '/usr/bin/git',
+      ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'],
+      { cwd: REPO, env: CHILD_ENV, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    )
+    expect(res.status, 'git ls-files --others --ignored').toBe(0)
+    return new Set(
+      (res.stdout ?? '').split('\n').filter(s => s !== '').map(s => s.replace(/\/$/, '')),
+    )
+  }
+
+  function filesUnder(dir: string, skip: Set<string>): string[] {
+    const out: string[] = []
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      // `.git` is not content of the repository; it is the repository, and
+      // git never lists it among the paths it ignores.
+      if (entry.name === '.git') continue
+      const path = join(dir, entry.name)
+      if (skip.has(show(path))) continue
+      if (entry.isDirectory()) out.push(...filesUnder(path, skip))
+      else if (CODE.test(path)) out.push(path)
+    }
+    return out
+  }
+
+  const production = (): string[] =>
+    filesUnder(REPO, ignoredPaths())
+      .filter(f => !TEST.test(f))
+      .sort()
+
+  /**
+   * Does this module **name** `ident` in code — an identifier node, not a
+   * word in a docblock and not a character sequence inside a string?
+   *
+   * **Both of this sensor's first drafts were wrong here and the measurement
+   * is what said so, which is the §9 row about reading a docblock mention as
+   * evidence the file uses the thing. Recorded because it was caught by
+   * running it, not by reading it:**
+   *
+   * - The first route-A draft matched on the *module* a specifier resolved
+   *   to, so it reported `src/shared/zipRead.ts` — which imports `crc32`
+   *   from `zip.ts` and writes nothing. Resolving the module answers "does
+   *   this file depend on `zip.ts`"; the question is "does it call the
+   *   writer", and only the binding answers that.
+   * - The first route-B draft was `readFileSync(f).includes('CompressionStream')`
+   *   and reported `src/shared/container.ts`, whose docblock discusses
+   *   `CompressionStream` at length and does not use it. A textual census
+   *   manufactures false readers in exactly this repo, where comments cite
+   *   things far more often than code touches them.
+   *
+   * So both routes parse. An `Identifier` node cannot be a comment and cannot
+   * be the inside of a string literal, which is the whole difference. An
+   * aliased import (`import { writeZip as w }`) still carries the identifier
+   * in its import clause, so the alias does not evade it.
+   *
+   * **Known false-positive direction, and it is the safe one:** a module that
+   * declared its own unrelated function called `writeZip` would be reported.
+   * That reddens and asks for a look, rather than passing and asking for
+   * nothing.
+   *
+   * **`.svelte` is the one file kind this cannot parse**, so it falls back to
+   * a raw-text match. The fallback is a filter, not a proof: it would report a
+   * mention in `<!-- -->` as a use, in the direction that asks for a look
+   * rather than the direction that passes.
+   *
+   * **No count of them is given here, deliberately.** This docblock used to
+   * say *"there is one `.svelte` file in the repository today"*; by the time
+   * anyone checked it that count was wrong, and the sentence was the third
+   * instance of its own class inside the file that records the first two.
+   * **The rule, applied here and swept for across both files this commit
+   * touches: do not state a count of repository contents in a docblock unless
+   * a test asserts that count. Either assert it or do not say it.**
+   *
+   * **The rule's own first draft broke it**, which is why the preference below
+   * is recorded rather than left to judgement: the sentence promulgating the
+   * rule replaced the stale *one* with a fresh number, and a fresh number is
+   * the same defect with a later expiry date. **Prefer deleting the count to
+   * asserting it** — a count that needs a test to stay true is usually a count
+   * the sentence did not need. Nothing here needs the number: what the
+   * fallback's weakness depends on is that `.svelte` exists at all, not how
+   * much of it there is. So the number is not said, **and the corrected number
+   * is not said either.**
+   */
+  function namesInCode(file: string, ident: string): boolean {
+    const text = readFileSync(file, 'utf8')
+    if (file.endsWith('.svelte')) return text.includes(ident)
+    // Everything else in `CODE` is a module the TypeScript parser reads —
+    // `.js`, `.mjs` and `.cjs` included, which is what closes the extension
+    // half of the evasion the widening was written for. The condition is
+    // written as "`.svelte` falls back" rather than "`.ts` parses" because
+    // the second spelling silently routed every new kind to the text match.
+    const kind = /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.ES2022, true, kind)
+    let found = false
+    const walk = (node: ts.Node): void => {
+      if (found) return
+      if (ts.isIdentifier(node) && node.text === ident) { found = true; return }
+      ts.forEachChild(node, walk)
+    }
+    walk(sf)
+    return found
+  }
+
+  const ROUTE_MESSAGE =
+    'a second production producer of .stst bytes. If this is a new export path, route it ' +
+    'through writeStst() in src/shared/container.ts — the layout, the entry order, the ' +
+    'manifest and the compression rule live there, and a second assembler makes them two ' +
+    'lists that agree until somebody edits one. See P1 criterion 7.'
+
+  /**
+   * The roster's own guard. §6.5a: a null is only evidence if the instrument
+   * could have seen something, and the ways this one reports clean while
+   * blind are an empty walk, a walk that never reached `site/` — the half the
+   * criterion is actually about, since P5's writer would land there — and a
+   * walk that cannot see the one file that is supposed to be found.
+   *
+   * **The last two are new, and they are the two axes a byte-identical
+   * producer was measured to escape on** (see the widening recorded in the
+   * describe's docblock). They are the guard that notices if the roster is
+   * ever re-narrowed to the two directories and the one extension it used to
+   * have: a walk confined to `src/` and `site/` cannot satisfy the third, and
+   * a walk that collects only `.ts` cannot satisfy the fourth. Both redden on
+   * a tree that genuinely lost every file outside those two directories or
+   * every non-`.ts` module, which is a tree whose reach has in fact shrunk
+   * and is worth a look.
+   */
+  function roster(): string[] {
+    const files = production()
+    expect(files.length, 'the source walk found no production files').toBeGreaterThan(0)
+    const rel = files.map(show)
+    expect(rel).toContain('src/shared/container.ts')
+    expect(rel.some(f => f.startsWith('site/')), 'the walk reached site/').toBe(true)
+    expect(
+      rel.some(f => !f.startsWith('src/') && !f.startsWith('site/')),
+      'the walk reached outside src/ and site/',
+    ).toBe(true)
+    expect(rel.some(f => !f.endsWith('.ts')), 'the walk admits a kind that is not .ts').toBe(true)
+    return files
+  }
+
+  it('reddens if anything but container.ts calls the zip writer', () => {
+    // `zip.ts` declares it, so it names it; the question is who *calls* it.
+    const callers = roster()
+      .filter(f => f !== ZIP_WRITER && namesInCode(f, 'writeZip'))
+      .map(show)
+    expect(callers, ROUTE_MESSAGE).toEqual(['src/shared/container.ts'])
+  })
+
+  it('reddens if anything but zip.ts compresses', () => {
+    // The hand-rolled route. `container.ts` must not appear: it chooses a
+    // method and hands bytes to `writeZip`, and that separation is what makes
+    // one producer possible in the first place.
+    const compressors = roster().filter(f => namesInCode(f, 'CompressionStream')).map(show)
+    expect(compressors, ROUTE_MESSAGE).toEqual(['src/shared/zip.ts'])
+  })
+
+  /* ------------------------------------------------------------------ */
+  /*  The one place both routes have to look away from                    */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * **`zip.ts` is where neither route can see, and until now that was an
+   * exclusion rather than a measurement.** Route A drops it by path because
+   * it *declares* `writeZip`, and route B's expected set *is* it because it
+   * is the module that compresses. Both carve-outs are correct and both are
+   * whole-file, so a second complete `.stst` assembler written inside
+   * `zip.ts` was invisible by construction — not unlikely to be caught, but
+   * impossible to catch. That is a property of the exclusion and not of the
+   * problem.
+   *
+   * The carve-outs stay, because they are what makes the two routes
+   * expressible at all; what changes is that the region they look away from
+   * is now **counted**. "We cannot look here" becomes "we looked and there is
+   * one", and a second assembler reddens.
+   *
+   * **What counts as an assembler, keyed to the question and not to a
+   * spelling.** The question is *how many functions in this module build a
+   * complete zip?* — and a complete zip is defined by the format, not by us:
+   * it needs a central-directory record (`PK\x01\x02`) and an
+   * end-of-central-directory record (`PK\x05\x06`). So an assembler is a
+   * function that names **both** signature values. A function that emits only
+   * local headers is not one; a function that emits only an EOCD is not one.
+   *
+   * **Values, not identifiers.** The two signatures are resolved through
+   * module-level constant bindings to a fixed point, so `SIG_CENTRAL`, a
+   * bare `0x02014b50`, and `const S = SIG_CENTRAL` are all the same
+   * reference. Aliasing a constant is the cheapest way a second assembler
+   * would avoid naming `SIG_CENTRAL`, and it is the first thing a sensor
+   * keyed on the identifier would miss.
+   *
+   * **Attribution is to the nearest enclosing function**, so a second
+   * assembler nested inside the first is two, not one — and a reference at
+   * module scope belongs to no function and is ignored, which is what keeps
+   * the constant declarations themselves out of the count.
+   *
+   * ## Residue — REWRITTEN 2026-10-17, because the text here understated its
+   * ## own hole, which is worse than declaring none
+   *
+   * **The superseded text, kept beside rather than replaced in place** (the
+   * standing convention in this file). Until 2026-10-17 this section read:
+   *
+   * > **Residue, stated rather than left to read as complete:** a signature
+   * > *computed* rather than written — `0x02014b4f + 1`, a four-byte array, a
+   * > `parseInt` of a string — is not seen. That is the same computed-access
+   * > class the describe's docblock names as this sensor's known-hard residue,
+   * > and it is uncovered here for the same reason.
+   *
+   * That is true and it is **far too narrow**, in the direction that tells a
+   * reader the hole is somewhere it is not. A reader told *"we only miss
+   * computed signatures"* would believe a table holding `0x02014b50` **as a
+   * literal, in the source, in plain sight** is covered. It is not.
+   *
+   * **The actual boundary, measured by planting into the real `zip.ts` and
+   * reading which names came back from the assertion below.** Two
+   * independent ways past this counter, of which only one is "computed" —
+   * stated as the mechanisms the plants exposed, not as a complete list of
+   * the mechanisms that exist:
+   *
+   * 1. **The value is at module scope in a shape the resolver cannot bind.**
+   *    The resolver walks only top-level `VariableStatement`s whose
+   *    declaration name is an `Identifier` and whose initializer is a
+   *    `NumericLiteral` or another such `Identifier`. Everything else at
+   *    module scope — an object table, a binding pattern, an enum, a class
+   *    field, an arithmetic expression — binds nothing, so the name the
+   *    function uses resolves to nothing and the literal itself is attributed
+   *    to no function.
+   *
+   *    **The discriminant is the declaration site, not the property access** —
+   *    and this is the part that was measured rather than reasoned. The *same*
+   *    object table declared **inside** the function, read through the *same*
+   *    `t.central` property access, **is caught**, because then the literal
+   *    sits lexically in the function and needs no resolver at all. So
+   *    "property access escapes" would itself have been a wrong boundary.
+   * 2. **The two signatures land in different function scopes.** Attribution
+   *    is to the nearest enclosing function and an assembler must name
+   *    **both**, so a `.forEach(…)` callback holding one signature while the
+   *    enclosing body holds the other reads as two `partial`s and neither is
+   *    counted. The same mechanism makes a **split assembler** invisible —
+   *    the central record emitted by one helper and the EOCD by another, which
+   *    is how a real second assembler would most plausibly be factored rather
+   *    than an evasion anybody would have to design. **A callback reaches this
+   *    case by accident.**
+   *
+   * **What was planted and what came back.** Nine shapes, in two batches, into
+   * `src/shared/zip.ts` itself; the failing assertion was the one over the
+   * real file and not the `<control>` string, checked by line number. Caught:
+   * bare literals in one function; a two-step module-level alias chain; an
+   * object table declared inside the function; local `const`s inside the
+   * function. Missed: a module-scope object table read as `SIGS.central`; a
+   * module-scope `const [C, E] = [0x02014b50, 0x06054b50]`; the `forEach`
+   * split; the two-helper split; and the computed pair the old text named.
+   *
+   * **Four of the five misses write the signature VERBATIM** — the exact value
+   * or the module's own `SIG_CENTRAL`/`SIG_EOCD` identifier appears in the
+   * source — and only the fifth is "computed". So the old text named one of
+   * five.
+   *
+   * **This list is not exhaustive and must not be read as one.** The four
+   * unnamed shapes turned up inside nine attempts and the search **stopped
+   * once the finding was established**, not once the space was covered; the
+   * class is probably larger. §9 has two rows on sensors keyed to the forms
+   * someone enumerated and defeated by one more, which is why the boundary
+   * above is stated as the two mechanisms rather than as the shapes that
+   * happened to be tried. Closing either needs a checker that resolves values
+   * and attributes across call graphs, which is a different instrument from
+   * this one.
+   */
+  const SIG_CENTRAL_VALUE = 0x02014b50
+  const SIG_EOCD_VALUE = 0x06054b50
+
+  function assemblersInText(label: string, text: string): string[] {
+    const sf = ts.createSourceFile(label, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS)
+
+    // Module-level numeric bindings, resolved to a fixed point so that an
+    // alias chain is the same reference as the literal it ends at.
+    const value = new Map<string, number>()
+    for (let changed = true; changed;) {
+      changed = false
+      for (const st of sf.statements) {
+        if (!ts.isVariableStatement(st)) continue
+        for (const d of st.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name) || d.initializer === undefined) continue
+          if (value.has(d.name.text)) continue
+          const v = ts.isNumericLiteral(d.initializer) ? Number(d.initializer.text)
+            : ts.isIdentifier(d.initializer) ? value.get(d.initializer.text)
+            : undefined
+          if (v !== undefined) { value.set(d.name.text, v); changed = true }
+        }
+      }
+    }
+
+    const signature = (n: ts.Node): number | undefined => {
+      const v = ts.isNumericLiteral(n) ? Number(n.text)
+        : ts.isIdentifier(n) ? value.get(n.text)
+        : undefined
+      return v === SIG_CENTRAL_VALUE || v === SIG_EOCD_VALUE ? v : undefined
+    }
+
+    const nameOf = (fn: ts.Node): string => {
+      if ((ts.isFunctionDeclaration(fn) || ts.isMethodDeclaration(fn)) && fn.name !== undefined) {
+        return fn.name.getText(sf)
+      }
+      const parent = fn.parent as ts.Node | undefined
+      if (parent !== undefined && ts.isVariableDeclaration(parent)) return parent.name.getText(sf)
+      return `<anonymous at line ${sf.getLineAndCharacterOfPosition(fn.getStart(sf)).line + 1}>`
+    }
+
+    const seen = new Map<ts.Node, Set<number>>()
+    const walk = (node: ts.Node, fn: ts.Node | undefined): void => {
+      const here = ts.isFunctionLike(node) ? node : fn
+      const sig = signature(node)
+      if (sig !== undefined && here !== undefined) {
+        const set = seen.get(here) ?? new Set<number>()
+        set.add(sig)
+        seen.set(here, set)
+      }
+      ts.forEachChild(node, child => walk(child, here))
+    }
+    walk(sf, undefined)
+
+    return [...seen.entries()]
+      .filter(([, sigs]) => sigs.has(SIG_CENTRAL_VALUE) && sigs.has(SIG_EOCD_VALUE))
+      .map(([fn]) => nameOf(fn))
+      .sort()
+  }
+
+  it('finds exactly one central-directory assembler inside the zip writer', () => {
+    // §6.5a, in the same invocation and before the null is read: this
+    // assertion is "there is one", which is indistinguishable from an
+    // instrument that cannot count past one — or that cannot see an
+    // assembler at all — unless it is shown counting two first. The control
+    // reaches the central signature through a two-step alias chain and the
+    // EOCD through a bare literal, because those are the two spellings a
+    // second assembler would be written in if it were avoiding this check.
+    const control = assemblersInText('<control>', [
+      'const SIG_CENTRAL = 0x02014b50',
+      'const ALIAS = SIG_CENTRAL',
+      'const AGAIN = ALIAS',
+      'function one(v) { v.setUint32(0, AGAIN, true); v.setUint32(8, 0x06054b50, true) }',
+      'function two(v) { v.setUint32(0, SIG_CENTRAL, true); v.setUint32(8, 0x06054b50, true) }',
+      'function partial(v) { v.setUint32(0, SIG_CENTRAL, true) }',
+    ].join('\n'))
+    expect(control, 'the assembler count can see two, and an alias chain').toEqual(['one', 'two'])
+
+    expect(
+      assemblersInText(show(ZIP_WRITER), readFileSync(ZIP_WRITER, 'utf8')),
+      'a second complete zip assembler inside the module both routes look away from. ' +
+      'Route it through writeZip() — ' + ROUTE_MESSAGE,
+    ).toEqual(['writeZip'])
   })
 })
