@@ -639,6 +639,24 @@ describe('stst over a .stst project file', () => {
    * and the command below writes to the path it read from — so the lossy
    * version destroys the only copy. Nothing warns; the loss is removed
    * instead, and this is what notices if it comes back.
+   *
+   * **SAME-ENGINE ONLY. This is not a cross-engine byte-identity claim, and
+   * design §6.2 requires every determinism pin in this repo to say so in the
+   * file rather than in a document** — without the sentence it reads, six
+   * months on, as the guarantee that died with case E. The same sentence
+   * stands on the pins in `container.test.ts` and `zip.test.ts`; this one was
+   * missed because it is a CLI test and the rule was applied where the writer
+   * lives.
+   *
+   * Both arms below run in one process on one engine — the same Node, the
+   * same `CompressionStream` — so the `Buffer.compare` further down pins that
+   * **our** writer is a function of the scene and members and of nothing
+   * else. It says nothing about two engines producing the same bytes: the
+   * container deflates since case E, and `CompressionStream('deflate-raw')`
+   * is measured to emit **+59% in Firefox 153 and 10.7x in WebKit 26**
+   * against Node and Chromium, diverging at byte 0 or 1. Read as a
+   * cross-engine guarantee the assertion is false; read as written it is true
+   * and is worth keeping.
    */
   it('round-trips a project onto its own path without losing masks or sources', async () => {
     const members: StstMember[] = [
@@ -653,9 +671,24 @@ describe('stst over a .stst project file', () => {
     // and then comparing bytes is the vacuous version of this test: a
     // `--save-project` that did nothing at all would leave the file untouched
     // and pass. A separate path makes "it wrote" and "it kept everything" one
-    // assertion, since determinism (criteria 5 and 7) says a lossless re-save
-    // of the same scene and members is byte-identical — so a dropped member,
-    // a reordered entry or a moved mtime all show up here.
+    // assertion, since determinism (P1 criterion 5 — fixed mtimes, fixed
+    // entry order, fixed compression level) says a lossless re-save of the
+    // same scene and members is byte-identical in one engine — so a dropped
+    // member, a reordered entry or a moved mtime all show up here.
+    //
+    // **The citation used to read "criteria 5 and 7" and criterion 7 is no
+    // longer the right one to send a reader to.** Corrected in place rather
+    // than beside, because this sentence is descriptive prose written here
+    // and not a quote of a ruling — §9 forbids editing the second, and the
+    // test for which it is turns on whether the words are being preserved as
+    // the record of what somebody decided. These are not. Criterion 7 used to
+    // read "CLI and site produce identical bytes for one scene"; it was
+    // re-scoped when case E made that unachievable, and its surviving part is
+    // **one production producer of `.stst` bytes** — discharged by there
+    // being a single writer, not by any byte comparison. A future reader sent
+    // to criterion 7 by this comment would find a criterion that no longer
+    // says what the comment implies, which is worse than no citation.
+    // Criterion 5 is intact and is the one that actually carries this.
     const copy = join(d, 'copy.stst')
     const r = await cli(['render', path, '-o', join(d, 'out.gif'), '--save-project', copy])
     expect(r.code).toBe(0)
