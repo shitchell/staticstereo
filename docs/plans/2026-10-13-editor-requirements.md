@@ -265,6 +265,54 @@ thing being designed against.
 > would also save the multi-frame / gif layer if i want to share the full editable project
 > with someone else -- not just the exported .gif"
 
+## ⛔ R17 IS REOPENED, 2026-10-17. IT WAS REPORTED CLOSED AND IT IS NOT MET.
+
+**Measured, with a positive control established first** (depth map dumped on machine A and
+md5-compared against the same scene with `layers: []`, so *exit 0* was not the evidence).
+**A `.stst` carrying an image or gif layer does not render on a second machine at all** —
+not *"cannot continue editing"*, **cannot open**:
+
+| `src` spelling | machine B, holding only the `.stst` |
+|---|---|
+| absolute path, `image` | **throws** `Invalid URL`, exit 1, no output |
+| absolute path, `gif` | **throws** `ENOENT` |
+| relative path, both | **throws** — resolved against **process cwd**, never the `.stst` |
+| `data:` URI, both | **renders**, byte-identical to A |
+| `file:` URI | accepted for `gif`, **rejected for `image`** — the two types differ |
+
+**The one spelling that works is one the product cannot emit.** No shipped code path
+produces a `data:` src, and **the exporter prints `scene + 0 members`** for a scene with an
+image layer. **`data:` is not the cure either** — §6.1 makes `.stst` *the path for assets
+too big for a URL*, so baking to `data:` reinstates the problem the container exists to
+solve. **For every project the tooling can currently create, the answer is no.** It fails
+**loudly**, which is the only mercy.
+
+**Three independent missing links; repairing any one alone changes nothing.** (1) `src` is
+carried verbatim and **never rebased** — a relative `src` read with cwd forced to `/`
+returns the literal `"ball.png"`. (2) **No code path connects a container member to a
+renderer** — a recording canvas saw exactly one load request, the raw `src`, with the
+correct bytes sitting unused in `sources/` **and** `masks/` in the same archive. (3)
+Nothing writes the member in the first place.
+
+**A fourth defect, found on the way and owned by nobody:** two layers whose sources share a
+basename are **unrepresentable** — `writeStst` throws `duplicate zip entry name`, the only
+escape is refused, and `layerName()` returns the same string for both, so they are
+**indistinguishable in the UI as well.**
+
+**WHY NOTHING CAUGHT A MERGED, REQUIREMENT-CLOSING DEFECT — the reusable part.**
+**No test anywhere renders a scene that was read from a `.stst`.** The existing sensor is
+**round-trip fidelity**, which is *a different property from resolvability*, and the one
+test that appears to exercise the layer→member link does so **only because its fixture's
+`src` is coincidentally a bare filename.** A sensor for the wrong property is not a weak
+sensor; it is **no sensor**, and it reads as coverage.
+
+**Accountability, stated plainly:** tier 0 merged this at `da0e4a9` and reported R17 closed
+to Shaun. The gate was green, CI was green at the byte-equal sha, and **none of that was
+evidence for this clause.** Fix shape is innards and tier 0's; **the status went to Shaun
+immediately rather than at repair.** Repair is a separate phase — a container-format
+change plus an exporter change plus a resolver change — and is **not** folded into the
+phase that found it.
+
 **Sharpened 2026-10-17, verbatim, while ruling case E:**
 
 > "i think as long as its one file we're good. i'm not too plussed about the innards of the
