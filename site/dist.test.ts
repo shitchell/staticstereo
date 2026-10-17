@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseAst } from 'rollup/parseAst'
+import { closureFrom } from '../src/core/testing/sourceclosure.js'
 import {
   CLASS_CONTROL,
   CLASS_PLATE,
@@ -2377,6 +2378,192 @@ describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () =>
     // ...and it is gone again, so the directory this suite asserts over is
     // exactly the one the build produced.
     expect(filesContaining(DIST_PLAYER, needle)).toEqual([])
+  })
+})
+
+/**
+ * Which modules are editor-only, **derived from the import graph** — the
+ * question {@link EDITOR_ONLY_MODULES} above answers from a list someone typed.
+ *
+ * ## The defect this closes, measured on this branch
+ *
+ * The roster above cites its own provenance as *"the phase brief's own list
+ * plus `site/controls.ts`"*, which is a citation of a hand list in a document.
+ * Its seven names were put to the import graph and are **correct**; what it had
+ * no mechanism for was **growing**. One import line —
+ * `import { createSceneStore } from './store.js'` in `site/main.ts`, with a
+ * `Reflect.set` to stop rollup shaking it out — puts `site/store.ts` genuinely
+ * into the editor bundle and genuinely out of the player's. Measured on that
+ * tree, before this block existed: `typecheck` 0, `build` 0, `build:site` 0,
+ * the planted marker confirmed present in `dist-site/assets/index-*.js`, and
+ * the suite **100 files / 2246 passed (2246) / 0 skipped, exit 0**. Nothing in
+ * the repository saw it. §9: *"a hand-written list of 'the places that do X'
+ * … goes stale silently the day a second place does X. Derive it from the
+ * thing that makes a site one of them … never from an enumeration someone
+ * typed."*
+ *
+ * ## The two sides compared here, and why they are independent
+ *
+ * The **derived** side reads `site/main.ts` and `site/player.ts` off disk and
+ * walks their import closures with `closureFrom`. The **declared** side is the
+ * hand-typed roster above plus {@link EDITOR_ONLY_LIBRARY} below. Neither
+ * reads the other, and that is the only reason the comparison can fail. §9's
+ * self-reference row is the live hazard: *"a guard derived from the roster it
+ * guards … proves only that the derivation ran twice."* So if a needle's
+ * `source` is ever generated from this walk, or this walk ever seeded from a
+ * roster, this block stops being a sensor and becomes a tautology — and
+ * nothing here will say so.
+ *
+ * ## The entries are the builds' entries, read rather than assumed
+ *
+ * `vite.site.config.ts` sets `root: 'site'` and no `build.rollupOptions.input`,
+ * so the editor entry is vite's default `<root>/index.html` → `site/index.html`
+ * → `./main.ts`. `vite.player.config.ts` sets `input: 'site/player.html'`, and
+ * `site/player.html` → `./player.ts`. Both configs were read, not inferred from
+ * the directory names.
+ *
+ * ## Deliberately **not** under the freshness gate
+ *
+ * This asks a question about **source**, so gating it on `dist-site/`'s mtime
+ * would buy nothing and cost the one reading that matters: `describe.skipIf`
+ * makes a stale tree report GREEN with the whole block absent, and a module
+ * becoming editor-only on an unbuilt working tree is exactly when a developer
+ * most needs to hear about it. The sibling block above is gated because it
+ * greps built directories; this one has nothing to be stale about.
+ */
+function isPageModule(repoRelative: string): boolean {
+  // Prefix, not `site/*.ts`: a nested module or a `.svelte` component that
+  // becomes editor-only is page code and belongs on the needle roster, and
+  // §9's "the fix should handle the forms the last one missed" row is about
+  // exactly this — key the predicate to the question (is this the page's own
+  // code?) rather than to the spellings that happen to exist today.
+  return repoRelative.startsWith('site/')
+}
+
+/**
+ * The editor-only modules **outside** `site/`.
+ *
+ * ## Why this is a second list and not seven names plus one
+ *
+ * `src/shared/perception.ts` is editor-only under this file's own predicate and
+ * is absent from the roster above, which is silently `site/`-scoped and states
+ * that scope nowhere. Under the unscoped reading the true count is **eight**.
+ * The two scopes are asserted separately rather than one being dropped, because
+ * dropping it is how the next `src/` module to become editor-only becomes
+ * invisible — and because the two carry different claims:
+ *
+ *  - A module under `site/` is **page code**. Its absence from the player
+ *    bundle is R14 (design §3.2) — an embed must not ship an authoring UI — so
+ *    every member owes a needle, which is what the roster above exists for.
+ *  - A module under `src/` is **library code** both the CLI and the page draw
+ *    on. Its being editor-only is a fact about what the player happens to
+ *    import *today*, not a statement that the player may never have it: a
+ *    legibility readout in the embed would pull `perception.ts` in perfectly
+ *    legitimately. Asserting "the player must never contain this" would make
+ *    the guard an obstacle to correct work, which is the shape §6's tripwire
+ *    rule warns about — the cheapest satisfying action has to be the right one.
+ *    So it is pinned here, where a change is a prompt to decide, and kept off
+ *    the needle roster, where it would read as a prohibition.
+ *
+ * ## TWO DIFFERENT EIGHTS. Merging them yields a coherent, wrong story
+ *
+ * This walk reports **eight** editor-only files, seven of them under `site/`.
+ * The execution plan's §7 carries a **different** eight: the `site/*.ts`
+ * modules in **neither** app closure — `controlspec.ts`, `hashprojection.ts`,
+ * `keybindings.ts`, `layout.ts`, `operations.ts`, `panels.ts`, `shadings.ts`,
+ * `store.ts`, `views.ts`, `widgets.ts`, `buildguard.ts` — counted as eight back
+ * when eight of them existed. **Same number, disjoint membership.** A reader
+ * who merges the two gets an account that is internally consistent, eight rows
+ * deep, and wrong; §9 calls that *"a plausible wrong mapping … the hardest kind
+ * to catch"*. Two corollaries keep them apart:
+ *
+ *  - `buildguard.ts` is **not dead code**. Both vite configs import it. It is
+ *    in neither *app* closure, which is a different statement.
+ *  - §7's "eight are absent from `EDITOR_ONLY_MODULES`" is therefore not merely
+ *    the wrong eight: acting on it **breaks this file**, by either route, and
+ *    both routes were run rather than reasoned about. Adding `site/store.ts` to
+ *    the roster alone → **2 failed | 46 passed**, `has enough needles to be
+ *    worth asserting` among them, because nothing covers it. Adding it *with* a
+ *    needle → **3 failed | 45 passed**, now including `finds every needle in
+ *    the editor bundle — the grep works`, because the presence half looks for
+ *    that needle in `dist-site/` and the module is in no bundle at all.
+ *  - And for `store.ts` the second route does not exist anyway: the module
+ *    contains **no string literal** — two import specifiers and an apostrophe
+ *    in a docblock are the whole of it — so there is nothing minification would
+ *    carry into a bundle to use as a needle. A neither-closure module cannot be
+ *    made to satisfy the roster; it has to stay off it.
+ *
+ * ## `site/legibility.ts` is a barrel, and that is why the split is not clean
+ *
+ * Its entire non-comment content is `export * from '../src/shared/perception.js'`.
+ * It is in the editor closure and holds no code, so under this file's own rule
+ * — *"a needle proves something about the FUNCTION holding it"* — it cannot own
+ * one. The needle filed under it, `measureInk: the ink fraction must be in
+ * (0, 1], got`, physically lives in `src/shared/perception.ts`; the literal
+ * occurs in exactly two files and neither is `legibility.ts`. **Recorded, not
+ * repaired.** Re-pointing that `source` at `perception.ts` would leave
+ * `legibility.ts` on a roster whose rule is "every member has a needle" with no
+ * needle it could ever hold, and would move `perception.ts` onto a roster that
+ * asserts the player must never contain it. That is a change to what the roster
+ * *means*, not a fix, and it is not this check's to make.
+ */
+const EDITOR_ONLY_LIBRARY: readonly string[] = ['src/shared/perception.ts']
+
+/**
+ * Every file the editor entry reaches and the player entry does not,
+ * repo-relative and forward-slashed.
+ *
+ * Memoised because two tests ask for it and the walk parses every file in both
+ * closures — roughly eighty `ts.createSourceFile` calls per side. Computed
+ * lazily inside the tests rather than at module scope: §9 records a
+ * collection-time throw turning a 65-test file into `Tests  no tests`, which a
+ * failure-count reading scores as zero failures.
+ *
+ * **Known limit, stated because it will matter at P3:** `resolveModule` will
+ * resolve a `./X.svelte` specifier to the file, so a component enters the set,
+ * but `importSpecifiers` parses it as TypeScript, so the component's *own*
+ * imports are not followed. The set is therefore a floor for a Svelte editor,
+ * not a closure. It is exact for the `.ts` graph that exists today.
+ */
+let editorOnlyMemo: readonly string[] | undefined
+
+function editorOnlyFiles(): readonly string[] {
+  if (editorOnlyMemo === undefined) {
+    const player = new Set(closureFrom(join(ROOT, 'site', 'player.ts')).files)
+    editorOnlyMemo = closureFrom(join(ROOT, 'site', 'main.ts')).files
+      .filter(f => !player.has(f))
+      // `sep` because the rosters are written with forward slashes and
+      // `relative` answers in the platform's separator.
+      .map(f => relative(ROOT, f).split(sep).join('/'))
+      .sort()
+  }
+  return editorOnlyMemo
+}
+
+describe('the editor-only set is derived, not enumerated', () => {
+  it('reaches the same page modules the needle roster names', () => {
+    // No separate vacuity guard, and that is a measurement rather than an
+    // omission: a resolver that silently resolved nothing would report a
+    // one-file closure, and a one-element array is not equal to a seven-element
+    // one, so the collapse reddens this very assertion. §9's "a check that
+    // cannot see reports fine" is closed by the shape of the comparison.
+    expect(
+      editorOnlyFiles().filter(isPageModule),
+      'a page module changed sides: it is reachable from site/main.ts and not from ' +
+      'site/player.ts, or has stopped being so. If it is new to the editor, add it to ' +
+      'EDITOR_ONLY_MODULES *and* give it a needle — the roster above requires both, and ' +
+      'editing this expectation alone leaves the needle check asserting nothing about it.',
+    ).toEqual([...EDITOR_ONLY_MODULES].sort())
+  })
+
+  it('reaches the same library modules outside site/', () => {
+    expect(
+      editorOnlyFiles().filter(f => !isPageModule(f)),
+      'a module under src/ is now in the editor closure and not the player\'s, or has ' +
+      'left it. This is a prompt to decide, not a violation: shared library code the ' +
+      'player does not happen to import yet belongs in EDITOR_ONLY_LIBRARY with its ' +
+      'reason; editor code that drifted into src/ belongs back under site/.',
+    ).toEqual([...EDITOR_ONLY_LIBRARY].sort())
   })
 })
 
