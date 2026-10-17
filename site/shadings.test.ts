@@ -109,9 +109,43 @@ interface DesignShadings {
  * read off the *unstripped* cell, which is how {@link DEFAULT_SHADING} gets
  * an upstream too rather than being a second literal nothing ties down.
  */
+/**
+ * The anchor, written once.
+ *
+ * Shared by {@link shadingsFromDesign} and by its uniqueness check rather than
+ * typed twice: two copies of a pattern drift, and a uniqueness check counting
+ * a *different* header from the one `findIndex` lands on answers `1` forever
+ * while the parser reads a different table.
+ */
+const SHADING_TABLE_HEADER = /^\|\s*shading\s*\|\s*what\s*\|\s*$/
+
+/**
+ * How many lines in the document could be this table's header.
+ *
+ * **The uniqueness predicate for this reader is about the HEADER, not about a
+ * literal**, and that is forced by the parser's shape rather than chosen.
+ * This reader is the only one of the three whose input is defined by
+ * **adjacency**: it locates a line, then reads from `header + 2` until the
+ * first line that does not start with `|`. There is no literal anywhere in the
+ * roster to count — the roster is "whatever is contiguous below the header
+ * `findIndex` happened to land on". The header is therefore the only thing the
+ * parser ever *chooses between*, so it is the only thing uniqueness can be
+ * asserted about, and a second header above the real one hands the parser a
+ * different contiguous block with no other assertion in this file able to
+ * notice: a shadow block carrying the same four rows parses identically.
+ *
+ * **A number rather than a throw**, because {@link shadingsFromDesign} is
+ * called at module scope: throwing there yields `Tests  no tests` — zero
+ * failures to a count-based reading, a deleted file to a name-set census. An
+ * `it` over a number fails by name.
+ */
+function shadingTableHeaderCount(markdown: string): number {
+  return markdown.split('\n').filter(line => SHADING_TABLE_HEADER.test(line)).length
+}
+
 function shadingsFromDesign(markdown: string): DesignShadings {
   const lines = markdown.split('\n')
-  const header = lines.findIndex(line => /^\|\s*shading\s*\|\s*what\s*\|\s*$/.test(line))
+  const header = lines.findIndex(line => SHADING_TABLE_HEADER.test(line))
   if (header === -1) {
     throw new Error('design §5.2\'s shading table is not where this test looks for it')
   }
@@ -134,7 +168,10 @@ function shadingsFromDesign(markdown: string): DesignShadings {
 }
 
 /** The roster as the shipped design states it. */
-const DESIGNED = shadingsFromDesign(readFileSync(DESIGN, 'utf8'))
+/** Read once, because the uniqueness check is a statement about the same bytes the reader parsed. */
+const DESIGN_TEXT = readFileSync(DESIGN, 'utf8')
+
+const DESIGNED = shadingsFromDesign(DESIGN_TEXT)
 
 /**
  * The modules a {@link ShadingInfo.implementedBy} may name, by specifier.
@@ -205,6 +242,40 @@ describe('the membership comes from design §5.2, not from this file', () => {
   it('refuses to answer when no row is marked as the default', () => {
     expect(() => shadingsFromDesign('| shading | what |\n|---|---|\n| `a` | one |\n'))
       .toThrow(/marks no row \(default\)/)
+  })
+
+  it('has exactly one line that could be this table, so the one it read is the one meant', () => {
+    // Presence is asserted above and is the weaker half. `findIndex` takes the
+    // FIRST candidate header from the top of the file, and this parser's input
+    // is then whatever is CONTIGUOUS below it — so a second `| shading | what |`
+    // placed anywhere ABOVE §5.2's, with its own rows under it, becomes the
+    // roster outright. If those rows match today's the parse is byte-for-byte
+    // the same and no other assertion in this file moves. Exactly-once is the
+    // only thing here that can see a block inserted above the real table.
+    expect(
+      shadingTableHeaderCount(DESIGN_TEXT),
+      `${DESIGN} has more than one line that could head design §5.2's shading table; whichever is higher silently becomes the roster`,
+    ).toBe(1)
+  })
+
+  it('is a count that can see a second header, so the check above is not 1 === 1', () => {
+    // The vacuity control, aimed at the counter. The fixture is two CONTIGUOUS
+    // `|`-blocks rather than two distant copies, because this reader's anchor
+    // kind is positional: the worst case it has to see is a complete shadow
+    // table, not a stray line.
+    const twice = [
+      '| shading | what |',
+      '|---|---|',
+      '| `a` **(default)** | one |',
+      '',
+      'prose between the two tables',
+      '',
+      '| shading | what |',
+      '|---|---|',
+      '| `a` **(default)** | one |',
+    ].join('\n')
+    expect(shadingTableHeaderCount(twice)).toBe(2)
+    expect(shadingTableHeaderCount('# a document with no such table\n')).toBe(0)
   })
 })
 
