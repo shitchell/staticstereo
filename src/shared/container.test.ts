@@ -1014,7 +1014,9 @@ describe('writeStst', () => {
  *
  * - **Route A:** a module that names `writeZip` in code. It is the route any
  *   realistic second writer takes, because P1 criterion 1 forbids a zip
- *   dependency and `zip.ts` is the repository's only zip writer.
+ *   dependency, so there is nothing else to call. That `zip.ts` is the only
+ *   module compressing is not asserted here as a count in prose — route B
+ *   below is the assertion of it.
  * - **Route B:** a module that names `CompressionStream` in code. A
  *   hand-rolled writer that does not call `writeZip` still has to compress,
  *   and with no dependency permitted that is the only way to do it.
@@ -1023,40 +1025,146 @@ describe('writeStst', () => {
  * rather than anticipated — see `namesInCode` below, where the two wrong
  * first drafts and what each of them falsely reported are recorded.
  *
- * **The residue, named so nobody reads the pair as complete:** a second
- * producer that hand-writes zip records *and* stores everything would name
- * neither symbol and is invisible to both routes. It is the least likely
- * shape — it is strictly more work than calling `writeStst` — and it is not
- * covered.
+ * **The residue, named so nobody reads the pair as complete — and rewritten
+ * 2026-10-17, because the shape it used to name is one no measured evasion
+ * takes.** It said the uncovered case was *"a second producer that hand-writes
+ * zip records and stores everything"*. A verifier then built five evasions and
+ * **none of them is that shape**, which is worse than declaring no residue at
+ * all: it tells a reader the hole is somewhere it isn't.
  *
- * **What the roster is derived from, and what it is not.** Every `.ts` and
- * `.svelte` file under `src/` and `site/`, walked from disk; production is
- * every one of them that is not a `*.test.ts`, which is `tsconfig.json`'s own
- * exclude glob rather than a convention invented here. §9: a hand-written
- * list of "the places that do X" goes stale silently the day a second place
- * does X, so there is no list — a new directory or a new module is in the
- * roster the moment it is on disk, built or not.
+ * **The uncovered class is computed access to the real symbol.** Both routes
+ * ask "does this module name the identifier?", so a module that reaches the
+ * same function or the same constructor **without ever writing its name as an
+ * identifier** is invisible to both. The two measured shapes:
+ *
+ * - `(await import('./shared/zip.js'))['writeZip'](…)` — the real `writeZip`,
+ *   reached through a string-indexed property access.
+ * - `new (globalThis as any)['CompressionStream']('deflate-raw')` — the real
+ *   constructor, same device.
+ *
+ * Both were planted in a **covered** position (`src/`, `.ts`) after the
+ * widening below and measured: **18 passed, exit 0, neither named.** The same
+ * class is what the assembler count further down cannot see either — a
+ * signature value computed rather than written (`0x06054b4f + 1`,
+ * `parseInt('02014b50', 16)`), planted and measured invisible at 18 passed.
+ *
+ * **This is the known-hard class and the list above is not exhaustive**: it is
+ * two spellings of one device, and the device is "the identifier never
+ * appears". Closing it needs a checker that resolves values rather than a
+ * parser that reads names, which is a different instrument from this one. §9
+ * has two rows on sensors keyed to enumerated forms and defeated by the next
+ * one, so the boundary is stated as the class rather than as the two
+ * spellings that were tried.
+ *
+ * **What the roster is derived from — widened 2026-10-17, and the widening is
+ * the whole of this sensor's repair.** It used to walk exactly `src/` and
+ * `site/` and collect exactly `.ts` and `.svelte`. A verifier defeated it with
+ * two **byte-identical** copies of a producer it already caught, differing
+ * only in **position** (`exporter/ststExport.ts`, a new top-level directory)
+ * and in **extension** (`site/ststExport.js`). Measured before the widening,
+ * with both on disk: **17 passed (17), exit 0** — and the same bytes at
+ * `src/ststProbeCovered.ts` named by both routes in the same run, so position
+ * and extension were the only difference. After the widening both are named by
+ * both routes.
+ *
+ * So the walk is now the **whole repository**, and neither axis is enumerated:
+ *
+ * - **Position** is not a list at all. The walk starts at the repository root
+ *   and refuses only what the repository itself declares is not its content —
+ *   `git ls-files --others --ignored --exclude-standard`, one call, so
+ *   `node_modules/`, `dist/`, `dist-site/` and `dist-player/` are skipped
+ *   because `.gitignore` says so and a fifth is skipped the day it is added.
+ *   §9: a hand-written list of "the places that do X" goes stale silently.
+ *   **A new directory is in the roster the moment it is on disk**, built or
+ *   not, committed or not.
+ * - **Extension** is the one axis that is still an enumeration, stated as one
+ *   rather than left to read as derived — see `CODE` below for what bounds it.
+ * - The three fixture trees at the repository root (`query-sweep-fixture/`,
+ *   `svelte-free-fixture/`, `typecheck-fixture/`) are **admitted, not
+ *   excluded.** They were measured first: none of their files names either
+ *   symbol, so no exclusion is needed, and inventing one by name would be the
+ *   stale-list defect in the act of repairing it.
+ *
+ * Production is every file in that walk that is not a test, matched on
+ * `*.test.*` across the same kinds — a convention this file applies, not a
+ * glob read from `tsconfig.json`. (`tsconfig.json`'s exclude also drops the
+ * `testing/` helper directories it names; this roster deliberately keeps
+ * them, since a producer hidden in a test helper is still a producer.)
+ *
+ * **What this costs.** The roster now depends on `/usr/bin/git` as well as on
+ * the filesystem. It fails closed on a non-zero status, for the reason the
+ * `unzip` spawns have no `HAVE_UNZIP` guard, so it is a dependency rather
+ * than a hole — but it is a real difference and is not an improvement in
+ * every direction.
  */
 describe('criterion 7 — one production producer of .stst bytes', () => {
   const REPO = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
   const ZIP_WRITER = join(REPO, 'src', 'shared', 'zip.ts')
 
-  function filesUnder(dir: string): string[] {
+  /** Repo-relative and `/`-separated, so a failure reads the same everywhere. */
+  const show = (path: string): string => relative(REPO, path).split(sep).join('/')
+
+  /**
+   * The file kinds a producer can be written in — every module spelling node
+   * and vite load, plus `.svelte`. This **is** an enumeration and is the one
+   * place in this sensor that stays one, so it is keyed to something that is
+   * not ours to extend: a second producer has to be a module the toolchain
+   * will execute, and these are the extensions that get executed. A `.md`, a
+   * `.css` or a `.json` cannot produce bytes, and admitting them would make
+   * the `.svelte` text fallback below report every document under `docs/`
+   * that discusses `writeZip` or `CompressionStream` in prose as a producer,
+   * which is this repo's dominant false-reader shape and is why both routes
+   * parse in the first place.
+   */
+  const CODE = /\.(?:[cm]?[jt]sx?|svelte)$/
+  const TEST = /\.test\.[cm]?[jt]sx?$/
+
+  /**
+   * What the walk refuses to enter, **derived rather than listed.** §9: a
+   * hand-written list of "the places that do X" goes stale silently, and
+   * `dist/`, `dist-site/`, `dist-player/` and `node_modules/` are a list of
+   * exactly that shape — one that was already wrong once on this project,
+   * when a wipe instruction naming two directories missed the third.
+   *
+   * So the question asked is the one that actually defines them: *does the
+   * repository consider this path its own content?* `git ls-files --others
+   * --ignored --exclude-standard --directory` answers it in one call from the
+   * repository's own ignore rules, so a fifth build directory added to
+   * `.gitignore` tomorrow is skipped without anybody editing this file.
+   *
+   * Fails closed, like the `unzip` spawns above: a non-zero status reddens
+   * rather than degrading to "nothing is ignored", which would walk
+   * `node_modules/` and report half of npm as a second producer.
+   */
+  function ignoredPaths(): Set<string> {
+    const res = spawnSync(
+      '/usr/bin/git',
+      ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory'],
+      { cwd: REPO, env: CHILD_ENV, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
+    )
+    expect(res.status, 'git ls-files --others --ignored').toBe(0)
+    return new Set(
+      (res.stdout ?? '').split('\n').filter(s => s !== '').map(s => s.replace(/\/$/, '')),
+    )
+  }
+
+  function filesUnder(dir: string, skip: Set<string>): string[] {
     const out: string[] = []
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      // `.git` is not content of the repository; it is the repository, and
+      // git never lists it among the paths it ignores.
+      if (entry.name === '.git') continue
       const path = join(dir, entry.name)
-      if (entry.isDirectory()) out.push(...filesUnder(path))
-      else if (path.endsWith('.ts') || path.endsWith('.svelte')) out.push(path)
+      if (skip.has(show(path))) continue
+      if (entry.isDirectory()) out.push(...filesUnder(path, skip))
+      else if (CODE.test(path)) out.push(path)
     }
     return out
   }
 
-  /** Repo-relative and `/`-separated, so a failure reads the same everywhere. */
-  const show = (path: string): string => relative(REPO, path).split(sep).join('/')
-
   const production = (): string[] =>
-    [...filesUnder(join(REPO, 'src')), ...filesUnder(join(REPO, 'site'))]
-      .filter(f => !f.endsWith('.test.ts'))
+    filesUnder(REPO, ignoredPaths())
+      .filter(f => !TEST.test(f))
       .sort()
 
   /**
@@ -1090,14 +1198,30 @@ describe('criterion 7 — one production producer of .stst bytes', () => {
    * nothing.
    *
    * **`.svelte` is the one file kind this cannot parse**, so it falls back to
-   * a raw-text match. There is one `.svelte` file in the repository today and
-   * it is a smoke component; the fallback is a filter, not a proof, and would
-   * report a mention in `<!-- -->` as a use.
+   * a raw-text match. The fallback is a filter, not a proof: it would report a
+   * mention in `<!-- -->` as a use, in the direction that asks for a look
+   * rather than the direction that passes.
+   *
+   * **No count of them is given here, deliberately.** This docblock used to
+   * say *"there is one `.svelte` file in the repository today"*; there are
+   * five, and that sentence was the third instance of its own class inside the
+   * file that records the first two. **The rule, applied here and swept for
+   * across both files this commit touches: do not state a count of repository
+   * contents in a docblock unless a test asserts that count. Either assert it
+   * or do not say it.** Nothing here needs the number — what the fallback's
+   * weakness depends on is that `.svelte` exists at all, not how much of it
+   * there is — so the number is not said.
    */
   function namesInCode(file: string, ident: string): boolean {
     const text = readFileSync(file, 'utf8')
-    if (!file.endsWith('.ts')) return text.includes(ident)
-    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS)
+    if (file.endsWith('.svelte')) return text.includes(ident)
+    // Everything else in `CODE` is a module the TypeScript parser reads —
+    // `.js`, `.mjs` and `.cjs` included, which is what closes the extension
+    // half of the evasion the widening was written for. The condition is
+    // written as "`.svelte` falls back" rather than "`.ts` parses" because
+    // the second spelling silently routed every new kind to the text match.
+    const kind = /x$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+    const sf = ts.createSourceFile(file, text, ts.ScriptTarget.ES2022, true, kind)
     let found = false
     const walk = (node: ts.Node): void => {
       if (found) return
@@ -1116,16 +1240,32 @@ describe('criterion 7 — one production producer of .stst bytes', () => {
 
   /**
    * The roster's own guard. §6.5a: a null is only evidence if the instrument
-   * could have seen something, and the three ways this one reports clean
-   * while blind are an empty walk, a walk that never reached `site/` — the
-   * half the criterion is actually about, since P5's writer would land there
-   * — and a walk that cannot see the one file that is supposed to be found.
+   * could have seen something, and the ways this one reports clean while
+   * blind are an empty walk, a walk that never reached `site/` — the half the
+   * criterion is actually about, since P5's writer would land there — and a
+   * walk that cannot see the one file that is supposed to be found.
+   *
+   * **The last two are new, and they are the two axes a byte-identical
+   * producer was measured to escape on** (see the widening recorded in the
+   * describe's docblock). They are the guard that notices if the roster is
+   * ever re-narrowed to the two directories and the one extension it used to
+   * have: a walk confined to `src/` and `site/` cannot satisfy the third, and
+   * a walk that collects only `.ts` cannot satisfy the fourth. Both redden on
+   * a tree that genuinely lost every file outside those two directories or
+   * every non-`.ts` module, which is a tree whose reach has in fact shrunk
+   * and is worth a look.
    */
   function roster(): string[] {
     const files = production()
     expect(files.length, 'the source walk found no production files').toBeGreaterThan(0)
-    expect(files.map(show)).toContain('src/shared/container.ts')
-    expect(files.map(show).some(f => f.startsWith('site/')), 'the walk reached site/').toBe(true)
+    const rel = files.map(show)
+    expect(rel).toContain('src/shared/container.ts')
+    expect(rel.some(f => f.startsWith('site/')), 'the walk reached site/').toBe(true)
+    expect(
+      rel.some(f => !f.startsWith('src/') && !f.startsWith('site/')),
+      'the walk reached outside src/ and site/',
+    ).toBe(true)
+    expect(rel.some(f => !f.endsWith('.ts')), 'the walk admits a kind that is not .ts').toBe(true)
     return files
   }
 
@@ -1143,5 +1283,134 @@ describe('criterion 7 — one production producer of .stst bytes', () => {
     // one producer possible in the first place.
     const compressors = roster().filter(f => namesInCode(f, 'CompressionStream')).map(show)
     expect(compressors, ROUTE_MESSAGE).toEqual(['src/shared/zip.ts'])
+  })
+
+  /* ------------------------------------------------------------------ */
+  /*  The one place both routes have to look away from                    */
+  /* ------------------------------------------------------------------ */
+
+  /**
+   * **`zip.ts` is where neither route can see, and until now that was an
+   * exclusion rather than a measurement.** Route A drops it by path because
+   * it *declares* `writeZip`, and route B's expected set *is* it because it
+   * is the module that compresses. Both carve-outs are correct and both are
+   * whole-file, so a second complete `.stst` assembler written inside
+   * `zip.ts` was invisible by construction — not unlikely to be caught, but
+   * impossible to catch. That is a property of the exclusion and not of the
+   * problem.
+   *
+   * The carve-outs stay, because they are what makes the two routes
+   * expressible at all; what changes is that the region they look away from
+   * is now **counted**. "We cannot look here" becomes "we looked and there is
+   * one", and a second assembler reddens.
+   *
+   * **What counts as an assembler, keyed to the question and not to a
+   * spelling.** The question is *how many functions in this module build a
+   * complete zip?* — and a complete zip is defined by the format, not by us:
+   * it needs a central-directory record (`PK\x01\x02`) and an
+   * end-of-central-directory record (`PK\x05\x06`). So an assembler is a
+   * function that names **both** signature values. A function that emits only
+   * local headers is not one; a function that emits only an EOCD is not one.
+   *
+   * **Values, not identifiers.** The two signatures are resolved through
+   * module-level constant bindings to a fixed point, so `SIG_CENTRAL`, a
+   * bare `0x02014b50`, and `const S = SIG_CENTRAL` are all the same
+   * reference. Aliasing a constant is the cheapest way a second assembler
+   * would avoid naming `SIG_CENTRAL`, and it is the first thing a sensor
+   * keyed on the identifier would miss.
+   *
+   * **Attribution is to the nearest enclosing function**, so a second
+   * assembler nested inside the first is two, not one — and a reference at
+   * module scope belongs to no function and is ignored, which is what keeps
+   * the constant declarations themselves out of the count.
+   *
+   * **Residue, stated rather than left to read as complete:** a signature
+   * *computed* rather than written — `0x02014b4f + 1`, a four-byte array, a
+   * `parseInt` of a string — is not seen. That is the same computed-access
+   * class the describe's docblock names as this sensor's known-hard residue,
+   * and it is uncovered here for the same reason.
+   */
+  const SIG_CENTRAL_VALUE = 0x02014b50
+  const SIG_EOCD_VALUE = 0x06054b50
+
+  function assemblersInText(label: string, text: string): string[] {
+    const sf = ts.createSourceFile(label, text, ts.ScriptTarget.ES2022, true, ts.ScriptKind.TS)
+
+    // Module-level numeric bindings, resolved to a fixed point so that an
+    // alias chain is the same reference as the literal it ends at.
+    const value = new Map<string, number>()
+    for (let changed = true; changed;) {
+      changed = false
+      for (const st of sf.statements) {
+        if (!ts.isVariableStatement(st)) continue
+        for (const d of st.declarationList.declarations) {
+          if (!ts.isIdentifier(d.name) || d.initializer === undefined) continue
+          if (value.has(d.name.text)) continue
+          const v = ts.isNumericLiteral(d.initializer) ? Number(d.initializer.text)
+            : ts.isIdentifier(d.initializer) ? value.get(d.initializer.text)
+            : undefined
+          if (v !== undefined) { value.set(d.name.text, v); changed = true }
+        }
+      }
+    }
+
+    const signature = (n: ts.Node): number | undefined => {
+      const v = ts.isNumericLiteral(n) ? Number(n.text)
+        : ts.isIdentifier(n) ? value.get(n.text)
+        : undefined
+      return v === SIG_CENTRAL_VALUE || v === SIG_EOCD_VALUE ? v : undefined
+    }
+
+    const nameOf = (fn: ts.Node): string => {
+      if ((ts.isFunctionDeclaration(fn) || ts.isMethodDeclaration(fn)) && fn.name !== undefined) {
+        return fn.name.getText(sf)
+      }
+      const parent = fn.parent as ts.Node | undefined
+      if (parent !== undefined && ts.isVariableDeclaration(parent)) return parent.name.getText(sf)
+      return `<anonymous at line ${sf.getLineAndCharacterOfPosition(fn.getStart(sf)).line + 1}>`
+    }
+
+    const seen = new Map<ts.Node, Set<number>>()
+    const walk = (node: ts.Node, fn: ts.Node | undefined): void => {
+      const here = ts.isFunctionLike(node) ? node : fn
+      const sig = signature(node)
+      if (sig !== undefined && here !== undefined) {
+        const set = seen.get(here) ?? new Set<number>()
+        set.add(sig)
+        seen.set(here, set)
+      }
+      ts.forEachChild(node, child => walk(child, here))
+    }
+    walk(sf, undefined)
+
+    return [...seen.entries()]
+      .filter(([, sigs]) => sigs.has(SIG_CENTRAL_VALUE) && sigs.has(SIG_EOCD_VALUE))
+      .map(([fn]) => nameOf(fn))
+      .sort()
+  }
+
+  it('finds exactly one central-directory assembler inside the zip writer', () => {
+    // §6.5a, in the same invocation and before the null is read: this
+    // assertion is "there is one", which is indistinguishable from an
+    // instrument that cannot count past one — or that cannot see an
+    // assembler at all — unless it is shown counting two first. The control
+    // reaches the central signature through a two-step alias chain and the
+    // EOCD through a bare literal, because those are the two spellings a
+    // second assembler would be written in if it were avoiding this check.
+    const control = assemblersInText('<control>', [
+      'const SIG_CENTRAL = 0x02014b50',
+      'const ALIAS = SIG_CENTRAL',
+      'const AGAIN = ALIAS',
+      'function one(v) { v.setUint32(0, AGAIN, true); v.setUint32(8, 0x06054b50, true) }',
+      'function two(v) { v.setUint32(0, SIG_CENTRAL, true); v.setUint32(8, 0x06054b50, true) }',
+      'function partial(v) { v.setUint32(0, SIG_CENTRAL, true) }',
+    ].join('\n'))
+    expect(control, 'the assembler count can see two, and an alias chain').toEqual(['one', 'two'])
+
+    expect(
+      assemblersInText(show(ZIP_WRITER), readFileSync(ZIP_WRITER, 'utf8')),
+      'a second complete zip assembler inside the module both routes look away from. ' +
+      'Route it through writeZip() — ' + ROUTE_MESSAGE,
+    ).toEqual(['writeZip'])
   })
 })
