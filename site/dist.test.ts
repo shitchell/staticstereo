@@ -100,7 +100,10 @@ const PLAYER_ENTRY = 'index.html'
  * on the entry's name — and that distinction is load-bearing rather than
  * defensive.
  *
- * Every block below is `skipIf(!freshPlayer)`. If this flag asked for
+ * Every block below that reads `dist-player/` is `skipIf(!freshPlayer)` — the
+ * qualifier is load-bearing rather than pedantic, because the blocks that read
+ * nothing it produces are deliberately *not* gated on it and must not be read
+ * as oversights. If this flag asked for
  * `index.html` by name, then a regression that renamed the emitted entry back
  * would make the player look *unbuilt*, skip every assertion that exists to
  * catch it, and report green with a trailing "skipped because dist-player is
@@ -1099,67 +1102,6 @@ describe.skipIf(!fresh)('the built site', () => {
     ).toEqual([])
   })
 
-  it('tells a prose mention of @napi-rs apart from a real import of it', () => {
-    // The paired control for the two rows above, and it has to exercise the
-    // real extractor over the real two cases rather than "see something":
-    // a healthy bundle declares ZERO specifiers (measured, both output
-    // directories), so an extractor gutted to `() => []` passes every
-    // assertion in this block forever and nothing else here would notice.
-    //
-    // Both strings are the bytes a build actually produced, not inventions.
-    // The first is `LAYER_SPECS.font.note` as it appeared in
-    // `dist-site/assets/index-*.js` with `controlspec.ts` pulled into the
-    // graph; the second is the call site vite emitted for a reachable
-    // `await import('@napi-rs/canvas')` under `external: [/^@napi-rs\//]`,
-    // which is the one route by which a real @napi-rs reference can reach a
-    // browser bundle at all — every other spelling fails the build outright.
-    const prose =
-      'const n="A CSS font family. Free text and not an enum: the resolvable set differs ' +
-      'between the browser and `@napi-rs/canvas`, which is how `sans-serif` resolved to ' +
-      'dingbats for a day.";'
-    const real = 'x=async()=>await cr(()=>import("@napi-rs/canvas"),[],import.meta.url);'
-
-    expect(
-      moduleSpecifiers(prose),
-      'a prose mention inside a string literal is not an import and must not be read as one — ' +
-      'this is the false positive the narrowing exists to remove (ESC-9)',
-    ).toEqual([])
-    expect(
-      moduleSpecifiers(real),
-      'a real dynamic import of @napi-rs must still be seen — without this the narrowing above ' +
-      'would be indistinguishable from deleting the check',
-    ).toEqual(['@napi-rs/canvas'])
-    // The same discrimination for the *unreadable* half, which otherwise has
-    // no control at all over the extractor itself: a readable import must not
-    // be reported as unreadable, and a computed one must not be silently
-    // dropped — those are the two ways the new row goes quiet. The third
-    // string is the bytes vite emitted for the planted
-    // `await import(location.hash.slice(1) || '@napi-rs/canvas')`, not an
-    // invention, same as the two above.
-    const computed = 'x=async()=>await import(location.hash.slice(1)||"@napi-rs/canvas");'
-    expect(unreadableImports(real)).toEqual([])
-    expect(
-      moduleSpecifiers(computed),
-      'a computed specifier has no value to read, so it must contribute NOTHING to the ' +
-      'specifier set — reading the inner literal here would be guessing at the expression',
-    ).toEqual([])
-    expect(
-      unreadableImports(computed),
-      'a computed specifier must be reported as unread rather than skipped — skipping it is ' +
-      'the exact silence the row above exists to end',
-    ).toEqual(['import(location.hash.slice(1)||"@napi-rs/canvas")'])
-    expect(forbiddenImport('@napi-rs/canvas')).toBeDefined()
-    expect(forbiddenImport('node:fs')).toBeDefined()
-    // Derived, not listed: `node:child_process` was one of the four needles the
-    // old check named, `node:zlib` was not, and neither is written down now.
-    expect(forbiddenImport('node:zlib')).toBeDefined()
-    expect(forbiddenImport('./chunk-abc123.js')).toBeUndefined()
-
-    // And the parse-failure path is reachable, so the assertion guarding it is
-    // not a formality over a function that cannot fail.
-    expect(() => moduleSpecifiers('this is (not javascript {{{')).toThrow()
-  })
-
   it('would catch a planted import in the directory it reads, not only in a string', () => {
     // The row above controls the EXTRACTOR and the PREDICATE, over two
     // hard-coded strings. It never touches `dist-site/`. This one controls
@@ -1257,6 +1199,113 @@ describe.skipIf(!fresh)('the built site', () => {
     // and that the shim, not a raw default import, is what reached the bundle.
     expect(text).toContain('applyPalette')
     expect(js.some(f => statSync(f).size > 10_000)).toBe(true)
+  })
+})
+
+/**
+ * The same suite name, deliberately, and **not** under the freshness gate.
+ *
+ * ## Why a second block rather than one more `it` above
+ *
+ * `describe.skipIf` is all-or-nothing over its children, so a control that
+ * reads nothing the build produces cannot opt out of a gate its siblings need.
+ * The suite name is repeated verbatim so the full test name — which is what a
+ * §6.4 name census compares — is unchanged by the move: this commit un-gates an
+ * assertion, it does not add, remove or retitle one, and the census should say
+ * so rather than report three vanished names for a change that lost nothing.
+ *
+ * ## The failure mode being removed, measured on this tree
+ *
+ * The test below reads two hard-coded strings and nothing else; it never opens
+ * `dist-site/`. Gated, it was not merely skipped on an unbuilt checkout — it
+ * was **unable to fail there.** Measured with {@link unreadableImports} gutted
+ * to `() => []`, which is precisely the gutting this control exists to catch:
+ * `rm -rf dist dist-site dist-player && vitest run site/dist.test.ts` reported
+ * **Test Files 1 passed (1) · Tests 19 passed | 31 skipped (50), exit 0** — a
+ * summary byte-identical to the one over an unplanted tree, so the file-level
+ * result agreed with the count and neither could see the defect. §9: *"a check
+ * that cannot see reports fine"*, and the condition they were gated on was not
+ * the condition they depend on. Ungated, the same plant reddens by name:
+ * **3 failed | 19 passed | 28 skipped (50)**, one failure per control.
+ *
+ * ## What was weighed, because the other direction has already cost this repo
+ *
+ * The two candidate cures were *fail loudly when unbuilt* and *run anyway*. The
+ * first was rejected: a hard fail on an ordinary unbuilt checkout is a false
+ * red on a developer who has done nothing wrong, this project has already spent
+ * a branch (`fix/false-reds`) undoing two of those, and the clean-checkout-is-
+ * green policy is recorded in four places in this file and in `ci.yml`. Running
+ * anyway costs nothing in either direction: the assertion's inputs are literals,
+ * so it passes on a clean checkout exactly as it passes in CI, and the only
+ * state whose reading changes is the one where something is genuinely broken.
+ *
+ * The *stale* tree is a different case and is already loud — "a stale build is
+ * not a checked one" fails by name on it (measured: `touch site/main.ts`,
+ * rebuild nothing, `1 failed | 18 passed | 31 skipped`). Only the **clean
+ * checkout** was silent, and only for assertions that had nothing to read.
+ */
+describe('the built site', () => {
+  it('tells a prose mention of @napi-rs apart from a real import of it', () => {
+    // The paired control for the two rows above, and it has to exercise the
+    // real extractor over the real two cases rather than "see something":
+    // a healthy bundle declares ZERO specifiers (measured, both output
+    // directories), so an extractor gutted to `() => []` passes every
+    // assertion in the gated block above forever and nothing else would
+    // notice. "Above" and not "here" since this control was un-gated: it is
+    // the only reader of the extractor that runs on an unbuilt checkout.
+    //
+    // Both strings are the bytes a build actually produced, not inventions.
+    // The first is `LAYER_SPECS.font.note` as it appeared in
+    // `dist-site/assets/index-*.js` with `controlspec.ts` pulled into the
+    // graph; the second is the call site vite emitted for a reachable
+    // `await import('@napi-rs/canvas')` under `external: [/^@napi-rs\//]`,
+    // which is the one route by which a real @napi-rs reference can reach a
+    // browser bundle at all — every other spelling fails the build outright.
+    const prose =
+      'const n="A CSS font family. Free text and not an enum: the resolvable set differs ' +
+      'between the browser and `@napi-rs/canvas`, which is how `sans-serif` resolved to ' +
+      'dingbats for a day.";'
+    const real = 'x=async()=>await cr(()=>import("@napi-rs/canvas"),[],import.meta.url);'
+
+    expect(
+      moduleSpecifiers(prose),
+      'a prose mention inside a string literal is not an import and must not be read as one — ' +
+      'this is the false positive the narrowing exists to remove (ESC-9)',
+    ).toEqual([])
+    expect(
+      moduleSpecifiers(real),
+      'a real dynamic import of @napi-rs must still be seen — without this the narrowing above ' +
+      'would be indistinguishable from deleting the check',
+    ).toEqual(['@napi-rs/canvas'])
+    // The same discrimination for the *unreadable* half, which otherwise has
+    // no control at all over the extractor itself: a readable import must not
+    // be reported as unreadable, and a computed one must not be silently
+    // dropped — those are the two ways the new row goes quiet. The third
+    // string is the bytes vite emitted for the planted
+    // `await import(location.hash.slice(1) || '@napi-rs/canvas')`, not an
+    // invention, same as the two above.
+    const computed = 'x=async()=>await import(location.hash.slice(1)||"@napi-rs/canvas");'
+    expect(unreadableImports(real)).toEqual([])
+    expect(
+      moduleSpecifiers(computed),
+      'a computed specifier has no value to read, so it must contribute NOTHING to the ' +
+      'specifier set — reading the inner literal here would be guessing at the expression',
+    ).toEqual([])
+    expect(
+      unreadableImports(computed),
+      'a computed specifier must be reported as unread rather than skipped — skipping it is ' +
+      'the exact silence the row above exists to end',
+    ).toEqual(['import(location.hash.slice(1)||"@napi-rs/canvas")'])
+    expect(forbiddenImport('@napi-rs/canvas')).toBeDefined()
+    expect(forbiddenImport('node:fs')).toBeDefined()
+    // Derived, not listed: `node:child_process` was one of the four needles the
+    // old check named, `node:zlib` was not, and neither is written down now.
+    expect(forbiddenImport('node:zlib')).toBeDefined()
+    expect(forbiddenImport('./chunk-abc123.js')).toBeUndefined()
+
+    // And the parse-failure path is reachable, so the assertion guarding it is
+    // not a formality over a function that cannot fail.
+    expect(() => moduleSpecifiers('this is (not javascript {{{')).toThrow()
   })
 })
 
@@ -1381,7 +1430,15 @@ describe.skipIf(!fresh || !freshPlayer)('every emitted file is read, or known to
       'the bundler emits as its own chunk.',
     ).toEqual([])
   })
+})
 
+/**
+ * Ungated sibling of the suite above, same name on purpose — the rationale is
+ * recorded once on the ungated `the built site` block and not restated here.
+ * This control is over literal inputs and reads no build output, so the gate it
+ * used to sit under was a condition it did not depend on.
+ */
+describe('every emitted file is read, or known to carry no import', () => {
   it('would say so — both predicates, over inputs that are wrong on purpose', () => {
     // The paired control. On a correct build both rows above are empty for
     // the same reason everything else in this file is: there is nothing to
@@ -2306,39 +2363,6 @@ function filesContaining(dir: string, needle: string): string[] {
 }
 
 describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () => {
-  it('has enough needles to be worth asserting', () => {
-    // The vacuity floor. Every assertion below is a `for` over this list, so
-    // an empty or accidentally-filtered list would pass all of them in
-    // silence. The floor is the real count, with no slack: a needle deleted
-    // because its message was reworded has to be replaced, not dropped.
-    expect(EDITOR_NEEDLES.length).toBeGreaterThanOrEqual(8)
-    // Needles are distinct, which is what the source-uniqueness check used to
-    // stand in for. It is no longer the same statement: `controls.ts` now
-    // carries two, one for `presetNote` and one for `reduce`, because a
-    // needle covers the *function* holding it rather than the module.
-    expect(new Set(EDITOR_NEEDLES.map(n => n.needle)).size).toBe(EDITOR_NEEDLES.length)
-    // ...and the second claim, now said rather than approximated. It was
-    // `new Set(sources).size >= 7` with a comment reading "still a needle for
-    // every editor-only module", which that does not encode: three needles
-    // from one module plus six others satisfies the count with a module
-    // uncovered. Named per module, so the failure says which one lost its
-    // only needle.
-    const covered = new Set(EDITOR_NEEDLES.map(n => n.source))
-    for (const module of EDITOR_ONLY_MODULES) {
-      expect(
-        [...covered],
-        `${module} has no needle, so nothing proves the player left it out`,
-      ).toContain(module)
-    }
-    // And the other direction: a needle attributed to a module that is not
-    // editor-only is a claim about the wrong file, which would make its
-    // absence from the player bundle meaningless rather than reassuring.
-    for (const source of covered) {
-      expect(EDITOR_ONLY_MODULES, `${source} is not an editor-only module`).toContain(source)
-    }
-    expect(EDITOR_ONLY_MODULES).toHaveLength(7)
-  })
-
   it('finds every needle in the editor bundle — the grep works', () => {
     for (const { needle, source } of EDITOR_NEEDLES) {
       expect(
@@ -2378,6 +2402,49 @@ describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () =>
     // ...and it is gone again, so the directory this suite asserts over is
     // exactly the one the build produced.
     expect(filesContaining(DIST_PLAYER, needle)).toEqual([])
+  })
+})
+
+/**
+ * Ungated sibling of the suite above, same name on purpose — the rationale is
+ * recorded once on the ungated `the built site` block and not restated here.
+ * This control is over literal inputs and reads no build output, so the gate it
+ * used to sit under was a condition it did not depend on.
+ */
+describe('the player ships no editor code', () => {
+  it('has enough needles to be worth asserting', () => {
+    // The vacuity floor. Every assertion in the gated block above is a `for`
+    // over this list, so an empty or accidentally-filtered list would pass all
+    // of them in silence. The floor is the real count, with no slack: a needle
+    // deleted because its message was reworded has to be replaced, not
+    // dropped. "Above" and not "below" since this control was un-gated — it is
+    // the half of the pair that still runs when there is no bundle to grep.
+    expect(EDITOR_NEEDLES.length).toBeGreaterThanOrEqual(8)
+    // Needles are distinct, which is what the source-uniqueness check used to
+    // stand in for. It is no longer the same statement: `controls.ts` now
+    // carries two, one for `presetNote` and one for `reduce`, because a
+    // needle covers the *function* holding it rather than the module.
+    expect(new Set(EDITOR_NEEDLES.map(n => n.needle)).size).toBe(EDITOR_NEEDLES.length)
+    // ...and the second claim, now said rather than approximated. It was
+    // `new Set(sources).size >= 7` with a comment reading "still a needle for
+    // every editor-only module", which that does not encode: three needles
+    // from one module plus six others satisfies the count with a module
+    // uncovered. Named per module, so the failure says which one lost its
+    // only needle.
+    const covered = new Set(EDITOR_NEEDLES.map(n => n.source))
+    for (const module of EDITOR_ONLY_MODULES) {
+      expect(
+        [...covered],
+        `${module} has no needle, so nothing proves the player left it out`,
+      ).toContain(module)
+    }
+    // And the other direction: a needle attributed to a module that is not
+    // editor-only is a claim about the wrong file, which would make its
+    // absence from the player bundle meaningless rather than reassuring.
+    for (const source of covered) {
+      expect(EDITOR_ONLY_MODULES, `${source} is not an editor-only module`).toContain(source)
+    }
+    expect(EDITOR_ONLY_MODULES).toHaveLength(7)
   })
 })
 
@@ -2428,8 +2495,14 @@ describe.skipIf(!fresh || !freshPlayer)('the player ships no editor code', () =>
  * would buy nothing and cost the one reading that matters: `describe.skipIf`
  * makes a stale tree report GREEN with the whole block absent, and a module
  * becoming editor-only on an unbuilt working tree is exactly when a developer
- * most needs to hear about it. The sibling block above is gated because it
+ * most needs to hear about it. The **needle** block above is gated because it
  * greps built directories; this one has nothing to be stale about.
+ *
+ * "The needle block" and no longer "the sibling block above": that block has
+ * since been split, and the half now sitting directly above this docblock is
+ * its *ungated* sibling, carrying the needle roster's own vacuity floor for
+ * exactly the reason stated in this paragraph. The pointer had become a
+ * sentence that said the opposite of the tree.
  */
 function isPageModule(repoRelative: string): boolean {
   // Prefix, not `site/*.ts`: a nested module or a `.svelte` component that
