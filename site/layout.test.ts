@@ -26,6 +26,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  CANVAS_PANEL,
   CENTRE_SLOT,
   DEFAULT_LAYOUT,
   REFUSED_PLACEMENTS,
@@ -34,6 +35,7 @@ import {
   SLOT_INFO,
   duplicatePanelIds,
   mountedPanels,
+  panelsAboveCanvas,
   panelsIn,
   refusedPlacement,
   slotInfo,
@@ -289,6 +291,119 @@ describe('the placements design §5.1 refused', () => {
 })
 
 /**
+ * ## Criterion 16 — the intra-slot half, and why it is a separate sensor
+ *
+ * `has no flow that puts a slot above the centre canvas`, above, is the
+ * **inter-slot** declaration: it reads `SlotFlow` and `SLOT_INFO`, so the
+ * hazard it can see is a *slot* placed before the canvas. Nothing it reads can
+ * see the hazard inside a single slot, because a slot's flow is one value for
+ * all the panels mounted in it, and §5.1 puts two of them in the centre.
+ *
+ * The centre's own mount order is therefore the second way to put something
+ * above the canvas in flow, and it is the cheaper one: `layout.ts:243`
+ * documents `slots` as "Which panels each slot mounts, **in mount order**", so
+ * swapping two array members is all it takes. Design §8.3 is what forbids it,
+ * and §8.3 does not ask for a measurement — it records one already taken
+ * ("13 device px to 445 at dpr 1.5") and says of it that "the sensitivity is to
+ * the exact sub-pixel and is not something to tune", from which it derives a
+ * *structural* rule: "Transport chrome goes below the canvas or is absolutely
+ * positioned out of flow." A structural rule is checkable as a plain value, and
+ * re-deriving it from pixels would be re-opening the one question §8.3 closed.
+ *
+ * ### The fixture is `DEFAULT_LAYOUT` because `SIMPLE_LAYOUT` cannot be wrong
+ *
+ * `SIMPLE_LAYOUT` mounts one panel in the centre. A one-element array has
+ * exactly one ordering, so every statement about its mount order is true and no
+ * assertion aimed at it can ever go red — which is why the order-sensitive
+ * `toEqual(['canvas'])` at the top of `a second LayoutConfig` is a *vocabulary*
+ * check and not an ordering one, whatever its shape suggests. `DEFAULT_LAYOUT`
+ * mounts two, so it has a wrong ordering available to it, and that is the whole
+ * requirement on a fixture here. The floor below asserts both halves of that on
+ * the run rather than trusting this paragraph.
+ */
+describe('the centre slot mounts nothing above the canvas', () => {
+  it('holds the canvas first in the only slot that mounts it', () => {
+    // The enforcement. Both floors are measured on this run from the registry
+    // itself: a layout whose centre lost the canvas, or whose centre collapsed
+    // to one panel, would satisfy "nothing precedes the canvas" by having
+    // nothing to say — the first because there is no canvas to precede, the
+    // second because a single panel is already first.
+    const centre = panelsIn(DEFAULT_LAYOUT, CENTRE_SLOT)
+    expect(
+      centre,
+      'the centre does not mount the canvas, so there is nothing here for a panel to precede',
+    ).toContain(CANVAS_PANEL)
+    expect(
+      centre.length,
+      'the centre mounts one panel, so it has only one possible order and this claim is '
+      + 'unfalsifiable — the defect SIMPLE_LAYOUT would reproduce',
+    ).toBeGreaterThan(1)
+    expect(
+      panelsAboveCanvas(DEFAULT_LAYOUT),
+      'a panel is mounted above the canvas in flow, which moves the canvas device-pixel '
+      + "origin (§8.3) and resamples the noise field the stereogram is encoded in",
+    ).toEqual([])
+  })
+
+  it('can see a panel ordered above the canvas — §6.5a, the reddened half', () => {
+    // The control. Without it the null above is satisfied by `return []`, and
+    // this is the project's own trap row: a real assertion pointed at a fixture
+    // that cannot disagree with it.
+    //
+    // The fixture is wrong **by construction** rather than by reversal, and
+    // that distinction was measured rather than reasoned: built as
+    // `[...centre].reverse()` this test also went red under the mutation the
+    // test above exists to catch, because reversing an already-reversed centre
+    // restores it. A control that inverts when the value it controls for is
+    // broken is a second alarm for one defect and no evidence the instrument
+    // still works. Putting the canvas **last** is wrong under every shipped
+    // order, so this stays green exactly when the guard is sound.
+    //
+    // The expectation is still derived: whatever the centre mounts besides the
+    // canvas is what precedes it. Nothing here is a hand-written list of the
+    // panels that may precede the canvas — the answer is `none`, for every
+    // panel, and a list of names would go stale in silence the day a third
+    // panel joins the centre.
+    const centre = panelsIn(DEFAULT_LAYOUT, CENTRE_SLOT)
+    const others = centre.filter(panel => panel !== CANVAS_PANEL)
+    expect(
+      others.length,
+      'the centre mounts nothing but the canvas, so this fixture has nothing to put above it',
+    ).toBeGreaterThan(0)
+    const canvasLast: LayoutConfig<DefaultPanelId> = {
+      ...DEFAULT_LAYOUT,
+      slots: { ...DEFAULT_LAYOUT.slots, centre: [...others, CANVAS_PANEL] },
+    }
+    expect(
+      panelsAboveCanvas(canvasLast),
+      'the canvas was mounted last in its slot and the guard still reports nothing above it',
+    ).toEqual(others)
+  })
+
+  it('reads the slot that mounts the canvas, not the slot named centre', () => {
+    // Why the reader is scoped to the canvas rather than to `CENTRE_SLOT`,
+    // which is what criterion 16's sentence names. A centre-scoped guard
+    // answers `[]` for a layout that moved the canvas elsewhere — the canvas
+    // would then be below a panel in flow and the guard would be green about a
+    // slot the canvas is no longer in. The constraint is a property of the
+    // canvas, so the reader finds the canvas.
+    const moved: LayoutConfig<DefaultPanelId> = {
+      ...DEFAULT_LAYOUT,
+      slots: { ...DEFAULT_LAYOUT.slots, centre: [], bottom: ['timeline', CANVAS_PANEL] },
+    }
+    expect(
+      panelsIn(moved, CENTRE_SLOT),
+      'the fixture still mounts something in the centre, so a centre-scoped guard could '
+      + 'have seen this and the test proves nothing',
+    ).toEqual([])
+    expect(
+      panelsAboveCanvas(moved),
+      'the canvas left the centre and the guard went blind with it',
+    ).toEqual(['timeline'])
+  })
+})
+
+/**
  * ## Criterion 3 — the registration test. Plan §7 P3.3 and design §11 row 1.
  *
  * Plan §7 P3.3: *"One registration test per registry — a dummy entry appears
@@ -409,6 +524,10 @@ describe('registering a dummy placement', () => {
     }
     rows.push(['layout.mounted', JSON.stringify([...mountedPanels(layout)])])
     rows.push(['layout.duplicates', JSON.stringify([...duplicatePanelIds(layout)])])
+    // `panelsAboveCanvas` is a layout-dependent reader, so leaving it out would
+    // make this function's "every question this module answers" false and would
+    // let a registration move it without the budget below noticing.
+    rows.push(['layout.aboveCanvas', JSON.stringify([...panelsAboveCanvas(layout)])])
     rows.push(['SLOTS', JSON.stringify([...SLOTS])])
     rows.push(['SLOT_FLOWS', JSON.stringify([...SLOT_FLOWS])])
     rows.push(['CENTRE_SLOT', CENTRE_SLOT])
