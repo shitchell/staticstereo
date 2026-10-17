@@ -29,11 +29,23 @@
  * below."*
  *
  * So the absence of a top slot is load-bearing, and an absence is the one
- * thing a registry cannot record by listing. Two mechanisms carry it instead:
+ * thing a registry cannot record by listing. Three mechanisms carry it instead:
  * {@link SlotFlow} has no member meaning *before the canvas*, so a slot that
- * precedes it cannot be described; and {@link REFUSED_PLACEMENTS} names the
+ * precedes it cannot be described; {@link REFUSED_PLACEMENTS} names the
  * placement that will be asked for, with the reason, so re-adding it means
- * deleting an argument rather than merely typing a word.
+ * deleting an argument rather than merely typing a word; and
+ * {@link panelsAboveCanvas} reads the mount order *inside* the slot the canvas
+ * sits in, which is the half neither of the other two can see.
+ *
+ * The third was added after the first two had been shipped a while, and the
+ * reason it was missing is worth keeping: a top *slot* is the expensive way to
+ * put chrome above the canvas, and both mechanisms above are aimed at it, so a
+ * reader of either concluded the constraint was covered. Reordering one array
+ * in {@link DEFAULT_LAYOUT} does the same damage for free, and that mutation
+ * was measured against the whole P3a suite and the typecheck without reddening
+ * anything. A count in this sentence is therefore load-bearing: if a fourth
+ * mechanism appears and this still says three, the list has gone stale in the
+ * way it went stale the first time.
  *
  * ## What is deliberately NOT in `LayoutConfig`
  *
@@ -103,6 +115,22 @@ type _NoSlotExtra = AssertNever<Exclude<typeof SLOTS[number], SlotId>>
 export const CENTRE_SLOT: SlotId = 'centre'
 
 /**
+ * The panel whose device-pixel origin design §8.3 is about.
+ *
+ * Named for {@link CENTRE_SLOT}'s reason — two things need a referent for it
+ * and neither should spell it — and the §8.3 constraint is stated in terms of
+ * *both* of them ("anything added above **it** in flow", where "it" is the
+ * canvas and the slot is where it sits). A constraint whose subject is spelled
+ * as a bare `'canvas'` at each use site is one typo from being about nothing,
+ * and the typo is green: a reader looking for a panel id no layout mounts finds
+ * nothing above it either.
+ *
+ * Typed `DefaultPanelId` rather than `string` so that renaming the panel is a
+ * compile error here rather than a guard that quietly stops matching.
+ */
+export const CANVAS_PANEL: DefaultPanelId = 'canvas'
+
+/**
  * Where a slot sits relative to the centre canvas in the document's flow.
  *
  * Two members, and the missing third is the point. There is no `'before'`,
@@ -115,6 +143,13 @@ export const CENTRE_SLOT: SlotId = 'centre'
  *
  * `'beside'` is a sibling in the same row — a sidebar does not displace the
  * canvas vertically, so the constraint has nothing to say about it.
+ *
+ * **This union carries the inter-slot half only, and cannot carry the other.**
+ * A flow is one value for a whole slot, while §5.1 mounts two panels in the
+ * centre, so no member of this union can distinguish a centre that puts the
+ * canvas first from one that puts the depth strip first. That half is
+ * {@link panelsAboveCanvas}'s. Said here because the natural reading of a
+ * closed union is that it has closed the question.
  */
 export type SlotFlow = 'beside' | 'after'
 
@@ -250,6 +285,47 @@ export interface LayoutConfig<P extends string = string> {
 }
 
 /**
+ * Field names {@link LayoutConfig} refuses, as runtime data.
+ *
+ * Plan §7's criterion 11, clause 5: *"**The visibility set is a third value**,
+ * not a field on `LayoutConfig` and never the specs argument of
+ * `unmountedControls`. `CONTROLS` stays complete and visibility sets select
+ * from it; a filtered registry would fail criterion 6, which is already met."*
+ *
+ * This file's header already argues that under "What is deliberately NOT in
+ * `LayoutConfig`", and §9's trap is that *"a recorded note is not a sensor"* —
+ * {@link REFUSED_PLACEMENTS} cites that line at itself for the top slot, and
+ * the visibility paragraph three headings above it had no equivalent. Measured
+ * before this pair existed: adding `readonly visible?: readonly P[]` to
+ * {@link LayoutConfig} above and populating it on {@link DEFAULT_LAYOUT} left
+ * all four site registries' tests passing and `npm run typecheck` at 0 errors.
+ *
+ * **Why the names rather than a closed field set.** `Exclude<keyof
+ * LayoutConfig, 'id' | 'label' | 'slots'>` would refuse every future field, and
+ * would therefore have to be edited by whoever adds a legitimate one — which
+ * makes it a chore rather than an argument, and chores get deleted. These are
+ * the *refused spellings*, the one place naming a string is the point, as
+ * `fit.ts` keys `REJECTED_FIT_MODES` by `'cover'` and `panels.test.ts` names
+ * `'slot'`. A field called something else is not caught; both sibling guards
+ * make the same trade, and what it buys is that the names a simple mode would
+ * actually reach for cannot be typed by accident.
+ *
+ * **A tuple and a type pair, for {@link SLOTS}' reason.** The `AssertNever`
+ * below is the half that reads the interface, and it is enforced by
+ * `npm run typecheck` alone — `layout.test.ts` records that nothing in
+ * `npm test` can read a type. The tuple is what lets a test witness the other
+ * half, the one that lives on a layout *value*. Neither half subsumes the
+ * other: a field added to the interface and left unpopulated is invisible to
+ * the test, and a layout built at run time from a stored preference is
+ * invisible to the compiler.
+ */
+export const REFUSED_LAYOUT_FIELDS = ['visible', 'hidden', 'modes', 'mode', 'filter'] as const
+
+type _NoRefusedLayoutField = AssertNever<
+  Extract<keyof LayoutConfig, typeof REFUSED_LAYOUT_FIELDS[number]>
+>
+
+/**
  * The editor's default arrangement — design §5.1's, exactly.
  *
  * `as const satisfies` rather than a plain annotation, following
@@ -338,6 +414,61 @@ export function duplicatePanelIds<P extends string>(layout: LayoutConfig<P>): re
     seen.add(panel)
   }
   return [...twice].sort()
+}
+
+/**
+ * The panels this layout mounts above the canvas in flow, within the canvas's
+ * own slot. Empty is the only lawful answer.
+ *
+ * ## Why this exists beside {@link SlotFlow}, which already records §8.3
+ *
+ * {@link SlotFlow} closes the *inter-slot* door: no member means "before the
+ * canvas", so a slot that precedes it cannot be described. That door says
+ * nothing about the inside of a slot, and it cannot — a slot has one flow for
+ * every panel mounted in it, while §5.1 puts two panels in the centre. So the
+ * same constraint has a second, cheaper violation available to it: `slots`
+ * is documented as mount order, and swapping two members of one array puts the
+ * depth strip above the canvas with no type, no union and no `SLOT_INFO` entry
+ * objecting. That mutation was measured against the whole P3a suite and the
+ * typecheck and reddened nothing, which is what makes it worth a reader.
+ *
+ * What it costs is from design §8.3, which is a *recorded* measurement and not
+ * a tunable: adding a control above the canvas "took edge-row disagreement from
+ * 13 device px to 445 at dpr 1.5", and "the sensitivity is to the exact
+ * sub-pixel and is not something to tune". §8.3's own conclusion is structural
+ * — "Transport chrome goes below the canvas or is absolutely positioned out of
+ * flow" — so this is checkable as a plain value, and re-deriving it from pixels
+ * would re-open the one question §8.3 closed.
+ *
+ * ## It finds the canvas rather than reading {@link CENTRE_SLOT}
+ *
+ * Criterion 16 words this as a property of the centre slot, and today the
+ * canvas is in the centre, so the two readings agree. They stop agreeing the
+ * moment a layout mounts the canvas elsewhere — a centre-scoped reader then
+ * answers "nothing above the canvas" about a slot the canvas has left, which is
+ * green by vacuity at exactly the moment the layout changed. The constraint is
+ * a property of the canvas, so the reader is too; scoping it to the centre
+ * would be the same one-level-too-narrow aim this module's tests keep finding.
+ *
+ * ## It returns the offenders, not a boolean
+ *
+ * {@link duplicatePanelIds}'s shape and for its reason: a failure that names
+ * the panel is a failure somebody can act on, and a boolean guard reads the
+ * same whether one panel slipped above the canvas or the slot was reversed.
+ * **Nothing here enumerates the panels that may precede the canvas** — the
+ * answer is none, for every panel, and a list of permitted names would go stale
+ * in silence the first time a third panel joined the centre.
+ *
+ * Every slot is swept rather than the first match returned, because a canvas
+ * mounted in two slots is already a defect {@link duplicatePanelIds} reports
+ * and this reader should not be the one that hides half of it.
+ */
+export function panelsAboveCanvas<P extends string>(layout: LayoutConfig<P>): readonly P[] {
+  return SLOTS.flatMap(slot => {
+    const panels = panelsIn(layout, slot)
+    const at = panels.findIndex(panel => panel === CANVAS_PANEL)
+    return at < 0 ? [] : panels.slice(0, at)
+  })
 }
 
 /**

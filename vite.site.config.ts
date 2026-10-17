@@ -1,5 +1,8 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import { externalizedImportGuard } from './site/buildguard.js'
 
 /**
  * The static-site build. **Separate from `npm run build`**, which is `tsc` and
@@ -62,5 +65,26 @@ export default defineConfig({
     // for no benefit to a visitor. `npm run build:site -- --sourcemap` when
     // actually debugging the deployed page.
     sourcemap: false,
+
+    /**
+     * **The only sensor that can see a static `import os from 'node:os'` in
+     * `site/`.** Such an import builds at exit 0 and leaves nothing behind —
+     * vite inlines an empty module, so there is no specifier and no stub chunk
+     * for `site/dist.test.ts` to read. `onwarn` catches it because it fires at
+     * *resolve* time, before the inlining erases the evidence.
+     *
+     * The handler forwards every non-matching warning to `defaultHandler`, and
+     * that is load-bearing rather than tidy: vite's own filtering and its
+     * `UNRESOLVED_IMPORT` → throw both live inside the handler it passes in, so
+     * a guard that swallows warnings closes this hole and silently opens a
+     * missing-dependency one. See `site/buildguard.ts`, which carries the
+     * measurements for that and for the two other hazards.
+     *
+     * **Introducing `rollupOptions` here does not change what is built.** There
+     * is still no `input`, so the entry remains vite's default `<root>/index.html`
+     * — checked by building with and without and comparing the emitted file set
+     * and content hashes, which were identical.
+     */
+    rollupOptions: { onwarn: externalizedImportGuard(dirname(fileURLToPath(import.meta.url))) },
   },
 })

@@ -1100,6 +1100,13 @@ running before P3. The module lands standalone; P4 consumes it.
     specs argument of `unmountedControls`. `CONTROLS` stays complete and visibility sets
     select from it; a filtered registry would fail criterion 6, which is already met.
 
+    **Clause 5's first half is MET — `site/layout.ts` + `site/layout.test.ts`, guarded in
+    both the value and the interface direction. Clause 5's second half is REFUSED WITH
+    PROOF and its residue is recorded in §7z entry Z7.
+    The ARTIFACT clause is §7z entry Z6.
+    The TOTALITY clause is §7z entry Z7 — vacuously satisfiable until a consumer takes a
+    visibility set. Both are NOT YET DUE on the composition root.**
+
 **`CONTROLS` is complete; visibility sets select from it.** A filtered registry would fail
 criterion 6.
 
@@ -1153,9 +1160,9 @@ defective and one criterion had vanished entirely.** See error 16 below the tabl
 |---|---|
 | **12** | `Scene`'s own-key guard. **MET and verified — `05aeb26`.** |
 | **13** | `KEYBINDINGS` exists as a registry **and carries its registration test** (§11 table row 5). Both clauses: R-ac rules criterion 3 is one registration test per registry *"plus `KEYBINDINGS` for criterion 13"*, so the test is part of 13 by explicit ruling — **drop it and C-16's `101c342` is unbudgeted by any criterion.** **MET — `5fc8fc8` + `101c342`.** |
-| **14** | `dist.test.ts`'s no-editor-code check **has teeth, shown with the measured paired control**. P3b's. Plan P2.10 flagged it as "a tautology until P3 exists… re-verified as a P3 criterion" and no criterion received it. **The criterion stands. Its cited live instance is withdrawn as measurably false — 2026-10-15, orchestrator error 21.** It claimed `toHaveLength(7)` was missing three modules (later relayed as eight) that nothing reddened. Measured: the hand list is **exactly correct today, 7 of 7**; the "eight" are P3a registry modules reachable from **neither** bundle, and planting them **reddens** the suite, because the *presence* half of the control catches a needle that is in no bundle. A survey then planted a real leak and the check **failed by name** — so it already has teeth, and part of this criterion is already discharged. What remains is real but different: **the list is hand-written and will rot** as the shell adds modules, so derive it or cross-check it against a derivation; and the needles must be **extended to the editor shell's own modules and the presence half re-run against the new bundle** once teardown lands. |
+| **14** | `dist.test.ts`'s no-editor-code check **has teeth, shown with the measured paired control**. P3b's. Plan P2.10 flagged it as "a tautology until P3 exists… re-verified as a P3 criterion" and no criterion received it. **The criterion stands. Its cited live instance is withdrawn as measurably false — 2026-10-15, orchestrator error 21.** It claimed `toHaveLength(7)` was missing three modules (later relayed as eight) that nothing reddened. Measured: the hand list is **exactly correct today, 7 of 7**; the "eight" are P3a registry modules reachable from **neither** bundle, and planting them **reddens** the suite, because the *presence* half of the control catches a needle that is in no bundle. A survey then planted a real leak and the check **failed by name** — so it already has teeth, and part of this criterion is already discharged. What remains is real but different: **the list is hand-written and will rot** as the shell adds modules, so derive it or cross-check it against a derivation; and the needles must be **extended to the editor shell's own modules and the presence half re-run against the new bundle** once teardown lands. **Clause (b) is PRE-REGISTERED as §7z entry Z2 (owner UNASSIGNED, trigger: teardown ships). Clause (a) is met; (b) is NOT YET DUE, which is not NOT MET.** |
 | **15** | **The hash projection coalesces on a microtask: N mutations in one tick ⇒ one write.** P3b's. |
-| **16** | The centre slot admits nothing above the canvas in flow (design §8.3's sub-pixel measurement). P3b's. |
+| **16** | The centre slot admits nothing above the canvas in flow ~~(design §8.3's sub-pixel measurement)~~. P3b's. **Parenthetical STRUCK 2026-10-17 as a text defect — struck rather than deleted so the record of what it said survives.** §8.3 does **not** ask for a sub-pixel measurement: it is headed *"One measurement to preserve"*, records one **already taken**, derives a **structural rule** from it, and forecloses re-measuring by quoting *"is not something to tune."* A worker reading the parenthetical literally builds a sub-pixel instrument, is structurally blind in headless, and demands a headful rig for a property nobody asked to be measured. **§5.1 generalises §8.3's "transport chrome" to "anything added above it in flow", which is why this one sentence has four mechanisms under it: 16.2 inter-slot (ARMED, and ruled NOT inside this criterion — a mechanism can guard a property without discharging the criterion that names it); 16.3 intra-slot, this criterion's literal text (was free and invisible; closed by T-2); 16.4 CSS reordering on the editor side (closed by T-5); 16.5 the fractional centring offset (ruled NOT a clause of this criterion — §7z entry Z8).** |
 | **17** | `ease`, `repeat`, `start` and `duration` are declared as parameter descriptors — **and `push`'s non-uniform `easeOut` is expressible.** The second clause is decisive: *a descriptor scheme that cannot express a per-verb default override has not met criterion 17.* Without it the criterion is satisfied by adding four descriptors and going green. **MET, both clauses — `a9cd1c1`.** |
 | **18** | `CONTROLS` is **derived** from the guarded rosters — never enumerated. **Do not conflate with the withdrawn criterion-3 wording.** **MET — `9bf104d`.** |
 | **19** | **R13 and R4 are recorded as *partially* closed by P3.** Status `ruled`, discharged by R-e. This is a **conflict** between plan §3 and design §13/§15, not a gap — **not store-side, not buildable, and not P3b's.** (Criterion **8** *is* the store-side one, and both mention R13 — **PM-SHELL-9's inference as to how the orchestrator confused them, labelled as its inference, not established.**) |
@@ -1296,11 +1303,11 @@ moved across the tick**, both arms tested.
 half.** *The editor's URL actually coalesces* is unwitnessed until the composition root
 exists, **and the choice of queue is cluster F/G's to get wrong** — today there is neither a
 criterion nor a sensor on that side, which the standing "a gap ships only with a sensor" rule
-forbids. F/G owns it.
+forbids. F/G owns it. **PRE-REGISTERED as §7z entry Z3, which is also now the live definition of the label "15b".**
 
 **Carried from A-2, for criterion 14's owner:** `hashprojection.ts` is in neither bundle
 today, so `EDITOR_ONLY_MODULES` correctly omits it — **and the day cluster G wires the
-browser adapter it becomes editor-only, and the list lives in three places, one unguarded.**
+browser adapter it becomes editor-only, and the list lives in three places, one unguarded.** **PRE-REGISTERED as §7z entry Z5 — a DIFFERENT trigger from Z2's, which is why it is a separate entry.**
 That is the second confirmed instance of the rot D-1 exists to fix; SPIKE-1 observed a third,
 where six modules became editor-only under a real consumer and `toHaveLength(7)` **stayed
 green and silent.**
@@ -1319,7 +1326,7 @@ in-the-final-gap are one `snapLoopTime` fold then `seek(…, 2.5)` must be frame
 > `{type:'frame'}` carry no `nowMs`, so **during playback** the playhead resumes advanced by
 > the elapsed interval and a drag compounds it. **Paused — the scrubber's real case — it is
 > exact, and asserted across five clocks.** The fix gives those arms a `nowMs`, which is a
-> `main.ts` edit and therefore **cluster F/G's.**
+> `main.ts` edit and therefore **cluster F/G's.** **PRE-REGISTERED as §7z entry Z4.**
 
 *(Added 2026-10-15. It was carried as a note and owned by no criterion, and a recorded note
 is not a sensor — §9's last row, applied to the phase that keeps citing it.)*
@@ -1341,6 +1348,31 @@ to work. That distinction is worth asking of every guard this phase ships.
 21-file closure — **but a novel clock spelling passes it**, and C-2 could not derive the list
 from anything. It is the hand-written-list shape §9 warns about, accepted because no
 derivation exists, and recorded so nobody reads the green as total.
+
+> **Corrected 2026-10-16 by R-1, from V-BC's measurement. The paragraph above names the
+> wrong mechanism and would have sent the next reader to the wrong cure.** The dominant
+> hole was **member-name suppression, not roster length**: `globalsIn` skipped any
+> identifier in the `name` position of a `PropertyAccessExpression` — the suppression that
+> stops `a.window` accusing `site/present.ts` — so `globalThis.Date.now()` planted in
+> `site/transport.ts` left `store.test.ts` at **24/24 green while `Date.now()` on the same
+> line went RED.** `Date` *was* on the roster. **Every listed name was evadable by
+> prefixing it**, and lengthening the roster could not have closed any of it.
+>
+> **Resolved rather than re-noted, since §9 forbids a note.** The suppression is narrowed
+> at its one `globalThis` receiver (property and index spellings, and exempt from the
+> declaration filter) rather than removed, because removing it reddens legitimate code.
+> Two further measurements came out of it: **`Promise.resolve().then(f)` was a genuine
+> roster gap** — an inconsistency inside the roster's own intent, since `queueMicrotask`
+> was listed — and adding `Promise` exposed a **latent false positive affecting every
+> entry**: the real closure holds nine `Promise` references and **all nine are type
+> annotations** on the image-decode path, so type position is now ignored for both
+> rosters. All three plants are sensored in `store.test.ts`'s own controls.
+>
+> **The residue is accepted and argued, not hidden:** a receiver laundered through a
+> variable (`const g = globalThis`), a computed member name, and a spelling nobody has
+> thought of are all out of reach of a parser that is not a type checker. The list is still
+> neither derived nor complete; what has changed is that the stated reason is now the true
+> one.
 
 ### Criterion 22 — the two rulings its adoption forced, 2026-10-16
 
@@ -1485,7 +1517,9 @@ theirs. **Nobody has audited whether either asserts across a line join.**
 
 **The pattern above any individual finding.** Four instruments this phase trusted for
 multiple shifts turned out blind: the skip glyph, `build` as evidence about `site/` types,
-`build:site` against three of four builtin spellings, and the `@ts-expect-error` wall over 44
+`build:site` against **four of four** builtin spellings — *restated 2026-10-17; this read
+"three of four", which was already superseded by the row measuring it at **zero caught**, and
+the population has since been enumerated at **eleven*** — and the `@ts-expect-error` wall over 44
 of 52 controls. **Each was caught only when someone planted a control against an instrument
 nobody had ever watched fire.**
 
@@ -1779,11 +1813,218 @@ start without reading it.** The authors' own reasoning for putting the constrain
 data is good and should survive the move — *"a constraint that lives in a widget is a
 constraint the second widget does not have"* (`shadings.test.ts:418-421`).
 
-**Entries are authored by the PM that measures them and signed off by tier 0.** P3b's
-three — criterion 14(b) (trigger: teardown ships), 15b and 23 (owner: cluster F/G, which
-**has no section in this plan** — three mentions, all inside P3b's own text) — are owed
-here and are **PM-SHELL-P3b-9's to write.** P5 criterion 6 at §7's P5 block is the
-existing model and the only one that was ever done properly.
+> **On numbering.** Rule 1 requires entries be numbered. The `auditShadings` entry above
+> predates the scheme and **is Z1**; its heading was left unedited rather than rewritten,
+> on this table's own *correct beside, never inside* rule for another tier's committed
+> text. Entries below are **Z2–Z8**, authored by PM-SHELL-P3b-9 and signed off 2026-10-17.
+
+### §7z entry Z2 — criterion 14, clause (b) · OWNER: **UNASSIGNED** · TRIGGER: **teardown ships**
+
+**VERBATIM**, the clause, from criterion 14's row in §7's criteria table. It is the second
+of that row's two "what remains" items:
+
+> "…and the needles must be **extended to the editor shell's own modules and the presence
+> half re-run against the new bundle** once teardown lands."
+
+**OWNER: genuinely unassigned, and that is the finding rather than an omission.**
+Teardown's own criterion — **P3 criterion 10 — is struck**, so no live criterion owns the
+teardown work and no phase section claims it. The strongest available pointer is §7's
+criterion-22 ruling 2, *"Sequence the actual removal after G-3 deletes `main.ts`"*, which
+places the deletion of `main.ts` in cluster F/G. **Identifying "teardown" with G-3 is
+PM-SHELL-P3b-9's inference, not a ruling**, and is labelled so nobody downstream reads it
+as settled.
+
+**TRIGGER: teardown ships** — the editor shell's own modules reach a bundle. **Measured
+NOT occurred** at `7412b0c`. Three facts re-measured directly: `site/index.html` present
+(control — a bogus `site/` path returns 0 through the same command); **zero deletions**
+under `site/` or `src/` across the branch, against a **scope-matched** control showing
+`8 A + 8 M` for the identical path filter in the same invocation; and `site/` has **grown**
+to 81 files, where teardown shrinks it. Two further facts are **relayed and unverified
+here**: that no per-file disposition table exists, and that P3a's deliberate tripwire is
+still green. **The tripwire is the strongest of the five** — P3a left `site/views.test.ts`
+depending on `site/index.html` so teardown would redden it *by design* — and **a
+designed-to-redden sensor staying green is positive evidence, not an absence of it.**
+
+**POINTER:** this entry ← cited from criterion 14's row. This entry → **no owning-phase
+section exists to cite back.** The pointer is one-ended and this sentence is the record of
+that, per rule 3.
+
+**WHY NOT-YET-DUE AND NOT NOT-MET.** Clause (a) is MET and verifier-evidenced (`b79122c`,
+derived from the import graph, verified by V-14). Clause (b) is gated on an event that has
+not happened. **The specific trap: criterion 10 IS struck**, and it is one short step from
+there to "so (b) is unachievable, strike it too". **A struck criterion means the CRITERION
+was removed, not that the WORK was cancelled.**
+
+**Recorded because the record is worth more than the tidiness:** PM-SHELL-P3b-8 found
+clause (b) *after* dispatching V-14 and did not brief it. **V-14 verified clause (a) only.**
+
+### §7z entry Z3 — criterion 15, second clause ("15b") · OWNER: **cluster F/G** · TRIGGER: **the composition root exists**
+
+**VERBATIM**, from §7's P3b shift-2 block:
+
+> "**And criterion 15 gains a second clause, because the module half is not the
+> user-visible half.** *The editor's URL actually coalesces* is unwitnessed until the
+> composition root exists, **and the choice of queue is cluster F/G's to get wrong** —
+> today there is neither a criterion nor a sensor on that side, which the standing "a gap
+> ships only with a sensor" rule forbids. F/G owns it."
+
+**OWNER: cluster F/G**, named by the text itself. **Cluster F/G has no section in this
+plan** — the string occurs three times and all three are inside P3b's own text.
+**TRIGGER: the composition root exists.** Owner and trigger are distinct: F/G discharges
+it; the composition root coming into existence is what makes it due.
+
+**POINTER:** this entry ← cited from the P3b shift-2 block. This entry → **no owning-phase
+section exists to cite back.**
+
+**THIS ENTRY IS NOW THE LIVE DEFINITION OF THE LABEL "15b", AND THAT IS ITS POINT.**
+Measured across all of `docs/`: five hits, of which **two are in
+`docs/plans/handover/P3B-LEDGER.md` — a FROZEN snapshot whose own README states it loses
+to any live document** — one a stale list, one a §9 row, one a handover status line. The
+*content* was authored live; **the label was defined only in a frozen file.** Anyone
+searching "15b" to learn what was owed landed there or found nothing.
+
+Criterion 15's module half is DONE. Only this clause is outstanding, and only because its
+trigger has not occurred.
+
+### §7z entry Z4 — criterion 23 · OWNER: **cluster F/G** · TRIGGER: **a `main.ts` edit**
+
+**VERBATIM**, from §7's P3b shift-2 block:
+
+> "**Criterion 23: the playhead does not drift when playback resumes.** `{type:'time'}`
+> and `{type:'frame'}` carry no `nowMs`, so **during playback** the playhead resumes
+> advanced by the elapsed interval and a drag compounds it. **Paused — the scrubber's real
+> case — it is exact, and asserted across five clocks.** The fix gives those arms a
+> `nowMs`, which is a `main.ts` edit and therefore **cluster F/G's.**"
+
+**OWNER: cluster F/G**, named by the criterion's own text. **No section exists.**
+**TRIGGER: a `main.ts` edit.** The distinction is not cosmetic — F/G *owns* it because F/G
+is the phase that edits `main.ts`; it becomes *due* when that edit happens.
+
+**POINTER:** this entry ← cited from the P3b shift-2 block. This entry → **no owning-phase
+section exists to cite back.**
+
+**ALREADY TRUE, MUST NOT BE REBUILT:** the **paused** case — the scrubber's real case —
+**is exact and is asserted across five clocks.** Only the during-playback arms drift.
+
+**WHY THIS WAS THE EASIEST OF THE THREE TO LOSE, and the lesson is general: criterion 23
+is already numbered, so it looked registered.** It is numbered inside **P3b's** section —
+the phase that does not own it and will never be measured on it. **Being numbered in the
+wrong place is what let it survive shift after shift while being owed to nobody.**
+
+### §7z entry Z5 — `EDITOR_ONLY_MODULES` and `hashprojection.ts` · OWNER: **cluster G** · TRIGGER: **cluster G wires the browser adapter**
+
+**VERBATIM**, from §7's P3b shift-2 block:
+
+> "**Carried from A-2, for criterion 14's owner:** `hashprojection.ts` is in neither bundle
+> today, so `EDITOR_ONLY_MODULES` correctly omits it — **and the day cluster G wires the
+> browser adapter it becomes editor-only, and the list lives in three places, one
+> unguarded.**"
+
+**Separate from Z2 under rule 2, and the separation is the whole reason it is here:** its
+trigger is *cluster G wires the browser adapter*, which is **not** *teardown ships*. Folded
+into Z2 it would have been discharged or deferred on the wrong event.
+
+**POINTER:** this entry ← cited from the P3b shift-2 block. This entry → **cluster G has
+no section in this plan.**
+
+### §7z entry Z6 — criterion 11, the artifact clause · OWNER: **the phase that builds the composition root** · TRIGGER: **an editor shell exists**
+
+**VERBATIM**, criterion 11 as originally written in §7's P3 list:
+
+> "**R2/R8 architecture test**: a second `LayoutConfig` plus a visibility set yields a
+> reduced editor with no second app and no code outside the layout module."
+
+**THE CLAUSE REGISTERED HERE IS "YIELDS A REDUCED EDITOR" — THE ARTIFACT.**
+
+**AND A NARROWING THAT NO DOCUMENT CAPTURED AS ONE, which is why it is flagged rather than
+merely recorded.** The 2026-10-15 restatement reads *"a reduced editor **is expressible
+as** a `LayoutConfig` plus a visibility set"*. **"Yields" is a claim about a running
+artifact; "is expressible as" is a claim about types.** The restatement stands for P3b
+— the artifact cannot exist without a shell — but the conversion was never recorded as a
+change in what is being claimed.
+
+**MEASURED, and it is why this is NOT YET DUE rather than unmet: `DEFAULT_LAYOUT` has ZERO
+non-test consumers.** Its only non-test references are its own declaration, its own type
+derivation, and three doc-comments; 53 references live in tests. The five `LayoutConfig`
+consumers — derived from call sites, not hand-written, with a control that fired — are
+five pure functions over plain values. Svelte 5 is installed, so P3.0 is done, but nothing
+is built on it. **There is no editor to reduce.**
+
+**POINTER:** this entry ← cited from criterion 11 in §7's P3 list. This entry → **no
+composition-root section exists to cite back.**
+
+### §7z entry Z7 — criterion 11, the totality clause · OWNER: **the phase that builds the composition root** · TRIGGER: **a consumer takes a visibility set**
+
+**VERBATIM**, from criterion 11's 2026-10-15 restatement:
+
+> "…and **every existing consumer is total over that pair**, asserted on a constructed
+> second instance."
+
+**Separate from Z6 under rule 2a**, which this pair is the second instance of: Z6 and Z7
+share an owner and a trigger-family, and **either could be discharged while the other
+could not.**
+
+**MEASURED: this clause is VACUOUSLY SATISFIABLE AS WRITTEN.** No consumer accepts a
+visibility set — there is no parameter for one — so "every existing consumer is total over
+that pair" can be discharged by calling all five with the reduced layout, **ignoring the
+second element entirely**, and asserting nothing throws. **Totality is a property that is
+easier to satisfy the more you ignore.**
+
+**The cure, from the survey that found it, recorded here so the next author does not
+re-derive it:** replace the predicate with a three-part conjunction — **totality**; a
+**load-bearingness floor** (at least one reader's answer must differ between `(L₂, V)` and
+`(L₂, V_all)`, which is the assertion that fails if the visibility set is a dead
+parameter); and **non-filtration** (`CONTROL_IDS.length` identical with and without `V`,
+which is what makes "selects from" mechanically distinguishable from "filters"). Note the
+only second instance ever paired with `unmountedControls` is `NO_INSPECTOR`, which strands
+**all** controls and whose own comment calls it a §6.5a negative control — **so the tree
+contains no example of a usable reduced layout.**
+
+**A CONSTRAINT ON WHOEVER BUILDS THE VISIBILITY SET, measured by T-1 and binding here.**
+Criterion 11's clause 5 also says the visibility set is *"never the specs argument of
+`unmountedControls`"*. T-1 refused to guard that half **with proof**: the forbidden
+argument and the sanctioned one are **the same type and the same call shape**. But an
+**id-valued** visibility set is *already a compile error today with no guard written*.
+**So clause 5's second half is free if the visibility set is declared over control IDs,
+and permanently unenforceable if it is declared over `ControlInfo`.** That is a design
+constraint, not a test anyone can write now.
+
+**POINTER:** this entry ← cited from criterion 11 in §7's P3 list. This entry → **no
+composition-root section exists to cite back.**
+
+### §7z entry Z8 — the fractional centring offset · OWNER: **the phase that builds the composition root** · TRIGGER: **the shell replaces `site/main.ts`'s centring**
+
+**Ruled 2026-10-17: NOT a clause of criterion 16.** §8.3's displacement rule and
+`margin: auto`'s fractional remainder are **two different mechanisms sharing one
+sensitivity**, and criterion 16's sentence covers the first and not the second. The survey
+finding that decided it: folding them *"makes criterion 16 answerable by preserving a
+centring line while clause 16.3 — the one its sentence actually names — stays free."*
+
+**THE PROPERTY:** the centring offset is computed and written explicitly, never delegated
+to `margin: auto`.
+
+**THE MEASUREMENT, VERBATIM from `site/markup.test.ts`'s own comment, because that number
+is the only reason anyone will believe this matters:**
+
+> "`margin: auto` lands the plate on half the remainder, which is a FRACTIONAL device
+> origin for half of all viewport widths — measured at a 3825x2160 viewport, dpr 1.5, as
+> 109910 of 6300000 device pixels wrong, in 74 columns spaced 2 x scale apart. That is the
+> unequal-run defect, not an edge artifact. **Deleting either of these two lines restores
+> it and leaves every other test in the repo green.**"
+
+**WHY IT IS OWED RATHER THAN BUILT.** The behaviour exists only in `site/main.ts`, which
+writes `canvasWrap.style.marginLeft/marginTop` from `fit.offsetX/Y`. Its only sensor is
+`site/markup.test.ts:408-418`, **a source grep** — four regexes over `readFileSync`, which
+matches text in a file and not behaviour. **Both `main.ts` and `markup.test.ts` are on
+criterion 10's teardown disposition list**, so the property's only witness is scheduled for
+deletion, and the frozen survey's own words are *"the editor's successor has none."*
+
+**POINTER:** this entry ← cited from criterion 16's row. This entry → **no
+composition-root section exists to cite back.**
+
+**Entries are authored by the PM that measures them and signed off by tier 0.** P5
+criterion 6 at §7's P5 block is the existing model and the only one that was ever done
+properly before this section existed.
 
 ---
 
@@ -1877,7 +2118,9 @@ do these commits touch", the two-dot form is never the answer.
 >
 > **Every instrument this project trusted and then actually measured turned out blind.**
 > Not most — every one that was put to a control. The skip glyph. **Both** builds over
-> `site/` types. `build:site` over three of four builtin spellings. The `@ts-expect-error`
+> `site/` types. `build:site` over **four of four** builtin spellings, and over all **eleven**
+> now enumerated *(restated 2026-10-17; this read "three of four" while the row below already
+> measured it at zero caught)*. The `@ts-expect-error`
 > wall over 45 of 52 controls. `conditional` under a write hoisted one level. `isGlobalRoot`
 > under a pair of parentheses. A baseline that cannot see what predates it. A `vitest list`
 > census that omits skips and cannot tell a retitle from a delete. A roster ratchet blind in
@@ -2115,6 +2358,8 @@ Each already cost a correction. Hand this table to every worker.
 | one sensitivity, so one criterion | **Two different mechanisms can share one sensitivity, and folding them makes the criterion answerable by the cheaper half.** Design §8.3's displacement rule and `margin: auto`'s fractional remainder both end in a fractional device-pixel origin — but a survey refused the frozen framing that the second is *"criterion 16's real content"*, with the decisive warning: **it "makes criterion 16 answerable by preserving a centring line while the clause its sentence actually names stays free."** Decompose by **mechanism**, not by symptom. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
+| **the row above, now that its site half has been measured** | **CORRECTED BESIDE IT 2026-10-16 by W-MX, P3b. `build:site` catches ZERO of four, not one of four — and the catching instrument was never `build:site`.** All four spellings build **exit 0** under the shipped config; there is no configuration in the repo today under which `build:site` reddens for any of them. What catches anything is **`site/dist.test.ts`**, a different instrument in a different CI step: **one** of four on `main` (`require`), **two** of four on `feat/p3b-store` (`require`, plus `await import` via `166b6da`'s `__vite-browser-external` stub-chunk detector). **Both static forms — `import 'node:fs'` and `import * as fs from 'node:fs'` — are missed by every instrument in the repo at both commits.** The mechanism is the **opposite** of the one recorded above and that is the durable part: the dynamic form hides *behind a rewrite*, so grepping the stub cures it; the static forms hide by **leaving no artifact at all** — vite inlines `export default {}` and rollup drops the bare import, so **a text grep and an AST specifier reader are blind in exactly the same place, because there is no specifier left to read.** They look independent and are not. **And it does not throw**: the code receives an empty object and proceeds silently, so "ships green" understates it — there is no stack and nothing to notice. **`build.rollupOptions.onwarn` is a genuine complement** — it catches the three resolved forms and is **structurally incapable** of seeing `require`, because the warning fires only when vite's resolver resolves the specifier and the commonjs plugin is scoped to `node_modules`. **onwarn + `dist.test.ts` together cover all four; neither alone covers more than three.** Full measurement, costs, and the latent `node_modules` false-positive surface: `git show be122ac`. |
+| **the two rows above, and the coverage total they compute** | **A coverage total here is never a total. State it as *of the forms enumerated, named below*, and carry the SEQUENCE, which is better evidence than any number.** The builtin-spelling population on this phase has gone **FOUR → FIVE → NINE → ELEVEN, across four enumerations, each made by someone who believed theirs complete.** **Restated 2026-10-17** after round 2 measured the two forms the findings document had named as owed before any total was published: `export * from 'node:fs'` → **build exit 1**, caught by `onwarn` with its own message naming importer and specifier; `import zzfs = require('node:fs')` → **build exit 0, NOT caught by `onwarn`** — and for that one **the union was measured rather than assumed**, the artifact carrying `node:fs` 1 / `require` 1 / `__vite-browser-external` 0, with `site/dist.test.ts` over it returning **rc 1, 3 failed | 27 passed | 17 skipped (47)**, the load-bearing failure being *"imports no node: builtin and no @napi-rs, by specifier and not by mention"*. **So: `onwarn` 10 of 11; `dist.test.ts` carries the `require` family alone, now TWO members; union 11 of 11; neither alone above 10.** The rows above keep their own figures deliberately — **four, five, nine and eleven are each a true measurement of a population someone had just finished enumerating, and overwriting them would delete the only thing that predicts the next one.** **The durable part is not the number. It is that every total here has been provisional, so eleven is too.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
 | a standing ruling in the handover was ruled | Not necessarily. "`seek` clamps to the last frame" sat in §4 under *do not re-litigate* for a week. It entered in the handover's **own birth commit**, and the P2 record it purported to settle says the opposite — *"Nothing pins `seek`… P3 must decide"*. It was the orchestrator's inference, formatted as an inheritance, and a PM correctly refused to build on it. **A ruling's authority is the measurement or the decision behind it.** *(Corrected 2026-10-16: this row used to prescribe `git log -S` to find it "in one command". **That is the fail-open direction** — `-S` is a count-change search, so a zero result means *unproven*, not *never ruled*, and a real ruling would be discarded as a proposal. Use `-G` or `log --follow -p`, and see this table's `git log -S'X'` row.)* Where a §4 entry cannot be traced to a measurement or a decision, it is a proposal. |
 | the suite measures the code | It measures the code **in the environment you ran it in**, and every tier of this system runs inside the same agent harness. `svelte-check` 4.7.6 picks its output format in `getOutputFormat()`: an explicit `--output` wins, **otherwise it returns `machine` if `process.env.CLAUDECODE === '1'` and `human-verbose` if not.** Two gate harnesses spawned it with `{...process.env}` and parsed for a `COMPLETED` line that only machine format emits. So the suite was green for **every agent that ever ran it** and red on the only machine that ships — `main` was broken for nine hours and eight commits, and no tier could have seen it, because the blindness was in the thing all of them shared. **When a test spawns a child, strip the harness's variables and pin every format the child would otherwise decide by sniffing its environment.** |

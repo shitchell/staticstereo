@@ -214,7 +214,48 @@ export function pause(state: TransportState, nowMs: number, scene: Scene): Trans
  * re-anchoring at `nowMs` is what makes it one: `timeAt` at that same `nowMs`
  * returns the sought time, with no elapsed interval to account for.
  *
- * ## P3 MUST DECIDE: a seek into the final inter-frame gap. Unpinned either way.
+ * ## P3 decided: `seek` snaps along the **line**, exactly as {@link snapTime} does.
+ *
+ * The second of the two shapes the note below lays out. The ruling, from the
+ * handover's standing rulings and quoted rather than paraphrased because what
+ * binds here is the decision and not a restatement of it:
+ *
+ * > Two functions that both answer "which frame is at time *t*" must not
+ * > disagree for any *t* — that, not the endpoint convention, is the invariant
+ * > worth pinning, and it is assert-on-structure rather than a value pin:
+ * > **∀t, `seek` and `snapTime` select the same frame.** Both clamp, because an
+ * > editor scrubber dragged past the end parks at the end; a playhead that
+ * > teleports to zero is a bug in every timeline tool anyone has used.
+ * > **Playback wrap remains a separate operation** — looping is `repeat`, which
+ * > acts on advance, not on frame selection.
+ *
+ * Two consequences the note below does not draw, because they only became
+ * visible once the invariant was stated as ∀t rather than as a gap convention:
+ *
+ *  - **An out-of-range seek now clamps too, and that is not a separate choice.**
+ *    `snapLoopTime` reached the gap and the out-of-range case through the same
+ *    fold, so there is no way to agree with {@link snapTime} inside the gap and
+ *    keep wrapping outside it — `seek(…, 2.5)` on a 2 s scene would have to be
+ *    frame 6 and the last frame at once. Agreement for *every* t picks one, and
+ *    the one it picks is the clamp.
+ *  - **A non-finite seek stays on frame 0** and is not treated as past the end.
+ *    That is {@link frameIndexAt}'s older rule for a value that arrived from a
+ *    slider or a URL; it keeps the two functions agreeing, which is the
+ *    invariant that was decided, and a scrubber cannot produce one.
+ *
+ * Playback is untouched: {@link timeAt} still advances through
+ * {@link snapLoopTime} while playing, so the loop still closes on the circle.
+ * The clamp is about which frame a *time* names; the wrap is about what comes
+ * *next*. A seek that parks on the last frame wraps on the following tick.
+ *
+ * ## P2's record of the open question, kept as written
+ *
+ * Retained verbatim below rather than rewritten. The decision above is the
+ * thing that changed; this is the record of what was and was not pinned when it
+ * was taken, and editing it would falsify that rather than correct it. Read
+ * every "nothing pins this" in it as of P2 and not of today.
+ *
+ * ### P3 MUST DECIDE: a seek into the final inter-frame gap. Unpinned either way.
  *
  * Recorded here rather than in a separate note because P3 lifts this module
  * into the editor store, so this is the file that phase opens.
@@ -261,9 +302,12 @@ export function seek(
 ): TransportState {
   return {
     playing: state.playing,
-    // The same circular snap playback uses, so a seek and a tick that land on
-    // the same time cannot disagree about which frame that is.
-    anchorTime: snapLoopTime(scene, seconds),
+    // The linear snap, so `seek` and `snapTime` cannot disagree about which
+    // frame is at a time — the invariant ruled above, and the reason this is a
+    // call rather than a second copy of the arithmetic. Playback keeps the
+    // circular snap in `timeAt`, where it belongs: that one is about advancing
+    // past the end, not about naming the frame at a time.
+    anchorTime: snapTime(scene, seconds),
     anchorMs: nowMs,
   }
 }
