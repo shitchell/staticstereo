@@ -1,7 +1,7 @@
 ---
 title: P3b review findings — six, transcribed before they evaporated
 description: The P3b phase reviewer's findings 1-6 with their controls and dispositions, written down because the enumeration reached no tier and existed only in one agent's context
-status: open; finding 2's NEW/BLOCKING ruling is WITHDRAWN (orchestrator error 45) — it is largely a REDISCOVERY, and is blocked on one measurement: does `onwarn` fire for the default-import spelling. Findings 4, 5, 6 travel as separate recorded deviations
+status: finding 2's NEW/BLOCKING ruling is WITHDRAWN (orchestrator error 45) and its classification is now MOOT — the ordered measurement came back YES (`onwarn` fires for the default-import spelling, PM-measured at `35fe08c`), so ONE cure closes findings 2 and 5 and the player-bundle item. The cure is approved and is NOT a one-liner. Findings 4, 6 travel as separate recorded deviations
 date: 2026-10-16
 tags: [review, findings, staticstereo, p3b]
 ---
@@ -101,6 +101,53 @@ more than three.**
 **ORDERED BEFORE ANY ACTION ON FINDING 2 OR FINDING 5: wire `onwarn` and measure whether it
 fires for the default-import spelling.** If it does, **one task closes finding 2, finding 5
 and the player item.** Do not build a second mechanism before that measurement exists.
+
+### THE ORDERED MEASUREMENT CAME BACK: **YES.** Classification moot, one cure, approved
+
+**Measured by PM-SHELL-P3b-7, recorded at `35fe08c`, tree restored byte-equivalent** (both
+vite configs blob-identical, `build:site` re-emitting the clean baseline hash — *equivalent*,
+not merely *green*).
+
+`import zz1 from 'node:os'` → **1 warning**, `PLUGIN_WARNING` / `vite:resolve`; throwing →
+**exit 1, emits nothing**, on **both** entries. **The player behaves identically to the site
+on all nine measured routes** — separate plants, separate builds; *mostly* is now *exactly*.
+
+**The mechanism, which is the first general statement this project has about *why* an
+instrument sees what others cannot:** **it fires at *resolve* time, strictly before the
+inlining that erases the evidence. The hole and the cure sit on opposite sides of the same
+step.**
+
+**Coverage: 8 of the 9 routes enumerated so far**, missing only `require` structurally;
+**`onwarn` ∪ `dist.test.ts` = 9 of 9**, neither alone above 8. **Stated as *of the forms
+enumerated*, deliberately** — the population has gone **four → five → nine across three
+enumerations, each made by someone who believed theirs complete.** Two forms are still
+unmeasured and must be before any total is written down: `export * from 'node:fs'` and
+`import fs = require('node:fs')`, the second being the one that lands on `require`.
+
+**THE CURE IS NOT A ONE-LINER, AND THE OBVIOUS IMPLEMENTATION IS A NET REGRESSION.**
+vite's `UNRESOLVED_IMPORT → throw` lives inside `defaultHandler`, so the handler anyone
+writes first — `if (matches) throw; return` — **never calls it and deletes that existing
+build failure.** Measured: swallowing **shipped a nonexistent package as a bare external
+import at exit 0.** This is §6.5a with a new twist worth generalising — **the cheapest
+wrong action is not deleting the guard, it is writing the guard.**
+
+Two further preconditions, both measured rather than feared: the `node_modules`
+false-positive surface is **constructed, not latent** (`@napi-rs/canvas`, already a direct
+dependency, emits an identically-shaped warning with **bare** specifiers — `os`, `util`,
+`fs` — so *"scope it to `node:`"* writes the wrong matcher); and **attribution exists only
+as prose** — `id`, `ids`, `importer`, `loc`, `frame` are all `undefined`, leaving an
+absolute path inside an English sentence.
+
+**Approved as four clauses plus four tier-0 conditions:** (a) scope by the importer,
+restricted to `site/`+`src/`; (b) forward to `defaultHandler` on **every** non-matching
+path; (c) match **bare** specifiers as well as `node:`-prefixed; (d) keep `dist.test.ts`,
+the only thing that sees `require`. **Conditions:** **fail *closed* on an unattributable
+warning** — a matcher that silently stops matching is indistinguishable from a clean build,
+which is the defining failure of every blind instrument found here; **pin vite exactly, not
+with a caret**, since the cure's contract is a dependency's prose; **a rot canary that runs
+a real build**, never a hand-written warning fixture (that is finding 4's defect — two hand
+lists agreeing with each other); and **measure the two outstanding forms before publishing
+any coverage total.**
 
 ### Superseded ruling, kept because the error is instructive
 
