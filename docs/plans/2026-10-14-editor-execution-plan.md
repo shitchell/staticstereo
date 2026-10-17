@@ -706,8 +706,16 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    wrongly, so the message has to make the correct route the path of least resistance —
    not merely mention it.
 6. Deviations either reverted or recorded in the design document.
+7. **Every obligation pre-registered against this phase in §7z is discharged, or
+   explicitly re-deferred with a reason and a new owner.** *(Added 2026-10-17.)*
+   **This clause is the whole point of §7z.** A registry of inherited obligations is just
+   a tidier note unless something **fails** when an entry is dropped — §9's rule is that
+   *a phase cannot be trusted to steward an obligation it will never be measured on*, and
+   a central list is measured by nobody for exactly the same reason. **This clause is what
+   makes a dropped entry somebody's red.** Re-deferring is permitted and is not a failure;
+   **silently not mentioning it is.**
 
-The orchestrator reads the report of 1–6 and merges. It does not re-verify.
+The orchestrator reads the report of 1–7 and merges. It does not re-verify.
 
 ---
 
@@ -1414,7 +1422,11 @@ real blind spot.** Both halves named, as the rule requires.
 
 **Landed:** `24392c3` the write path (adopted with RED attributed per claim) · `f8d931b` its
 clause-2 sensor · `5f11f93` six blind sensors closed. **Criteria 8, 9, 15 and 22 done.**
-Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23.
+~~Outstanding: 7, 10, 11, 14, 15b, 16, 21, 23.~~ **SUPERSEDED 2026-10-17 — and this is the
+list a worker grepping "Outstanding" hits first, which is why it is corrected here and not
+only downstream.** Current: **GENUINELY OPEN — 7, 11, 16, 21, 25.** **10 struck · 14(a) met
+and verifier-evidenced, 14(b) NOT YET DUE (teardown has not shipped) · 15b and 23 NOT YET
+DUE (cluster F/G's).** See §7z for the three not-yet-due obligations and their owners.
 
 **The "94s CI budget" was one sample of a varying quantity and every brief on this phase
 cited it, the orchestrator's included.** Measured instead of quoted: a 93s job of which
@@ -1641,6 +1653,44 @@ this phase made it cheaper to break, since `site/legibility.ts` is now a bare `e
 
 Eyedropper, motion paths, onion skin, `U` key, Option-drag timing scale. **Closes no
 requirement.** Cut without ceremony.
+
+---
+
+## 7z. Obligations pre-registered against phases that have not started
+
+*(Created 2026-10-17, after **PM-SHELL-P3b-9 measured that the three "pre-registered"
+not-yet-due criteria were not pre-registered at all.** `PRE-REGISTERED` occurred **exactly
+once in the whole `docs/` tree** — P5 criterion 6 — and the other three survived only as
+prose inside a withdrawal bullet, a frozen ledger snapshot, and a criterion pointing at a
+cluster section **that does not exist**. Tier 0 had asserted in a brief that all three were
+safely registered. That assertion was **orchestrator error 51**, and it is the precise
+failure §9 names: a confident sentence about our own records is the thing nobody
+re-measures, because the reason to check is the sentence saying you needn't.)*
+
+**What this section is for.** A criterion whose **trigger has not occurred** is **NOT YET
+DUE**, which is a different state from NOT MET — see §9. It must not sit in the finding
+phase, which has no gate that fails when it is dropped, and it must not be struck, because
+"gated on something that did not happen" reads as "unachievable" to the next reader.
+
+**Rules.**
+1. **Each entry is NUMBERED and carries its text VERBATIM**, not a summary. Nine criteria
+   once rebuilt from memory came back with five rows wrong and one deleted.
+2. **Each entry names its OWNING PHASE and its TRIGGERING EVENT**, separately — the owner
+   is who discharges it, the trigger is what makes it due.
+3. **The pointer is TWO-WAY.** The owning phase's section cites the entry; the entry cites
+   the section. **If the owning phase has no section yet, say so in the entry** rather
+   than omitting the pointer — a one-ended pointer is a dropped obligation with a tidy
+   appearance.
+4. **§6 clause 7 is what enforces this.** Without it this section is a note, and §9 is
+   explicit that a recorded note is not a sensor.
+5. **Re-deferring is allowed; silence is not.** An entry may move to another phase with a
+   reason recorded. It may not quietly fail to come up.
+
+**Entries are authored by the PM that measures them and signed off by tier 0.** P3b's
+three — criterion 14(b) (trigger: teardown ships), 15b and 23 (owner: cluster F/G, which
+**has no section in this plan** — three mentions, all inside P3b's own text) — are owed
+here and are **PM-SHELL-P3b-9's to write.** P5 criterion 6 at §7's P5 block is the
+existing model and the only one that was ever done properly.
 
 ---
 

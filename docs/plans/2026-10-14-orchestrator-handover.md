@@ -719,8 +719,17 @@ reachable `site/*.ts` path and **(b)** `src/shared/*.ts`, build **with and witho
   and two agents planting in one directory is exactly how a plant survived a crash into a
   tree that looked finished.
 
-**Until both halves land, treat the "one spelling of four" row as unverified** and do not
-build a task on it — which is the trap the row itself now warns about.
+~~**Until both halves land, treat the "one spelling of four" row as unverified** and do not
+build a task on it~~ — **DISCHARGED 2026-10-17. Both halves landed.** The site half was
+measured in P3b's round 2 (finding B) and the population was restated: **not four spellings
+and not nine — ELEVEN**, with `onwarn` covering 10 of 11 and `onwarn ∪ dist.test.ts`
+covering 11 of 11. §9 was amended the same day to say so.
+
+**This line was a LIVE INSTRUCTION that outlived its condition**, and the two documents
+disagreed for a day — §9's own duplicate-correction hazard, realised in the handover rather
+than in a trap table. **Found by PM-SHELL-P3b-9 measuring rather than reading.** Keep the
+strikethrough: a deleted instruction leaves no trace that someone was once told the
+opposite.
 
 ## 5a. Live handoffs to unstarted phases
 
