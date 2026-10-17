@@ -715,7 +715,25 @@ npm test           > /tmp/t.log  2>&1; echo "test=$?"; tail -5 /tmp/t.log
    makes a dropped entry somebody's red.** Re-deferring is permitted and is not a failure;
    **silently not mentioning it is.**
 
-The orchestrator reads the report of 1–7 and merges. It does not re-verify.
+8. **EVALUATED FIRST, BEFORE ANY VERIFIER IS DISPATCHED: each of the phase's named
+   deliverables has a mechanism, pointed at BY `file:line` by a worker that read the
+   tree — or is reported ABSENT.** *(Added 2026-10-17, proposed by PM-SHELL-P3b-9, which
+   declined to write into §6 unasked. Numbered 8 to avoid renumbering live references;
+   **it is evaluated first.**)*
+
+   **This exists because of orchestrator error 52, and the PM's diagnosis of the gap is
+   exact:** *"Clause 1 is 'every exit criterion met, evidenced by verifiers who
+   implemented none of it' — that is a statement about EVIDENCE QUALITY, and a criterion
+   with no mechanism produces no evidence to be of poor quality. **AN EMPTY PHASE PASSES
+   CLAUSE 1 BY HAVING NOTHING TO FAIL IT.**"* Clauses 2–5 are exit codes, counts,
+   removals and review; 5a is control discipline; 6 is deviations; 7 is §7z. **A phase
+   can satisfy all seven while being empty, which is what nine shifts demonstrated** on a
+   phase named for a feature that was never built.
+
+   **No new instrument is needed** — this is exactly what the three P3b surveys did, and
+   it is what found the hole.
+
+The orchestrator reads the report of 1–8 and merges. It does not re-verify.
 
 ---
 
@@ -1717,6 +1735,15 @@ phase, which has no gate that fails when it is dropped, and it must not be struc
    once rebuilt from memory came back with five rows wrong and one deleted.
 2. **Each entry names its OWNING PHASE and its TRIGGERING EVENT**, separately — the owner
    is who discharges it, the trigger is what makes it due.
+   **2a. One entry per INDEPENDENTLY-DISCHARGEABLE obligation, even when two share an
+   owner and a trigger.** *(Added 2026-10-17, resolving a conflict PM-SHELL-P3b-9 found
+   between rules 1 and 2: rule 2 keys on owner+trigger and argues for merging; rule 1
+   keys on verbatim text and argues for splitting.)* **Rule 1 wins, and criterion 14 is
+   the precedent that decides it** — one criterion with two clauses in different states
+   (14(a) met and verifier-evidenced, 14(b) not yet due) cost this project a full round
+   of confusion, a verifier dispatched against the wrong half, and a near-strike of the
+   half nobody had read. **If half of an entry can be discharged while the other half
+   cannot, a single entry has no way to say which half is done.**
 3. **The pointer is TWO-WAY.** The owning phase's section cites the entry; the entry cites
    the section. **If the owning phase has no section yet, say so in the entry** rather
    than omitting the pointer — a one-ended pointer is a dropped obligation with a tidy
@@ -2083,6 +2110,9 @@ Each already cost a correction. Hand this table to every worker.
 | the sweep found it, so the sweep would find the next one | **A SWEEP'S EXCLUSION RULE CAN EXCLUDE EXACTLY THE CASE THAT MATTERS, and the worker who built it said so against its own result.** Its 106-comparison sweep flagged `altitudeDeg <= 90` and `azimuthDeg < 360` but **NOT `altitudeDeg > 0`** — the literal `0` was excluded as structural, **and `0` is precisely the perceptual half** (the horizon, below which the surface inverts). It found that candidate by a **different net entirely** — a prose grep for "perceptual" followed by a design cross-reference. Its own words: *"a reader trusting the sweep alone would have missed the one comparison that matters."* **State a sweep's exclusion rule beside its result, and run a second net of a different kind before believing a null.** |
 | the number was wrong, so correct the number | **Correct the number AND RECORD ITS SCOPE, or it drifts the same way.** Three citation counts in the plan read 9 / 1 / 3; re-measured they are 14 / 3 / 12 — **and the originals were probably not wrong so much as differently scoped and unlabelled**, since an unscoped grep also matches `docs/`. The worker's framing: *"a bare 14 will drift exactly the same way."* **An unlabelled count is a measurement with its method deleted**, which is why the same figure can be re-derived wrongly by someone who is also being careful. |
 | a worker's self-correction is a small thing | **It is the load-bearing one, and this project has seen it three times in a day.** A survey that had spent a section of its previous report correcting someone else's stale count **opened its next report by correcting its own**: *"I reported 24 such unions; the true count is 32. My round-1 sweep under-counted."* Unprompted, before anything else, in the same breath as flagging why it mattered. **The reports worth trusting are the ones that attack their own prior numbers first** — and every blind instrument found here was found by someone doing exactly that. |
+| "my report text is the channel of record" | **That is itself a CLAIM ABOUT AN INSTRUMENT, and nobody had put it to a control until it failed twice.** A PM's report carried seven owed items **in full, twice**, and tier 0 received neither copy — *"two sends, two non-arrivals, same payload"* — while the short exchanges in between arrived every time. **The failure is correlated with payload size, which is exactly the regime the rule was never tested in.** The PM's response is the project's own rule applied to its own comms: **go to a second instrument of a different kind.** It put all seven in an **empty commit's message body** — the one artifact here that has never been lost, checkable by sha in one command, with a single-line findability index because wrapped text defeats grep. **Large payloads travel as commits, not as messages.** |
+| a sensor the authors built for your criterion is your criterion met | **Check whether the authors said so — here they said the OPPOSITE, in the tree.** `site/layout.test.ts:274`: *"That becomes criterion 16 in P3b; **this is not the enforcement of it, it is the declaration it will be enforced against**."* Counting it as the criterion would make part of a criterion **met by code written before the criterion existed** — the "a conclusion propagates, the thing that spent it does not" shape. **Ruling it out cost nothing**, because the property is armed and sensored either way; ruling it in would have bought a false *met*. **A mechanism can guard a property without discharging the criterion that names it.** |
+| one sensitivity, so one criterion | **Two different mechanisms can share one sensitivity, and folding them makes the criterion answerable by the cheaper half.** Design §8.3's displacement rule and `margin: auto`'s fractional remainder both end in a fractional device-pixel origin — but a survey refused the frozen framing that the second is *"criterion 16's real content"*, with the decisive warning: **it "makes criterion 16 answerable by preserving a centring line while the clause its sentence actually names stays free."** Decompose by **mechanism**, not by symptom. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
