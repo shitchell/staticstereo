@@ -470,8 +470,13 @@ describe('writeStst', () => {
    * ## The size relation — DELETED 2026-10-17, and what replaced it
    *
    * **The deleted text, kept because the relation was true and is now false,
-   * not because it was wrong:**
+   * not because it was wrong.** Restored to literally verbatim on 2026-10-17:
+   * the first version of this preservation dropped the section heading and
+   * elided a parenthetical with a `…`, and a preservation that elides is a
+   * preservation a reader cannot check against the source.
    *
+   * > ## The size relation, which does not read the method field at all
+   * >
    * > Reading method fields and asserting they are 0 has a cheapest-wrong
    * > satisfying action (plan §6.5a): write 0 into the header while deflating
    * > the payload, and every assertion above still passes. The archive
@@ -481,8 +486,74 @@ describe('writeStst', () => {
    * > matrix — whatever the payload is. Deflate anything, by any rule, and
    * > that number moves: measured under the planted `> 100_000` rule, by
    * > **523,763** on the repeated 512 KiB member and by **512,239** on the
-   * > `notAPng` one. … It is a single number, derived from no literal of the
-   * > module's, and it is checked for every arm.
+   * > `notAPng` one. (This said "a few bytes on the incompressible ones",
+   * > which was the same mistake as above: the 512 KiB `notAPng` member is
+   * > not incompressible and moves by half a megabyte. The members that
+   * > genuinely move by a few bytes are the sub-100 KiB ones, and under
+   * > *this* rule they do not move at all, because it does not deflate them.)
+   * > It is a single number, derived from no literal of the module's, and it
+   * > is checked for every arm.
+   *
+   * ### The control that went with it, and its derivation — RESTORED 2026-10-17
+   *
+   * **`a40902d` deleted a second thing and recorded only the first.** Along
+   * with the relation it removed the relation's control —
+   * `expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)`
+   * — and the measurement block that derived its floor, with no record
+   * anywhere and no mention in the commit message. At that commit `400_000`,
+   * `4.2:1`, `1000:1` and `124 KB` were each **0 hits** across the file.
+   *
+   * **Why that mattered more than the relation did.** The derivation was the
+   * discharge of a review finding: the floor had been reported as a magic
+   * number, someone measured the real spread and wrote the derivation down,
+   * and the writing-down is what closed the finding. Deleting it silently
+   * reopens a closed finding without reopening it — the next reader meets a
+   * floor with no recorded reason and files the same finding again.
+   *
+   * Verbatim, as it stood at `2c192e8`:
+   *
+   * > Half two: the size relation moves, and it moves on the *values*, not on
+   * > a pass/fail. Under the forbidden rule the excess-over-payload figure
+   * > spans a range of hundreds of kilobytes instead of being one number.
+   * >
+   * > **Where 400_000 comes from**, measured over this exact payload list and
+   * > this exact rule rather than chosen to clear today's number. The six
+   * > members at or below 100,000 bytes are untouched by the rule and sit at
+   * > a constant excess of **+230**; the two 512 KiB members are deflated,
+   * > to **-512,009** (`notAPng`) and **-523,533** (the repeated byte). So
+   * > `max - min` is **523,763**, and the floor has ~124 KB of headroom.
+   * >
+   * > The headroom is the part that needed a reason, because the floor is
+   * > *not* independent of zlib: clearing 400,000 requires the repeated 512
+   * > KiB member to deflate to under ~124 KB, i.e. better than **4.2:1** on a
+   * > run of 524,288 identical bytes. Measured, zlib gets 525 bytes — about
+   * > 1000:1 — so the margin is three orders of magnitude, and no deflate
+   * > implementation that emits a compressed block at all comes near 4.2:1 on
+   * > a constant run. A floor nearer 523,000 would instead redden on an
+   * > engine or level change, which is §9's "a numeric floor chosen from
+   * > today's count is a check". The floor's job is to exclude 0 — the spread
+   * > `flat` asserts on the next line — not to pin a ratio.
+   *
+   * **Corrected beside the quote, never inside it** (§9: editing a preserved
+   * block falsifies the record of what it said): the closing reference to
+   * *"the spread `flat` asserts on the next line"* no longer resolves. `flat`
+   * was the production-side relation and it is correctly gone. Everything
+   * else in the block still does resolve.
+   *
+   * **The assertion survives deflate, and that is a measurement rather than a
+   * preference.** `lengths` is not read off the writer's archives — it is read
+   * off the **control's own** `writeZip` call under the forbidden `> 100_000`
+   * rule, and that call is unchanged, so the figures are unchanged. Re-run
+   * 2026-10-17 against this file as it now stands: `[230, 230, 230, 230, 230,
+   * 230, -512009, -523533]`, `max - min` **523,763** — the derivation's
+   * numbers exactly. So the assertion is restored as live code rather than as
+   * prose, which is also what §9 asks for ("convert the note into a test").
+   *
+   * What it witnesses now is narrower than what it witnessed then, and is
+   * stated rather than left to read as unchanged: it is no longer half of the
+   * production-side relation's control, because that relation is gone. It is
+   * the **control arm's own** byte-level witness — proof that the forbidden
+   * rule really deflated, rather than that a header said so.
    *
    * It is the writer that now deflates, so the constant is gone. Measured over
    * this exact matrix under the role-keyed rule, `archive.length -
@@ -601,8 +672,23 @@ describe('writeStst', () => {
     // always deflates**, which is the same mutation read from the other side:
     // under `> 100_000` the six small payloads are stored and the two 512 KiB
     // ones are deflated, against the writer's constant 8 for every member.
+    //
+    // **Superseded text, kept beside rather than replaced in place** — the
+    // standing convention here, and `a40902d` overwrote this one. Until
+    // 2026-10-17 the paragraph above read:
+    //
+    // > Half one: the method-field reader moves. 0,0,0,0,0,0,8,8 against the
+    // > all-zero vector the writer produces — so the zeros above are a reading
+    // > and not a constant.
+    //
+    // It is the same control with both vectors inverted by the deflate
+    // ruling, which is why replacing it was defensible and keeping it is
+    // cheaper: a reader meeting `toHaveLength(6)` can see that the 6 used to
+    // be a 2 and why, without a `git log -S` that would not find it anyway
+    // (the pickaxe is blind to an edit that preserves the occurrence count).
     const asWritten: number[] = []
     const asChosen: number[] = []
+    const lengths: number[] = []
     for (const [, data] of payloads) {
       const chosen = await writeZip([
         { name: 'mimetype', data: te.encode(STST_MIMETYPE), method: 'store' },
@@ -613,9 +699,40 @@ describe('writeStst', () => {
       ])
       asChosen.push(methodsOf(chosen).local[1] as number)
       asWritten.push(METHOD_DEFLATE)
+      lengths.push(chosen.length - data.length)
     }
     expect(asChosen).not.toEqual(asWritten)
     expect(asChosen.filter(m => m === METHOD_STORE)).toHaveLength(6)
+
+    // **The control's own control, restored 2026-10-17.** Everything above
+    // this line is a *header* reading, and a `writeZip` that wrote 8 into the
+    // header without ever calling the deflater would satisfy all of it — the
+    // same cheapest-wrong action the deleted size relation existed to rule
+    // out, now aimed one layer down at the control arm instead of at the
+    // writer. Archive length is immune to it.
+    //
+    // This assertion and its derivation were deleted together with the
+    // production-side size relation in `a40902d`. The relation was correctly
+    // deleted — the writer deflates, so `archive.length - payload.length` is
+    // no longer one constant — but **these archives are not the writer's.**
+    // They are built by the control's own `writeZip` call under the forbidden
+    // `> 100_000` rule, which is unchanged, so the figures are unchanged:
+    // measured again on 2026-10-17, `[230, 230, 230, 230, 230, 230, -512009,
+    // -523533]`, `max - min` **523,763** — byte-for-byte the numbers the
+    // derivation below records. The derivation is quoted verbatim in the
+    // docblock under "## The size relation — DELETED"; the one sentence in it
+    // that no longer resolves is noted there rather than edited inside it.
+    //
+    // **Its control (§6.5a), measured both ways.** With `writeZip`'s deflate
+    // branch planted to return `entry.data` — the header still says 8, the
+    // bytes are stored, which is precisely the cheapest-wrong writer — this
+    // vector collapses to `[230 × 8]` and `max - min` is **0**, so the
+    // assertion fails. Clean tree, same probe, **523,763**. *Inside this test
+    // it is shadowed*: the same plant reddens the `unzip -p` sweep two blocks
+    // up first, so the control was taken standalone against `writeZip`
+    // directly. Recorded because "the suite went red" would not have shown
+    // that this assertion can move.
+    expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)
 
     // Half two, replacing the deleted size relation's control. The extraction
     // sweep above is a positive assertion rather than a null, but §6.5a's
