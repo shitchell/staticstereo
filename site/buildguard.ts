@@ -96,6 +96,15 @@ import type { LoggingFunction, RollupLog } from 'rollup'
  * point — see its docblock for why the undecided case cannot be folded into
  * either neighbour.
  *
+ * **That repair then left the same error one branch over, and the second pass
+ * is the one worth reading.** Naming the undecided case is not enough if a
+ * branch can still *reach* `theirs` without evidence: `/@fs/…` — vite's own
+ * spelling for a real file — is absolute, fails containment, and was forwarded
+ * silently, which is a first-party source file going quiet through the branch
+ * that had just been declared safe. The durable rule came out of fixing it and
+ * is stated at {@link Attribution}: **`theirs` is the only answer that
+ * forwards, so it is the only one that needs positive evidence.**
+ *
  * Two further things stand behind that, because fail-closed only helps if the
  * phrase still matches at all:
  *
@@ -170,24 +179,53 @@ export type Attribution = 'ours' | 'theirs' | 'unplaceable'
  * absolute paths.** `startsWith(join(root, dir) + sep)` asks *"does this path
  * begin at this directory"*, which is answerable for an absolute path and
  * meaningless for a relative one — a relative path's base is not in the
- * string. For an absolute path the answer is total and the negative is a real
- * deduction: first-party is *defined* as living under `root/site` or
- * `root/src`, so an absolute path that does not is provably not one of those
- * files, and forwarding it is correct rather than a guess. For a relative path
- * there is no deduction in either direction, and **the two mistakes are not
- * symmetric** — guessing `ours` costs a false build failure that someone sees
- * and fixes within the minute, and guessing `theirs` costs silence, which is
- * the failure this project keeps finding years-equivalent later. So the
- * undecided case is named, not folded into the cheaper-looking neighbour.
+ * string. For a relative path there is no deduction in either direction, and
+ * **the two mistakes are not symmetric** — guessing `ours` costs a false build
+ * failure that someone sees and fixes within the minute, and guessing `theirs`
+ * costs silence, which is the failure this project keeps finding a phase
+ * later. So the undecided case is named, not folded into the cheaper-looking
+ * neighbour.
  *
  * Containment rather than a substring test throughout, so that a dependency
  * with a `src/` directory of its own — most of them have one — cannot be read
  * as first-party.
+ *
+ * **And then the filesystem, because `theirs` is the only answer that forwards
+ * and is therefore the only one that needs evidence.** That is the rule the
+ * whole function is arranged around, and it is worth more than any individual
+ * test here: **`ours` and `unplaceable` both throw, so being wrong about
+ * either is loud and gets fixed the same afternoon. `theirs` goes quiet. A
+ * branch that goes quiet must carry positive evidence for doing so, and the
+ * other two need none.**
+ *
+ * The first version of this function did not, and the gap it left is the
+ * *identical* reasoning error it was written to remove, one branch over:
+ * `isAbsolute('/@fs/home/me/proj/site/main.ts')` is **true**, containment is
+ * **false**, and it concluded `theirs` — **with no evidence that it was
+ * theirs.** `/@fs/` + an absolute path is vite's own spelling for a real file,
+ * so that was a first-party source file, spelled by vite, forwarded silently.
+ * `/virtual:…` and any id a future vite invents read the same way.
+ *
+ * **The cure is not a list of virtual-id prefixes.** Enumerating `/@fs/`,
+ * `/virtual:` and `\0` is the enumeration-complete repair this project has
+ * recorded three times, each one defeated by one more form someone had not
+ * thought of. The real question is *"is this string a file I can find"*, and
+ * the filesystem answers it without an enumeration: **a genuine importer is a
+ * file vite has just resolved and read, and no virtual id of any convention
+ * exists on disk.** So the existence check is derived from the thing itself
+ * rather than from anybody's list, and a vite that invents a new id syntax
+ * tomorrow fails closed for free.
+ *
+ * It is asked **last**, and only on the branch that would forward, which keeps
+ * it off the two paths where it would cost a wrong answer: a first-party file
+ * carrying one of vite's query suffixes (`…/site/a.ts?worker`) is placed by
+ * containment before anyone asks the disk whether that exact string exists.
  */
 function attribute(root: string, importer: string): Attribution {
   if (importer.split(sep).includes('node_modules')) return 'theirs'
   if (!isAbsolute(importer)) return 'unplaceable'
-  return GUARDED_DIRS.some(dir => importer.startsWith(join(root, dir) + sep)) ? 'ours' : 'theirs'
+  if (GUARDED_DIRS.some(dir => importer.startsWith(join(root, dir) + sep))) return 'ours'
+  return existsSync(importer) ? 'theirs' : 'unplaceable'
 }
 
 /**
@@ -253,13 +291,15 @@ export function externalizedImportGuard(
       throw new Error(
         `externalizedImportGuard: vite says "${specifier}" was externalized for browser ` +
         `compatibility, imported by ${importer} — but that importer could not be placed inside ` +
-        `or outside this project, because it is not an absolute path and a relative path carries ` +
-        `no base to resolve it against. The guard cannot tell our source from a dependency here, ` +
+        `or outside this project. It is either not an absolute path, in which case it carries no ` +
+        `base to resolve it against, or it is absolute and names nothing on disk, which is what a ` +
+        `virtual module id looks like. The guard cannot tell our source from a dependency here, ` +
         `and it refuses to guess: guessing "dependency" is silence, which is how every blind ` +
-        `instrument on this project read. Vite has probably changed how it spells the importer; ` +
-        `resolve the new spelling against the project root in attribute() in site/buildguard.ts — ` +
-        `do NOT widen the forwarding branch to cover it. See the exact vite pin in package.json. ` +
-        `The message was:\n${message}`,
+        `instrument on this project read. Vite has probably changed how it spells the importer. ` +
+        `The fix is to make attribute() in site/buildguard.ts RESOLVE the new spelling to a real ` +
+        `path — do NOT add the prefix to the forwarding branch and do NOT special-case it: a ` +
+        `carve-out here is the exact defect this function was rewritten to remove. See the exact ` +
+        `vite pin in package.json. The message was:\n${message}`,
       )
     }
 

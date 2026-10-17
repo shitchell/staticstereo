@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 import { spawnSync } from 'node:child_process'
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -352,6 +353,39 @@ describe('what the guard does when it can no longer read vite', () => {
     }
   }, 60_000)
 
+  /**
+   * Shared by the three attribution rows, so every arm in every one of them is
+   * the **same real sentence** with **one clause** varied. A per-test helper
+   * would let one row's substitution rot while the others kept passing.
+   */
+  const withImporter = (path: string): string => {
+    const swapped = real.replace(/imported by "[^"]+"/, `imported by "${path}"`)
+    expect(swapped, `the importer clause was not substituted for ${path}, so this arm is vacuous`)
+      .not.toBe(real)
+    return swapped
+  }
+
+  /**
+   * Call the handler and record what it did. Note what is NOT here: the
+   * message is built by the caller, outside the `try`, so a failing
+   * non-vacuity assertion escapes as a test failure instead of being caught
+   * and read as the throw the arm was testing for.
+   */
+  const run = (message: string): { threw: boolean; forwarded: boolean; why: string } => {
+    let forwarded = false
+    let error: unknown
+    try {
+      externalizedImportGuard(ROOT)({ message }, () => { forwarded = true })
+    } catch (e) {
+      error = e
+    }
+    return { threw: error !== undefined, forwarded, why: error instanceof Error ? error.message : '' }
+  }
+
+  const outcome = ({ threw, forwarded }: { threw: boolean; forwarded: boolean }) => ({ threw, forwarded })
+  const THREW = { threw: true, forwarded: false }
+  const FORWARDED = { threw: false, forwarded: true }
+
   it('captured a real externalized-module message, so the two rows below are not fiction', () => {
     expect(real, 'no externalized-module warning was captured from a real build').not.toBe('')
     expect(real).toContain(EXTERNALIZED_PHRASE)
@@ -400,41 +434,22 @@ describe('what the guard does when it can no longer read vite', () => {
      */
     expect(real, 'the captured dependency warning names no node_modules path, so the two dependency arms below prove nothing')
       .toContain(`${sep}node_modules${sep}`)
-    const withImporter = (path: string): string => {
-      const swapped = real.replace(/imported by "[^"]+"/, `imported by "${path}"`)
-      expect(swapped, `the importer clause was not substituted for ${path}, so this arm is vacuous`)
-        .not.toBe(real)
-      return swapped
-    }
-    // Built outside the try, so a failing non-vacuity assertion escapes as a
-    // failure rather than being read as the throw the arm is testing for.
-    const run = (message: string): { threw: boolean; forwarded: boolean; why: string } => {
-      let forwarded = false
-      let error: unknown
-      try {
-        externalizedImportGuard(ROOT)({ message }, () => { forwarded = true })
-      } catch (e) {
-        error = e
-      }
-      return { threw: error !== undefined, forwarded, why: error instanceof Error ? error.message : '' }
-    }
     const arms = {
       absolute: run(withImporter(join(ROOT, 'site', 'main.ts'))),
       relative: run(withImporter(join('site', 'main.ts'))),
       relativeDependency: run(withImporter(join('node_modules', '@napi-rs', 'canvas', 'geometry.js'))),
       absoluteDependency: run(real),
     }
-    const outcome = ({ threw, forwarded }: { threw: boolean; forwarded: boolean }) => ({ threw, forwarded })
     expect({
       absolute: outcome(arms.absolute),
       relative: outcome(arms.relative),
       relativeDependency: outcome(arms.relativeDependency),
       absoluteDependency: outcome(arms.absoluteDependency),
     }).toEqual({
-      absolute: { threw: true, forwarded: false },
-      relative: { threw: true, forwarded: false },
-      relativeDependency: { threw: false, forwarded: true },
-      absoluteDependency: { threw: false, forwarded: true },
+      absolute: THREW,
+      relative: THREW,
+      relativeDependency: FORWARDED,
+      absoluteDependency: FORWARDED,
     })
     // Named, not merely non-zero: the two throwing arms must throw for
     // *different* reasons, or the relative arm could be passing because the
@@ -443,6 +458,114 @@ describe('what the guard does when it can no longer read vite', () => {
       .toMatch(/could not be placed/)
     expect(arms.absolute.why, 'the absolute first-party arm stopped naming the offending import')
       .toMatch(/which vite externalized/)
+  })
+
+  it('forwards a real path from outside the project, and fails closed on one that only LOOKS like a path', () => {
+    /**
+     * The sibling defect, found by a PM reading the first repair's own residue
+     * statement back at it — and it is the identical reasoning error one branch
+     * over, which is §9's *"each miss was inside the commit written to remove
+     * the previous one"* arriving exactly on schedule.
+     *
+     * The first repair said: a relative importer cannot be placed, so it is
+     * UNDECIDABLE rather than THEIRS. It then left this: `isAbsolute()` says
+     * true for `/@fs/…` and `/virtual:…`, containment says false, and the code
+     * concluded **THEIRS with no evidence that it is theirs.** Same error, same
+     * direction, same silence.
+     *
+     * `fsUrl` is the one that makes it concrete rather than theoretical, and it
+     * is **worse than the bug already fixed**: `/@fs/` + an absolute path is
+     * vite's own spelling for a real file, so that arm is **a first-party
+     * source file, spelled by vite, forwarded silently.** Not a hypothetical
+     * convention somebody might invent.
+     *
+     * **The fix is not a prefix list.** Enumerating `/@fs/`, `/virtual:`, `\0`
+     * is precisely the enumeration-complete repair §9 records three times on
+     * this phase, each defeated by one more form. The question is *"is this
+     * string a file I can find"*, and the filesystem answers it for free: a
+     * real importer is a real file vite has just read, and no virtual id of any
+     * convention — invented today or in a future vite — exists on disk.
+     *
+     * `outsideReal` is the discriminating control and it is the whole reason
+     * this is not a blanket throw: a genuine module outside the project and
+     * outside `node_modules` (a linked package, a monorepo sibling) is a real
+     * file, is provably not under `site/` or `src/`, and **must still forward.**
+     */
+    const outside = mkdtempSync(join(tmpdir(), 'stst-outside-'))
+    try {
+      const realFileOutside = join(outside, `${MARKER}.js`)
+      writeFileSync(realFileOutside, `export const ${MARKER} = 1\n`)
+      // Non-vacuity, both directions: the control arm proves nothing unless the
+      // file is really there, and the two subject arms prove nothing unless
+      // their ids are really absent.
+      expect(existsSync(realFileOutside), 'the control file was not created, so the forwarding arm is vacuous').toBe(true)
+      expect(outside.split(sep), 'the scratch dir sits under a node_modules, so the control forwards for the wrong reason')
+        .not.toContain('node_modules')
+      const fsUrl = `/@fs${join(ROOT, 'site', 'main.ts')}`
+      const virtualId = `/virtual:${MARKER}`
+      for (const id of [fsUrl, virtualId]) {
+        expect(existsSync(id), `${id} exists on disk, so it is not the absolute-looking non-path this arm needs`).toBe(false)
+      }
+      const arms = {
+        outsideReal: run(withImporter(realFileOutside)),
+        fsUrl: run(withImporter(fsUrl)),
+        virtualId: run(withImporter(virtualId)),
+      }
+      expect({
+        outsideReal: outcome(arms.outsideReal),
+        fsUrl: outcome(arms.fsUrl),
+        virtualId: outcome(arms.virtualId),
+      }).toEqual({
+        outsideReal: FORWARDED,
+        fsUrl: THREW,
+        virtualId: THREW,
+      })
+      // Named, not merely non-zero: both subject arms must throw as
+      // *unplaceable*, not as a first-party offender the guard thinks it placed.
+      for (const arm of [arms.fsUrl, arms.virtualId]) {
+        expect(arm.why, 'it threw, but not as an importer the guard could not place').toMatch(/could not be placed/)
+      }
+    } finally {
+      rmSync(outside, { recursive: true, force: true })
+    }
+  })
+
+  it('fails closed on a rollup virtual id, and that is CHOSEN rather than tolerated', () => {
+    /**
+     * Pinned because it is a decision, not an accident, and a decision with no
+     * test is one refactor from being reverted by somebody who reads it as a
+     * bug. **Do not "fix" this to forward.**
+     *
+     * A `\0`-prefixed id is rollup's convention for a module that exists only
+     * inside a plugin. It is genuinely unattributable — there is no file and so
+     * no answer to *"is this ours"* — so failing closed on it **is** tier 0's
+     * condition being applied, not a new surface bolted beside it. Carving it
+     * out would re-create the defect this whole file was sent to remove: a
+     * predicate narrower than the condition, with the carve-out justified by
+     * somebody judging the case harmless.
+     *
+     * The cost if it ever fires is a loud build failure naming the id, which is
+     * the direction this project has ruled for every time: a wrong `throw` is
+     * fixed the same afternoon, a wrong forward is found a phase later.
+     *
+     * `dependency` is the control in the same invocation — if this row ever
+     * passes because *everything* throws, that arm says so.
+     */
+    const virtualModule = `\0rollup-virtual:${MARKER}`
+    expect(virtualModule.startsWith('\0'), 'the NUL prefix is gone, so this is not a rollup virtual id').toBe(true)
+    const arms = {
+      virtualModule: run(withImporter(virtualModule)),
+      dependency: run(real),
+    }
+    expect({
+      virtualModule: outcome(arms.virtualModule),
+      dependency: outcome(arms.dependency),
+    }).toEqual({
+      virtualModule: THREW,
+      dependency: FORWARDED,
+    })
+    expect(arms.virtualModule.why, 'the virtual id threw for some other reason than being unplaceable')
+      .toMatch(/could not be placed/)
   })
 
   it('errors when its root does not hold site/ and src/, instead of passing everything through', () => {
