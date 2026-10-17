@@ -33,13 +33,14 @@
     "omggif": "^1",
     "yaml": "^2.9.1"
   },
+  "//vite": "vite is pinned EXACTLY, not with a caret, and that is load-bearing. site/buildguard.ts installs a build.rollupOptions.onwarn that recognises vite's 'has been externalized for browser compatibility' warning and regexes the importer out of the English sentence — vite carries it in no structured field. So this project's build gate is a contract with the PROSE of this exact vite version. A caret range lets that prose change on an unrelated install, and the symptom is the guard going quiet, not anything going red. site/buildguard.test.ts asserts this pin and this note; do not widen the range or delete this line.",
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
     "@types/node": "^22",
     "svelte": "^5.57.2",
     "svelte-check": "^4.7.6",
     "typescript": "^5",
-    "vite": "^5.4.21",
+    "vite": "5.4.21",
     "vitest": "^2"
   }
 }

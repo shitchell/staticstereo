@@ -1,4 +1,7 @@
+import { dirname } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
+import { externalizedImportGuard } from './site/buildguard.js'
 
 /**
  * The **player** build: `site/player.html` → `dist-player/index.html`.
@@ -145,7 +148,23 @@ export default defineConfig({
   build: {
     outDir: '../dist-player',
     emptyOutDir: true,
-    rollupOptions: { input: 'site/player.html' },
+    /**
+     * `onwarn` is the same guard `vite.site.config.ts` installs, and it is here
+     * for a measured reason rather than for symmetry: **the player behaves
+     * identically to the site on every import form tested** — separate plants,
+     * separate builds. A static node import in `site/player.ts` builds to exit
+     * 0 and leaves no trace in `dist-player/` exactly as it does for the editor,
+     * so the entry that is embedded in other people's pages (R14) would be the
+     * one shipping an empty object if only the site config were guarded.
+     *
+     * See `site/buildguard.ts`. In particular the handler must forward to
+     * `defaultHandler` on every non-matching path, or this config quietly loses
+     * the missing-dependency failure it has today.
+     */
+    rollupOptions: {
+      input: 'site/player.html',
+      onwarn: externalizedImportGuard(dirname(fileURLToPath(import.meta.url))),
+    },
     // Matches `vite.site.config.ts` and tsconfig: the renderer needs
     // OffscreenCanvas, which postdates anything that would want ES5.
     target: 'es2022',

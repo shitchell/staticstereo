@@ -1324,6 +1324,31 @@ to work. That distinction is worth asking of every guard this phase ships.
 from anything. It is the hand-written-list shape §9 warns about, accepted because no
 derivation exists, and recorded so nobody reads the green as total.
 
+> **Corrected 2026-10-16 by R-1, from V-BC's measurement. The paragraph above names the
+> wrong mechanism and would have sent the next reader to the wrong cure.** The dominant
+> hole was **member-name suppression, not roster length**: `globalsIn` skipped any
+> identifier in the `name` position of a `PropertyAccessExpression` — the suppression that
+> stops `a.window` accusing `site/present.ts` — so `globalThis.Date.now()` planted in
+> `site/transport.ts` left `store.test.ts` at **24/24 green while `Date.now()` on the same
+> line went RED.** `Date` *was* on the roster. **Every listed name was evadable by
+> prefixing it**, and lengthening the roster could not have closed any of it.
+>
+> **Resolved rather than re-noted, since §9 forbids a note.** The suppression is narrowed
+> at its one `globalThis` receiver (property and index spellings, and exempt from the
+> declaration filter) rather than removed, because removing it reddens legitimate code.
+> Two further measurements came out of it: **`Promise.resolve().then(f)` was a genuine
+> roster gap** — an inconsistency inside the roster's own intent, since `queueMicrotask`
+> was listed — and adding `Promise` exposed a **latent false positive affecting every
+> entry**: the real closure holds nine `Promise` references and **all nine are type
+> annotations** on the image-decode path, so type position is now ignored for both
+> rosters. All three plants are sensored in `store.test.ts`'s own controls.
+>
+> **The residue is accepted and argued, not hidden:** a receiver laundered through a
+> variable (`const g = globalThis`), a computed member name, and a spelling nobody has
+> thought of are all out of reach of a parser that is not a type checker. The list is still
+> neither derived nor complete; what has changed is that the stated reason is now the true
+> one.
+
 ### Criterion 22 — the two rulings its adoption forced, 2026-10-16
 
 The salvaged H-1 work was adopted at `24392c3` with **fourteen claims, each with a named
@@ -1467,7 +1492,9 @@ theirs. **Nobody has audited whether either asserts across a line join.**
 
 **The pattern above any individual finding.** Four instruments this phase trusted for
 multiple shifts turned out blind: the skip glyph, `build` as evidence about `site/` types,
-`build:site` against three of four builtin spellings, and the `@ts-expect-error` wall over 44
+`build:site` against **four of four** builtin spellings — *restated 2026-10-17; this read
+"three of four", which was already superseded by the row measuring it at **zero caught**, and
+the population has since been enumerated at **eleven*** — and the `@ts-expect-error` wall over 44
 of 52 controls. **Each was caught only when someone planted a control against an instrument
 nobody had ever watched fire.**
 
@@ -1784,7 +1811,9 @@ do these commits touch", the two-dot form is never the answer.
 >
 > **Every instrument this project trusted and then actually measured turned out blind.**
 > Not most — every one that was put to a control. The skip glyph. **Both** builds over
-> `site/` types. `build:site` over three of four builtin spellings. The `@ts-expect-error`
+> `site/` types. `build:site` over **four of four** builtin spellings, and over all **eleven**
+> now enumerated *(restated 2026-10-17; this read "three of four" while the row below already
+> measured it at zero caught)*. The `@ts-expect-error`
 > wall over 45 of 52 controls. `conditional` under a write hoisted one level. `isGlobalRoot`
 > under a pair of parentheses. A baseline that cannot see what predates it. A `vitest list`
 > census that omits skips and cannot tell a retitle from a delete. A roster ratchet blind in
@@ -2012,6 +2041,8 @@ Each already cost a correction. Hand this table to every worker.
 | a regression test that passes proves the fix | **A test that passes BEFORE and AFTER proves nothing, and a regression test is exactly where that is easiest to miss** — the suite is green, the change is in, the inference writes itself. The worker ran its three new tests against the **unfixed** `bin/git` in a throwaway worktree: **all three fail there and pass against the fix**, so they are sensors rather than ornaments. **§6.5a applied to a test suite, not to production code** — the same obligation, the place nobody applies it. |
 | a recorded note is a sensor | It is not. A note tells whoever reads it; nothing makes them read it. Where a gap is accepted, convert the note into a test that goes red the day someone crosses it. |
 | `build:site` catches a Node builtin leaking into the browser bundle | **It catches one spelling of four — and this row previously got the mechanism wrong in the reassuring direction. Corrected 2026-10-16, orchestrator error 37.** It claimed the needle **ships and is findable in the output. Measured: it does not.** vite rewrites `await import('node:fs')` to `import("./__vite-browser-external-*.js")`, emits that stub chunk, and **the text `node:fs` is absent from every byte of output** — so the old grep-based check returned **34 passed, exit 0, over a bundle carrying a live node-builtin import.** The check was blind to the exact regression it existed for, and this row told the reader otherwise. **So a real awaited code path that throws in a browser ships green.** The complement is the actionable half: inside `src/shared/` the purity guard catches **all three** import forms, so **the hole is `site/*.ts`, which nothing guards at all.** |
+| **the row above, now that its site half has been measured** | **CORRECTED BESIDE IT 2026-10-16 by W-MX, P3b. `build:site` catches ZERO of four, not one of four — and the catching instrument was never `build:site`.** All four spellings build **exit 0** under the shipped config; there is no configuration in the repo today under which `build:site` reddens for any of them. What catches anything is **`site/dist.test.ts`**, a different instrument in a different CI step: **one** of four on `main` (`require`), **two** of four on `feat/p3b-store` (`require`, plus `await import` via `166b6da`'s `__vite-browser-external` stub-chunk detector). **Both static forms — `import 'node:fs'` and `import * as fs from 'node:fs'` — are missed by every instrument in the repo at both commits.** The mechanism is the **opposite** of the one recorded above and that is the durable part: the dynamic form hides *behind a rewrite*, so grepping the stub cures it; the static forms hide by **leaving no artifact at all** — vite inlines `export default {}` and rollup drops the bare import, so **a text grep and an AST specifier reader are blind in exactly the same place, because there is no specifier left to read.** They look independent and are not. **And it does not throw**: the code receives an empty object and proceeds silently, so "ships green" understates it — there is no stack and nothing to notice. **`build.rollupOptions.onwarn` is a genuine complement** — it catches the three resolved forms and is **structurally incapable** of seeing `require`, because the warning fires only when vite's resolver resolves the specifier and the commonjs plugin is scoped to `node_modules`. **onwarn + `dist.test.ts` together cover all four; neither alone covers more than three.** Full measurement, costs, and the latent `node_modules` false-positive surface: `git show be122ac`. |
+| **the two rows above, and the coverage total they compute** | **A coverage total here is never a total. State it as *of the forms enumerated, named below*, and carry the SEQUENCE, which is better evidence than any number.** The builtin-spelling population on this phase has gone **FOUR → FIVE → NINE → ELEVEN, across four enumerations, each made by someone who believed theirs complete.** **Restated 2026-10-17** after round 2 measured the two forms the findings document had named as owed before any total was published: `export * from 'node:fs'` → **build exit 1**, caught by `onwarn` with its own message naming importer and specifier; `import zzfs = require('node:fs')` → **build exit 0, NOT caught by `onwarn`** — and for that one **the union was measured rather than assumed**, the artifact carrying `node:fs` 1 / `require` 1 / `__vite-browser-external` 0, with `site/dist.test.ts` over it returning **rc 1, 3 failed | 27 passed | 17 skipped (47)**, the load-bearing failure being *"imports no node: builtin and no @napi-rs, by specifier and not by mention"*. **So: `onwarn` 10 of 11; `dist.test.ts` carries the `require` family alone, now TWO members; union 11 of 11; neither alone above 10.** The rows above keep their own figures deliberately — **four, five, nine and eleven are each a true measurement of a population someone had just finished enumerating, and overwriting them would delete the only thing that predicts the next one.** **The durable part is not the number. It is that every total here has been provisional, so eleven is too.** |
 | a planted needle proves the bundle check can see | Only if the needle survives the build. A P3b survey's first plant was **constant-folded away by Rollup**, so the check reported green over a bundle the needle had never reached — a paired control that silently measured nothing. **A plant is inadmissible as a control until it is confirmed present in the built artifact**, by grep, before the check is run. Instance eight of "a check that cannot see reports fine". |
 | a standing ruling in the handover was ruled | Not necessarily. "`seek` clamps to the last frame" sat in §4 under *do not re-litigate* for a week. It entered in the handover's **own birth commit**, and the P2 record it purported to settle says the opposite — *"Nothing pins `seek`… P3 must decide"*. It was the orchestrator's inference, formatted as an inheritance, and a PM correctly refused to build on it. **A ruling's authority is the measurement or the decision behind it.** *(Corrected 2026-10-16: this row used to prescribe `git log -S` to find it "in one command". **That is the fail-open direction** — `-S` is a count-change search, so a zero result means *unproven*, not *never ruled*, and a real ruling would be discarded as a proposal. Use `-G` or `log --follow -p`, and see this table's `git log -S'X'` row.)* Where a §4 entry cannot be traced to a measurement or a decision, it is a proposal. |
 | the suite measures the code | It measures the code **in the environment you ran it in**, and every tier of this system runs inside the same agent harness. `svelte-check` 4.7.6 picks its output format in `getOutputFormat()`: an explicit `--output` wins, **otherwise it returns `machine` if `process.env.CLAUDECODE === '1'` and `human-verbose` if not.** Two gate harnesses spawned it with `{...process.env}` and parsed for a `COMPLETED` line that only machine format emits. So the suite was green for **every agent that ever ran it** and red on the only machine that ships — `main` was broken for nine hours and eight commits, and no tier could have seen it, because the blindness was in the thing all of them shared. **When a test spawns a child, strip the harness's variables and pin every format the child would otherwise decide by sniffing its environment.** |
