@@ -34,8 +34,19 @@ import type { Scene } from '../core/index.js'
  * is to update the expectation, which buries the fix under a green suite and
  * leaves the next reader believing the behaviour was intended.
  *
- * **Reddening is the success signal for this file.** It is the only file in
- * the repository whose ideal end state is deletion.
+ * **Reddening is the success signal for this file, whose ideal end state is
+ * deletion.**
+ *
+ * That sentence used to end *"it is the only file in the repository whose
+ * ideal end state is deletion"*, and the superlative is withdrawn rather than
+ * re-measured. Nothing asserts it, it would need a survey of every file to
+ * stay true, and the nearest counter-example is cited two paragraphs below as
+ * precedent: `site/project.test.ts:307` carries the same *delete the row, do
+ * not flip the expectation* instruction over the two scene validators. That
+ * is rows rather than a whole file, so the claim may well still be true —
+ * which is exactly §9's point about the definite article, that a true
+ * statement about one thing becomes an unchecked statement about the set. The
+ * point being made here is about **this** file and survives without it.
  *
  * To be unambiguous about the direction, because "delete the row" is itself an
  * instruction someone could carry out for the wrong reason: delete a row when
@@ -240,7 +251,38 @@ describe('a .stst on a machine that holds only the .stst (design §6.2b, plan §
     // row's actual subject — is never reached, leaving the sharpest line in
     // the file uncontrolled while the row still reddens. §6.5a's "a control
     // must see the specific change under test, not merely see something."
+    //
+    // **The sharpest line is the `toEqual` and it is one line, not two.** The
+    // `not.toContain` below it was presented as the other half of the same
+    // check and **is strictly dominated by the `toEqual`: it cannot fail.**
+    // Measured 2026-10-17, both halves:
+    //
+    // - `toEqual([SRC])` passing means `requests` deep-equals `[SRC]`
+    //   exactly, so the only value the next line can ever see is `[SRC]`.
+    // - `toContain` on an array is **membership, not substring** — planted
+    //   and watched fire: `expect(['/home/alice/ball.png']).toContain(
+    //   'ball.png')` fails with *"expected [ '/home/alice/ball.png' ] to
+    //   include 'ball.png'"*. No member name equals `SRC`, so over `[SRC]`
+    //   the negation always holds.
+    //
+    // Together those make the line dead rather than merely untriggered: there
+    // is no archive, no plant and no future behaviour under which it reddens
+    // while the line above it passes, and a failing `expect` throws, so it is
+    // not reached when the line above it fails. The resolver plant recorded
+    // in this file's docblock was re-run against the current tree and fires
+    // at the `toEqual` (`expected [ 'ball.png' ] to deeply equal
+    // [ '/home/alice/ball.png' ]`); the line below never executed.
+    //
+    // **Kept rather than deleted, and that is a judgement with a reason.** It
+    // costs nothing, it states the intent in the vocabulary of the defect
+    // (*"never the member name"*), and removing it would be a behavioural
+    // edit in a commit declared comment-and-text. What is removed is the
+    // **claim** that it carries detection power. If the fixture ever changes
+    // so that a member name can equal `SRC`, this line stops being dominated
+    // — and at that point the fixture has lost the property its own docblock
+    // calls load-bearing, so re-derive rather than trusting this paragraph.
     expect(byMember.requests).toEqual([SRC])
+    // Implied by the line above, not an independent check — see above.
     for (const m of MEMBERS) expect(byMember.requests).not.toContain(m.name)
     expect(outcome).toBe('threw')
 

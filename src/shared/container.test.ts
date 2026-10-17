@@ -732,6 +732,45 @@ describe('writeStst', () => {
     // up first, so the control was taken standalone against `writeZip`
     // directly. Recorded because "the suite went red" would not have shown
     // that this assertion can move.
+    //
+    // ## DO NOT DELETE THIS LINE AS REDUNDANT. It is the only assertion in
+    // ## this test that catches a compressor which compresses nothing.
+    //
+    // The paragraph above explains this line as a restored record and says
+    // its control is shadowed, and both halves are true. Read together they
+    // invite exactly one wrong conclusion — *nothing here can only be seen by
+    // this line, so a tidy-up may take it* — and that conclusion is false.
+    // Measured 2026-10-17, planting into `zip.ts` and reading which assertion
+    // line fired rather than whether the suite went red:
+    //
+    // - **The mutation it uniquely catches: a deflater that emits a valid
+    //   stream and compresses nothing.** `deflateRawSync(data, {level: 0})`
+    //   is a *legal raw-deflate stream* — stored blocks with deflate framing
+    //   — so it inflates byte-identically. Every method field still reads 8
+    //   and is honest; `/usr/bin/unzip -p` round-trips all eight arms
+    //   byte-exact; the `asChosen`/`asWritten` vectors are unmoved; the
+    //   `lied === 3` patch and its `unzip` refusal are unmoved. The whole of
+    //   this test passes **except this line**, which fails with
+    //   `expected 75 to be greater than 400000`.
+    // - **The shadowing is real and applies to the OTHER mutation only.**
+    //   Under the store-the-bytes plant the first failure in this test is at
+    //   the `unzip -p` sweep above (`extract` → `unzip -p masks/p.bin:
+    //   expected 2 to be +0`), so this line genuinely never executes — seven
+    //   tests redden and this is not one of the sensors. Under the level-0
+    //   plant the sweep is **green**, nothing shadows this line, and it is
+    //   reached. Two mutations, opposite outcomes; the note that records the
+    //   shadowing is not a statement about this line's worth.
+    // - **Scope, stated because the obvious overstatement is false.** "Only
+    //   assertion in **this test**" is what was measured; it is *not* the
+    //   only assertion in the *file*. The level-0 plant also reddens
+    //   `round-trips a non-ASCII member name` on `expect(patched).toBe(2)`
+    //   (`expected 3 to be 2`) — level 0's stored blocks put `manifest.json`'s
+    //   plaintext copy of the member name back in the archive, the exact
+    //   mechanism that test's own comment documents. That is an **incidental**
+    //   detector of a different property, in a different test, and it is not
+    //   a substitute: delete this line and `keys the method on the role` goes
+    //   blind to a compressor that compresses nothing, which is the claim this
+    //   test is named for.
     expect(Math.max(...lengths) - Math.min(...lengths)).toBeGreaterThan(400_000)
 
     // Half two, replacing the deleted size relation's control. The extraction
@@ -1041,11 +1080,17 @@ describe('writeStst', () => {
      * Written out, not read from `STST_MIMETYPE`.
      *
      * Measured: with the expectation taken from the module's own constant,
-     * changing that constant to `application/zip` left all twelve tests in
-     * this file green — §9's "a guard derived from the roster it guards
-     * proves only that the derivation ran twice", live. The media type is
-     * the one thing another program identifies a `.stst` by, so changing it
-     * is a compatibility break and has to be a deliberate edit in two files.
+     * changing that constant to `application/zip` left **the whole file**
+     * green — §9's "a guard derived from the roster it guards proves only
+     * that the derivation ran twice", live. The media type is the one thing
+     * another program identifies a `.stst` by, so changing it is a
+     * compatibility break and has to be a deliberate edit in two files.
+     *
+     * The reading used to be written here as a count of this file's tests and
+     * **the count had gone stale** — found by the same sweep that removed the
+     * `.svelte` count below, under the rule stated there. What the
+     * measurement says is that *nothing* saw the change; the size of the file
+     * at the time it was taken is not part of that and is not restated.
      */
     const MEDIA_TYPE = 'application/x-stst'
     expect(STST_MIMETYPE).toBe(MEDIA_TYPE)
@@ -1160,10 +1205,17 @@ describe('writeStst', () => {
  *   constructor, same device.
  *
  * Both were planted in a **covered** position (`src/`, `.ts`) after the
- * widening below and measured: **18 passed, exit 0, neither named.** The same
- * class is what the assembler count further down cannot see either — a
+ * widening below and measured: **18 passed, exit 0, neither named.**
+ *
+ * The assembler count further down has a residue of its own and **it is wider
+ * than this one, not the same class.** This sentence used to say it was — *"a
  * signature value computed rather than written (`0x06054b4f + 1`,
- * `parseInt('02014b50', 16)`), planted and measured invisible at 18 passed.
+ * `parseInt('02014b50', 16)`), planted and measured invisible at 18 passed"* —
+ * which is true of that pair and misses four further shapes that write the
+ * signature **verbatim**. Corrected 2026-10-17; the measurement and the two
+ * mechanisms are stated where the counter is, under "## Residue", and are
+ * deliberately not restated here. **A residue stated in two places is one that
+ * will eventually disagree with itself** (§9).
  *
  * **This is the known-hard class and the list above is not exhaustive**: it is
  * two spellings of one device, and the device is "the identifier never
@@ -1196,11 +1248,16 @@ describe('writeStst', () => {
  *   not, committed or not.
  * - **Extension** is the one axis that is still an enumeration, stated as one
  *   rather than left to read as derived — see `CODE` below for what bounds it.
- * - The three fixture trees at the repository root (`query-sweep-fixture/`,
- *   `svelte-free-fixture/`, `typecheck-fixture/`) are **admitted, not
- *   excluded.** They were measured first: none of their files names either
- *   symbol, so no exclusion is needed, and inventing one by name would be the
- *   stale-list defect in the act of repairing it.
+ * - The fixture trees at the repository root are **admitted, not excluded.**
+ *   They were measured first: no file in any of them names either symbol, so
+ *   no exclusion is needed, and inventing one by name would be the stale-list
+ *   defect in the act of repairing it. **Neither their number nor their names
+ *   is written down here**, and that is the point rather than an omission —
+ *   the first version of this bullet enumerated three of them by name inside
+ *   the sentence calling such lists a defect. Nothing needs the list: a
+ *   fixture tree that *did* name either symbol would be reported **by path**
+ *   in the failure message of one of the two route tests below, which is what
+ *   makes the enumeration unnecessary rather than merely unwritten.
  *
  * Production is every file in that walk that is not a test, matched on
  * `*.test.*` across the same kinds — a convention this file applies, not a
@@ -1320,14 +1377,22 @@ describe('criterion 7 — one production producer of .stst bytes', () => {
    * rather than the direction that passes.
    *
    * **No count of them is given here, deliberately.** This docblock used to
-   * say *"there is one `.svelte` file in the repository today"*; there are
-   * five, and that sentence was the third instance of its own class inside the
-   * file that records the first two. **The rule, applied here and swept for
-   * across both files this commit touches: do not state a count of repository
-   * contents in a docblock unless a test asserts that count. Either assert it
-   * or do not say it.** Nothing here needs the number — what the fallback's
-   * weakness depends on is that `.svelte` exists at all, not how much of it
-   * there is — so the number is not said.
+   * say *"there is one `.svelte` file in the repository today"*; by the time
+   * anyone checked it that count was wrong, and the sentence was the third
+   * instance of its own class inside the file that records the first two.
+   * **The rule, applied here and swept for across both files this commit
+   * touches: do not state a count of repository contents in a docblock unless
+   * a test asserts that count. Either assert it or do not say it.**
+   *
+   * **The rule's own first draft broke it**, which is why the preference below
+   * is recorded rather than left to judgement: the sentence promulgating the
+   * rule replaced the stale *one* with a fresh number, and a fresh number is
+   * the same defect with a later expiry date. **Prefer deleting the count to
+   * asserting it** — a count that needs a test to stay true is usually a count
+   * the sentence did not need. Nothing here needs the number: what the
+   * fallback's weakness depends on is that `.svelte` exists at all, not how
+   * much of it there is. So the number is not said, **and the corrected number
+   * is not said either.**
    */
   function namesInCode(file: string, ident: string): boolean {
     const text = readFileSync(file, 'utf8')
@@ -1441,11 +1506,77 @@ describe('criterion 7 — one production producer of .stst bytes', () => {
    * module scope belongs to no function and is ignored, which is what keeps
    * the constant declarations themselves out of the count.
    *
-   * **Residue, stated rather than left to read as complete:** a signature
-   * *computed* rather than written — `0x02014b4f + 1`, a four-byte array, a
-   * `parseInt` of a string — is not seen. That is the same computed-access
-   * class the describe's docblock names as this sensor's known-hard residue,
-   * and it is uncovered here for the same reason.
+   * ## Residue — REWRITTEN 2026-10-17, because the text here understated its
+   * ## own hole, which is worse than declaring none
+   *
+   * **The superseded text, kept beside rather than replaced in place** (the
+   * standing convention in this file). Until 2026-10-17 this section read:
+   *
+   * > **Residue, stated rather than left to read as complete:** a signature
+   * > *computed* rather than written — `0x02014b4f + 1`, a four-byte array, a
+   * > `parseInt` of a string — is not seen. That is the same computed-access
+   * > class the describe's docblock names as this sensor's known-hard residue,
+   * > and it is uncovered here for the same reason.
+   *
+   * That is true and it is **far too narrow**, in the direction that tells a
+   * reader the hole is somewhere it is not. A reader told *"we only miss
+   * computed signatures"* would believe a table holding `0x02014b50` **as a
+   * literal, in the source, in plain sight** is covered. It is not.
+   *
+   * **The actual boundary, measured by planting into the real `zip.ts` and
+   * reading which names came back from the assertion below.** Two
+   * independent ways past this counter, of which only one is "computed" —
+   * stated as the mechanisms the plants exposed, not as a complete list of
+   * the mechanisms that exist:
+   *
+   * 1. **The value is at module scope in a shape the resolver cannot bind.**
+   *    The resolver walks only top-level `VariableStatement`s whose
+   *    declaration name is an `Identifier` and whose initializer is a
+   *    `NumericLiteral` or another such `Identifier`. Everything else at
+   *    module scope — an object table, a binding pattern, an enum, a class
+   *    field, an arithmetic expression — binds nothing, so the name the
+   *    function uses resolves to nothing and the literal itself is attributed
+   *    to no function.
+   *
+   *    **The discriminant is the declaration site, not the property access** —
+   *    and this is the part that was measured rather than reasoned. The *same*
+   *    object table declared **inside** the function, read through the *same*
+   *    `t.central` property access, **is caught**, because then the literal
+   *    sits lexically in the function and needs no resolver at all. So
+   *    "property access escapes" would itself have been a wrong boundary.
+   * 2. **The two signatures land in different function scopes.** Attribution
+   *    is to the nearest enclosing function and an assembler must name
+   *    **both**, so a `.forEach(…)` callback holding one signature while the
+   *    enclosing body holds the other reads as two `partial`s and neither is
+   *    counted. The same mechanism makes a **split assembler** invisible —
+   *    the central record emitted by one helper and the EOCD by another, which
+   *    is how a real second assembler would most plausibly be factored rather
+   *    than an evasion anybody would have to design. **A callback reaches this
+   *    case by accident.**
+   *
+   * **What was planted and what came back.** Nine shapes, in two batches, into
+   * `src/shared/zip.ts` itself; the failing assertion was the one over the
+   * real file and not the `<control>` string, checked by line number. Caught:
+   * bare literals in one function; a two-step module-level alias chain; an
+   * object table declared inside the function; local `const`s inside the
+   * function. Missed: a module-scope object table read as `SIGS.central`; a
+   * module-scope `const [C, E] = [0x02014b50, 0x06054b50]`; the `forEach`
+   * split; the two-helper split; and the computed pair the old text named.
+   *
+   * **Four of the five misses write the signature VERBATIM** — the exact value
+   * or the module's own `SIG_CENTRAL`/`SIG_EOCD` identifier appears in the
+   * source — and only the fifth is "computed". So the old text named one of
+   * five.
+   *
+   * **This list is not exhaustive and must not be read as one.** The four
+   * unnamed shapes turned up inside nine attempts and the search **stopped
+   * once the finding was established**, not once the space was covered; the
+   * class is probably larger. §9 has two rows on sensors keyed to the forms
+   * someone enumerated and defeated by one more, which is why the boundary
+   * above is stated as the two mechanisms rather than as the shapes that
+   * happened to be tried. Closing either needs a checker that resolves values
+   * and attributes across call graphs, which is a different instrument from
+   * this one.
    */
   const SIG_CENTRAL_VALUE = 0x02014b50
   const SIG_EOCD_VALUE = 0x06054b50
