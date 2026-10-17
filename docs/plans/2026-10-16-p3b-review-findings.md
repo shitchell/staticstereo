@@ -1,7 +1,7 @@
 ---
-title: P3b review findings — six, transcribed before they evaporated
-description: The P3b phase reviewer's findings 1-6 with their controls and dispositions, written down because the enumeration reached no tier and existed only in one agent's context
-status: finding 2's NEW/BLOCKING ruling is WITHDRAWN (orchestrator error 45) and its classification is now MOOT — the ordered measurement came back YES (`onwarn` fires for the default-import spelling, PM-measured at `35fe08c`), so ONE cure closes findings 2 and 5 and the player-bundle item. The cure is approved and is NOT a one-liner. Findings 4, 6 travel as separate recorded deviations
+title: P3b review findings — rounds 1 and 2, transcribed before they evaporated
+description: The P3b phase reviewer's findings 1-6 and round 2's findings A and B, with their controls and dispositions, written down because round 1's enumeration reached no tier and existed only in one agent's context
+status: ROUND 2 COMPLETE, 2026-10-17, scoped to the post-round-1 delta — NO BLOCKING FINDINGS, and the hunt for a cure that closes a finding by narrowing the sensor came back EMPTY (all four cures widened). Nothing was hollowed out in `site/store.test.ts` despite its net −311 lines, established by assertion census with the census itself controlled against a hollowed variant. Round 1's finding 2 ruling stays WITHDRAWN (orchestrator error 45). OPEN - finding A, `isFirstParty` fails OPEN on an extractable but non-absolute importer, tier-0 ruled FIX not deviation. DISCHARGED - finding B, the two outstanding spellings measured, population restated 9 to 11. FOLDED - finding 4 is one item with criterion 14, the criterion authoritative, and the criterion is NOT MET because the mechanism does not exist (proved by control); tier-0 ruled DERIVE it from the import graph. Finding 6 still travels as a recorded deviation
 date: 2026-10-16
 tags: [review, findings, staticstereo, p3b]
 ---
@@ -117,12 +117,22 @@ instrument sees what others cannot:** **it fires at *resolve* time, strictly bef
 inlining that erases the evidence. The hole and the cure sit on opposite sides of the same
 step.**
 
-**Coverage: 8 of the 9 routes enumerated so far**, missing only `require` structurally;
-**`onwarn` ∪ `dist.test.ts` = 9 of 9**, neither alone above 8. **Stated as *of the forms
-enumerated*, deliberately** — the population has gone **four → five → nine across three
-enumerations, each made by someone who believed theirs complete.** Two forms are still
-unmeasured and must be before any total is written down: `export * from 'node:fs'` and
-`import fs = require('node:fs')`, the second being the one that lands on `require`.
+**Coverage — RESTATED 2026-10-17, after the two outstanding forms were measured. See
+§ "Round 2" at the end of this document for the measurement.** Of the **eleven** forms
+enumerated and named there: **`onwarn` 10 of 11**, missing only the `require` family
+structurally; **`onwarn` ∪ `dist.test.ts` = 11 of 11**, neither alone above 10. **Stated as
+*of the forms enumerated*, deliberately** — the population has gone **four → five → nine →
+eleven, across four enumerations, each made by someone who believed theirs complete.**
+**The sequence is better evidence than any total, because it predicts that eleven is also
+provisional.** Never cite a bare total from this paragraph; cite it as *of the forms
+enumerated, named below*.
+
+> *Superseded figures, kept rather than overwritten because the sequence is the evidence:
+> this paragraph read **"8 of the 9 routes"** and **"`onwarn` ∪ `dist.test.ts` = 9 of 9,
+> neither alone above 8"**, and it named `export * from 'node:fs'` and
+> `import fs = require('node:fs')` as unmeasured, owed before any total was written down.
+> **That precondition is DISCHARGED** — both measured at `fb3afb5`, by real vite builds at
+> `NODE_ENV=production`, each plant grep-confirmed present in source before the build.*
 
 **THE CURE IS NOT A ONE-LINER, AND THE OBVIOUS IMPLEMENTATION IS A NET REGRESSION.**
 vite's `UNRESOLVED_IMPORT → throw` lives inside `defaultHandler`, so the handler anyone
@@ -224,6 +234,48 @@ assertion can fail only if someone edits the list and forgets the number. **Noth
 file can detect a module becoming editor-only.** The list **is correct today** (verified).
 **DEVIATION: rot risk, not live defect.**
 
+> **FOLDED INTO CRITERION 14, 2026-10-17, by tier-0 ruling. Deviation A stops travelling
+> separately; this text stays where it is.** Reason, tier 0's: *"A deviation is a recorded
+> acceptance of not meeting something, so it cannot be the thing that defines what is being
+> met."* The criterion outranks the deviation record.
+>
+> **Two of this finding's three claims survive measurement and one does not.** *"The list is
+> correct today"* — **CONFIRMED independently**, by a TypeScript-parser import-graph walk
+> from both verified entries, 7 of 7, both deltas empty, no grep in the derivation.
+> *"Nothing in the file can detect a module becoming editor-only"* — **CONFIRMED BY CONTROL,
+> and the true scope is wider: nothing in the REPOSITORY detects it.** But **"none possible"
+> is FALSE**: the control cost one import line. A module genuinely entering the editor bundle
+> — confirmed present in `dist-site` and absent from `dist-player` — moved **nothing**:
+> typecheck 0, build 0, build:site 0, test 0, 2240 passed, zero skipped, not one test to name.
+>
+> **AND "the list is correct today" IS NOT A DISCHARGE**, which is the whole of why this
+> folds. Tier 0: *"A criterion asking for a MECHANISM is not satisfied by a correct LIST —
+> that is the hand-written-list row in §9 and it is the same defect finding 4 itself
+> describes. Reading 'correct today' as a discharge is how a rot risk becomes a live defect
+> six weeks later with a passing test over it."*
+>
+> **TWO DIFFERENT EIGHTS. DO NOT CONFLATE THEM** — written here because conflating them
+> yields a story that is internally consistent, eight rows deep, and wrong. Plan §7's *"eight
+> modules are absent"* counts modules reachable from **NEITHER** entry — a subset of the
+> **eleven** such `site/*.ts` files. The other eight is the seven **plus
+> `src/shared/perception.ts`**, under the *unscoped* reading of the test's own predicate.
+> **Disjoint provenance, same number.** And plan §7's reading is not merely wrong: **adding a
+> neither-closure module to the list turns the suite RED**, because the presence half hunts a
+> needle for a module that is in no bundle at all.
+>
+> **Also unwritten until now: the list is silently `site/`-SCOPED.** `src/shared/perception.ts`
+> is editor-only under the test's own predicate and is absent from the list; the scoping rule
+> appears nowhere in the file. And **`site/legibility.ts` is a one-line barrel** —
+> `export * from '../src/shared/perception.js'` — whose attributed needle physically lives in
+> `src/shared/perception.ts`, against the file's own rule that *"a needle proves something
+> about the function holding it"*.
+>
+> **TIER-0 RULING: DERIVE THE CHECK FROM THE IMPORT GRAPH. NOT A DEVIATION.** *"Recording the
+> absence as accepted is the same answer in a costume."* The RED is already demonstrated so it
+> does not have to be invented, `sourceclosure.ts` already walks a real import closure so the
+> machinery exists, and a derived check cures the rot class rather than buying today's seven
+> names.
+
 **Finding 5 — the player bundle's only node sensor is the "weaker belt"** · coverage
 asymmetry · note · **established by reading, no control.** `forbiddenImportsIn` runs over
 `dist-site` only — all three call sites under the site blocks — so the player's entire node
@@ -272,6 +324,16 @@ measured the player side independently: **`onwarn` is one config line covering 9
 routes**, including the two that no output-reading check can ever see, where porting the
 site-side check is ~90 lines and covers 3 of 5 reachable routes. **Neither
 `vite.player.config.ts` nor `vite.site.config.ts` currently sets `external` or `onwarn`.**
+
+> **CORRECTED BESIDE, 2026-10-17, both clauses.** *"9 of 9"* was computed over the
+> nine-route population of the day; against the **eleven** now enumerated it is **10 of 11**,
+> and `onwarn` is **structurally incapable** of seeing the `require` family — so the
+> "one config line covers everything" reading was never right and is now measurably not.
+> **`onwarn` ∪ `dist.test.ts` = 11 of 11; neither alone exceeds 10.** And *"currently sets
+> neither"* was true when written and is **false since `9835a76`**: both configs now set
+> `onwarn`, and vite is pinned exactly at 5.4.21 because the cure's contract is a
+> dependency's prose. The sentence above is left intact because the ruling it supports —
+> cost the cure as one task, not three — was correct and was taken on these words.
 
 So **one `onwarn` task plausibly closes finding 2, finding 5 (Deviation B) and the
 re-scoped player queue item.** Cost them as one task, not three.
@@ -342,3 +404,119 @@ round that disproved them.
   `await`, assignment and `Reflect.get`. **The claim is safe because it fails in the safe
   direction, not because the set is closed** — and the docblock argues closedness, which is
   the wrong reason and the one a future reader would rely on.
+
+---
+
+## Round 2 — scoped to the post-round-1 delta, 2026-10-17
+
+*Appended by PM-SHELL-P3b-8, beside, nothing above rewritten or deleted except the two
+coverage paragraphs explicitly marked RESTATED and CORRECTED BESIDE.*
+
+**Why there was a round 2.** ~1360 load-bearing lines landed **after** round 1 took its
+diff, and those lines **are the cures for the findings round 1 raised** — so the single
+least-reviewed region of the phase was the one written in response to review. Generalised
+into §9: *a review budget counted in rounds is a budget on the reviewer's time, not on the
+code's coverage, and the two diverge exactly when the review is working.* Approved by tier 0
+as an escalation rather than a third round, which is what §6 already calls it.
+
+**Scope, measured rather than described.** `git diff 523280f dc762a3 -- . ':(exclude)docs/'`;
+commits `git log --oneline 523280f..dc762a3`. Of 26 non-merge commits, **ten are also on
+`main` and all ten are docs-only**, each verified individually with
+`git show --numstat -- . ':(exclude)docs/'` returning zero non-docs files. **The entire
+code delta is two commits**, `6a72027` and `9835a76`: 10 files, 1866 insertions, 655
+deletions.
+
+**The specific thing hunted: a cure that closes a finding by narrowing the sensor. NOT
+FOUND. Every one of the four cures WIDENED** — `aliased` added a report without weakening
+the three beside it; the hashprojection retitles went *"module"* → *"import closure"*, a
+widening visible in the titles themselves; `buildguard` reads no specifier pattern at all
+rather than a list. **A null from a hunt equipped to find the thing is worth recording.**
+
+### Nothing was hollowed out — and the census that says so was itself controlled
+
+`site/store.test.ts` is **+284 / −595, net −311** (2563 → 2252 lines), in the same commit
+that cured the guard that file contains, **while the §6.4 name census reports zero net
+removals, truthfully.** Both are true: `vitest list` is collection-only, so a title that
+survives while its body loses assertions is invisible to it **by construction**.
+
+Answered by instrument, not by count: **of the 596 removed lines, the number containing
+`expect(` is ZERO**; 13 added lines contain one. Per-title assertion census over assertion
+*text*: 25 old titles, 26 new, **titles-only-in-old 0, common titles whose assertion count
+dropped 0**. Matcher histogram up on every kind. The 311 lines are helper machinery
+relocated to `src/core/testing/sourceclosure.ts`.
+
+**And the instrument was put to a control**: a generated hollowed variant that *dropped*
+one assertion and *weakened* another (`toBe(initial)` → `toBeDefined()`) was **reported by
+the census on both counts** — so the null covers weakening as well as removal, which is
+precisely the gap the name census cannot see.
+
+**No hole traded**, by plant against the real module: the aliased route now fails at
+`found.aliased` — **the new sensor itself, not a behavioural sweep** — and the same write
+spelled directly still fails at `found.undelegated`.
+
+### The eleven forms, named, which is what makes the total citable
+
+Both previously outstanding spellings measured by real vite builds at
+`NODE_ENV=production`, each plant grep-confirmed present in source **before** the build:
+
+| form | result |
+|---|---|
+| `export * from 'node:fs'` | **build exit 1** — caught by `onwarn`, its own message naming importer and specifier |
+| `import zzfs = require('node:fs')` | **build exit 0** — NOT caught by `onwarn`; caught by `site/dist.test.ts` |
+
+For the second the union claim was **measured rather than assumed**: artifact counts in the
+emitted bundle were `node:fs` 1, `require` 1, `__vite-browser-external` 0, and
+`site/dist.test.ts` over that artifact returned **rc 1, 3 failed | 27 passed | 17 skipped
+(47)**, the load-bearing failure being *"the built site > imports no node: builtin and no
+@napi-rs, by specifier and not by mention"*.
+
+**So: population ELEVEN. `onwarn` 10 of 11. `dist.test.ts` carries the `require` family
+alone, now two members. Union 11 of 11, neither alone above 10.**
+
+### Finding A — `isFirstParty` fails OPEN on an extractable but non-absolute importer
+
+`site/buildguard.ts`. The fail-closed throw fires only when the specifier or importer
+**cannot be extracted**. If the importer **is** extracted but is not an absolute path under
+root, the containment test is false, the warning is classified third-party, and it is
+**forwarded silently**. A vite reword from absolute to relative importer paths — *precisely
+the "vite reworded the sentence" scenario the condition exists for* — lands in the
+fail-**open** branch.
+
+**Control, two arms in one invocation with the absolute arm as the known-answer control:**
+absolute first-party importer → threw **true**, forwarded silently **false**; relative
+first-party importer → threw **FALSE**, forwarded silently **TRUE**. Probe 2 passed (2),
+rc 0. **Confirmed, not inferred.**
+
+**The tier-0 condition says fail closed on an UNATTRIBUTABLE warning; the implementation
+fails closed on an UNEXTRACTABLE one. Those differ and the gap is silent.**
+
+**TIER-0 RULING: FIX IT, NOT A DEVIATION.** The NOTE reasoning — *a compensating sensor
+exists and the exact vite pin bounds live risk to zero today* — was **rejected explicitly
+and on its merits**: *"that is the exact reasoning that let R17 ship: a real property, a
+green gate, a true statement about today, and a defect that outlived all three."*
+
+### Where round 2 ran no control, and the mechanism instead
+
+1. **That the real-build canary catches finding A's relative-importer case.** Impossible
+   without forking vite. Mechanism: the canary asserts `status === 1` on a planted node
+   import, so **any** cause of the guard not throwing yields exit 0 and reddens it; the
+   cause is irrelevant to that assertion.
+2. **`site/hashprojection.ts`'s +11 / −3.** No control and **none owed** — the diff is
+   comment-only, correcting a false assertion (*"by parsing this file"* → *"by parsing this
+   module's whole import closure"*). §9 classes a false assertion as fix-on-sight, and its
+   *"a fix task always has a RED available"* row says the RED requirement does not bite here.
+3. **`sourceclosure.ts`'s six other exports** — `forwardedFrom`, `topOfForwarding`,
+   `isValueReference`, `resolveModule`, `lineIn`, `closureFrom`. The two closures
+   load-bearing for findings 1 and 3 were controlled; the rest are labelled. **This is the
+   same gap round 1 declared, narrowed but not closed**, and it is said rather than let pass.
+4. **The `aliased` arm's vacuity floor.** The live arm has **no direct floor of its own**;
+   the writes floor reaches the receiver only transitively. The plant is the empirical
+   refutation — the arm demonstrably fires on the real module, so it is not vacuous today.
+   **Structurally unfloored remains a NOTE for whoever next touches receiver detection.**
+
+### One limitation round 2 flagged against itself
+
+It did not re-run `vitest list`, so **for the files it covered its result and the §6.4
+census are not two independent methods** — they agree, and agreement between two reports is
+not two measurements of different kinds. It covered the two rewritten files at a *stronger*
+granularity than the census and **did not** cover the delta at whole-suite granularity.
