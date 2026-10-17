@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { mkdtemp, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { parseArgs } from './args.js'
@@ -516,6 +516,46 @@ describe('loadScene and loadProject over a .stst', () => {
    * loader would quietly open a mislabelled file and give the author no reason
    * to fix the name; it would also make "which reader ran" depend on content,
    * which is the input-dependence `container.ts` refuses for the same reason.
+   *
+   * ## The first assertion changed shape on 2026-10-17, and the change it is
+   * ## reacting to has nothing to do with what this test is for
+   *
+   * **It used to read:**
+   *
+   * ```ts
+   * expect(asYaml).toMatch(/valid YAML or JSON/)
+   * ```
+   *
+   * Design §6.2's case-E ruling deflates the container, so the zip bytes
+   * written under a `.yaml` name are different bytes — and the YAML parser
+   * takes a different exit over them. Measured, varying nothing but the
+   * container's method rule:
+   *
+   * - **all stored** (668 bytes): the decoded text contains a construct YAML
+   *   rejects outright, `parseYaml` **throws**, and `parseSceneText` reports
+   *   *"… is not valid YAML or JSON: Implicit keys need to be on a single
+   *   line at line 1, column 1"*.
+   * - **mimetype stored, rest deflated** (511 bytes): the decoded text
+   *   happens to parse as a single YAML **scalar**, nothing throws, and
+   *   `parseSceneText` falls through to its `!isObj` exit — *"… must be a
+   *   mapping with "size" and "layers" at the top level, got …"*.
+   *
+   * **Both are `parseSceneText`'s, which is the only thing this test is
+   * about.** Which of its two exits a pile of binary happens to take is a
+   * property of the bytes and of the YAML grammar; it is not a property of
+   * the dispatcher and was never designed. The cheapest way to green was to
+   * widen the pattern to `/valid YAML or JSON|must be a mapping/`, and that
+   * is the wrong action: it widens a sensor to accommodate a change it was
+   * not written about, and it would go on being satisfied by any third exit
+   * the parser grows.
+   *
+   * So the assertion was **narrowed instead**, to the strongest executable
+   * form of the claim the test's own title makes: the message `loadScene`
+   * produced is the message **`parseSceneText` produces over the same bytes
+   * under the same label**, character for character. That cannot be satisfied
+   * by the container branch — a sniffing loader would have opened this file
+   * successfully, since it is a valid `.stst`, and returned no message at all
+   * — and it does not care which exit the parser takes.
    */
   it('dispatches on the extension and not on the bytes, in both directions', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'stst-project-'))
@@ -524,7 +564,18 @@ describe('loadScene and loadProject over a .stst', () => {
     await writeFile(zipNamedYaml, await writeStst(SCENE, []))
     const asYaml = await loadScene(zipNamedYaml).then(() => '', (err: Error) => err.message)
     expect(asYaml).toMatch(/actually-a-zip\.yaml/)
-    expect(asYaml).toMatch(/valid YAML or JSON/)
+
+    // The YAML branch, run over the same bytes with the same label that
+    // `loadProject` constructs from `basename`. Equality, not a pattern.
+    const sameBytes = (await readFile(zipNamedYaml)).toString('utf8')
+    let viaYaml = ''
+    try {
+      parseSceneText(sameBytes, 'actually-a-zip.yaml')
+    } catch (err) {
+      viaYaml = (err as Error).message
+    }
+    expect(viaYaml, 'the YAML branch must reject these bytes, or this proves nothing').not.toBe('')
+    expect(asYaml).toBe(viaYaml)
 
     const yamlNamedStst = join(dir, 'actually-yaml.stst')
     await writeFile(yamlNamedStst, MINIMAL)

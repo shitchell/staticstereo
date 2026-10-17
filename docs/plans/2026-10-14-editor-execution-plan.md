@@ -799,8 +799,51 @@ verbs. PM-MODEL proposes them and the orchestrator approves before dispatch.
 5. **Determinism specified**: fixed mtimes, fixed entry order, fixed compression level.
 6. `stst` reads and writes `.stst`. **Subcommand names are an escalation** — `args.ts`'s
    `COMMANDS` is `['render','still','preview']` and the design names no new one.
-7. CLI and site produce identical bytes for one scene — **by construction, not by the
-   coincidence of two zlib wrappers agreeing on a default.**
+7. **The `.stst` container has exactly one producer, and the layout, entry order, manifest
+   and compression rule live in it.** A second export path is permitted and expected — P5
+   adds one on the site side — **provided it routes through `writeStst`.**
+
+   **SUPERSEDED TEXT, kept beside rather than rewritten in place, 2026-10-17.** The
+   criterion read:
+
+   > CLI and site produce identical bytes for one scene — **by construction, not by the
+   > coincidence of two zlib wrappers agreeing on a default.**
+
+   **The replacement is weaker than what it replaced, in two separate ways, and neither is
+   an improvement. It is not equivalent to the old criterion and it is not more robust.**
+
+   1. **Weaker than byte equality.** Design §6.2's case-E ruling deflates the container, so
+      identical bytes across engines is *unachievable*: `CompressionStream('deflate-raw')`
+      emits **+59% in Firefox 153 and 10.7x in WebKit 26** against Node and Chromium,
+      diverging at byte 0 or 1. All four round-trip exactly; none is wrong.
+   2. **Weaker than the two-sided comparison specified in its place.** The first
+      replacement written was a CLI-versus-site comparison of *decoded* structure. That is
+      **unbuildable**: `src/cli/index.ts` is the only production caller of `writeStst` and
+      `site/` has no `.stst` writer at all, so there is no second producer to compare
+      against. **Tier 0 over-specified and has withdrawn it — its own error 47.**
+
+   The honest sentence is that a strong witness became unsatisfiable and was traded for an
+   achievable one.
+
+   **Discharged by there being one writer, stated here rather than in a ledger**, because
+   the moment anyone needs this is the moment they are editing the criterion. Three things
+   carry it, in `src/shared/container.test.ts`:
+
+   - **A single-producer structural pin** — `pins the one writer on decoded structure,
+     which is what replaced identical bytes`: entry names, entry order, decoded per-entry
+     content, the manifest and `scene.json`, compared through `/usr/bin/unzip` between two
+     caller orderings of the same writer. Paired controls omit an entry and reorder the
+     entries, and both separate.
+   - **This clause**, which says the criterion is discharged by the one-writer fact rather
+     than by a comparison.
+   - **A sensor for that fact ceasing to be true** — `criterion 7 — one production producer
+     of .stst bytes`: it reddens the day a second production module names `writeZip` or
+     `CompressionStream` without routing through `writeStst`, and its message says to route
+     through `writeStst`. **This is the only one of the three that survives P5 adding a
+     site-side writer**, and it is the part that matters.
+
+   **The 2026-10-15 ruling below is superseded by case E and is kept because its
+   measurements are still the reason the criterion had to change at all.**
 
    **Rewritten 2026-10-15 on measurement.** The survey measured
    `CompressionStream('deflate-raw')` byte-identical between Node 22.14.0 and Chromium 151
