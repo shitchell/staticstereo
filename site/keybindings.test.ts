@@ -63,6 +63,17 @@ const SHELL = 'site/main.ts'
 const MARKUP = 'site/index.html'
 
 /**
+ * The anchor, written once.
+ *
+ * Shared by the reader and by its uniqueness check below rather than typed
+ * twice, because two copies of a pattern are two things that can drift and the
+ * drift is invisible: a uniqueness check counting a *different* sentence from
+ * the one the reader resolves reports `1` forever. §9's "a hand-written list of
+ * the places that do X" in its smallest form.
+ */
+const CHROME_SENTENCE = /One key hides all chrome\./
+
+/**
  * Design §5.1's sentence, or a refusal.
  *
  * The *whole* floor for this registry: §5.1 names exactly one keybinding and
@@ -72,11 +83,35 @@ const MARKUP = 'site/index.html'
  * the difference between "absent" and "found nothing".
  */
 function chromeSentence(markdown: string): string {
-  const found = markdown.match(/One key hides all chrome\./)
+  const found = markdown.match(CHROME_SENTENCE)
   if (found === null) {
     throw new Error(`${DESIGN} no longer contains design §5.1's "One key hides all chrome."`)
   }
   return found[0]
+}
+
+/**
+ * How many times design §5.1's sentence occurs in the whole document.
+ *
+ * **Uniqueness, not presence, is the property worth asserting here**, and the
+ * difference is the whole reason this function exists. `String.match` without
+ * `/g` answers with the *first* occurrence from the top of the file, so a
+ * second copy of this sentence inserted **above** the real one silently
+ * becomes the registry's upstream: `chromeSentence` resolves against text
+ * nobody meant, every assertion below keeps passing, and no test anywhere
+ * reports that there was a choice to make. Running this file after a docs edit
+ * then proves only that the document *moved* without breaking the parse — it
+ * cannot prove *where* it moved. Counting converts that silent preference into
+ * a sensor.
+ *
+ * **Counted rather than thrown on**, deliberately: {@link chromeSentence} runs
+ * at module scope, and a throw there takes the whole file to `Tests  no tests`
+ * — zero failures under a count-based reading, and indistinguishable from a
+ * deleted file to a name-set census. A number consumed by an `it` fails by
+ * name instead.
+ */
+function chromeSentenceCount(markdown: string): number {
+  return [...markdown.matchAll(new RegExp(CHROME_SENTENCE.source, 'g'))].length
 }
 
 /**
@@ -103,7 +138,10 @@ function kbdCaptions(html: string): readonly string[] {
   return [...new Set(found)].sort()
 }
 
-const DESIGNED = chromeSentence(readFileSync(from(DESIGN), 'utf8'))
+/** Read once, because the uniqueness check is a statement about the same bytes the reader parsed. */
+const DESIGN_TEXT = readFileSync(from(DESIGN), 'utf8')
+
+const DESIGNED = chromeSentence(DESIGN_TEXT)
 const SHELL_KEYS = comparedKeys(readFileSync(from(SHELL), 'utf8'))
 const CAPTIONS = kbdCaptions(readFileSync(from(MARKUP), 'utf8'))
 
@@ -141,6 +179,30 @@ describe('the chrome binding exists because design §5.1 names it', () => {
   it('refuses to answer when the sentence is gone, rather than answering nothing', () => {
     expect(() => chromeSentence('## 5.1 Layout\n\nTwo sidebars and a dock.\n'))
       .toThrow(/One key hides all chrome/)
+  })
+
+  it('says it exactly once, so the match this file took is the only one there was', () => {
+    // Not "at least once" — presence is already covered above, and presence is
+    // the weaker half. The reader takes the FIRST match from the top of the
+    // file, so a second copy of the sentence placed ANYWHERE ABOVE this one
+    // becomes the upstream in its place with no assertion in this file able to
+    // tell: both copies read identically, so every value derived from the
+    // parse is unchanged. Exactly-once is what makes first-match-wins a
+    // decision rather than an accident, and it is the only assertion here that
+    // can see an insertion *above* the anchor.
+    expect(
+      chromeSentenceCount(DESIGN_TEXT),
+      `${DESIGN} states design §5.1's sentence more than once; whichever copy is higher silently becomes this registry's upstream`,
+    ).toBe(1)
+  })
+
+  it('is a count that can see a second copy, so the check above is not 1 === 1', () => {
+    // The vacuity control every parser in this file carries, aimed at the
+    // counter: a counter that answered 1 unconditionally would agree with the
+    // document forever, which is the shape of the defect it was written for.
+    const twice = 'One key hides all chrome. Once here,\n\nand One key hides all chrome. again further down.\n'
+    expect(chromeSentenceCount(twice)).toBe(2)
+    expect(chromeSentenceCount('Two sidebars and a dock.\n')).toBe(0)
   })
 
   it('registers a binding for it, resolved through the registry and not named inline', () => {

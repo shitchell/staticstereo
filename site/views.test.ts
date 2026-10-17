@@ -156,8 +156,37 @@ const NUMERALS: Readonly<Record<string, number>> = {
  * the bold word before `views`. Both, because they are two independent claims
  * the same sentence makes and the design is free to get them out of step.
  */
+/**
+ * The anchor, written once.
+ *
+ * Shared by {@link viewsFromDesign} and by its uniqueness check rather than
+ * typed twice: two copies of a pattern drift, and a uniqueness check counting
+ * a *different* sentence from the one the reader resolves answers `1` forever
+ * while the reader is reading something else.
+ */
+const VIEWS_SENTENCE = /\*\*([A-Za-z]+) views\*\*[^\n]*?as a registry:([^\n]*)/
+
+/**
+ * How many sentences in the document match {@link VIEWS_SENTENCE}.
+ *
+ * **Uniqueness and not presence**, because `RegExp.exec` answers with the
+ * first match scanning from the top: a second "**N views** … as a registry:"
+ * line inserted **above** §5.2's silently replaces it as this registry's
+ * upstream, and if the two lines read alike every assertion below is unmoved.
+ * Re-running this file after a docs edit then shows only that the document
+ * moved without breaking the parse — never *where* it moved.
+ *
+ * **A number rather than a throw**, because {@link viewsFromDesign} is called
+ * at module scope: throwing there yields `Tests  no tests`, which is zero
+ * failures to a count-based reading and a whole-file deletion to a name-set
+ * census. An `it` over a number fails by name.
+ */
+function viewsSentenceCount(markdown: string): number {
+  return [...markdown.matchAll(new RegExp(VIEWS_SENTENCE.source, 'g'))].length
+}
+
 function viewsFromDesign(markdown: string): DesignViews {
-  const sentence = /\*\*([A-Za-z]+) views\*\*[^\n]*?as a registry:([^\n]*)/.exec(markdown)
+  const sentence = VIEWS_SENTENCE.exec(markdown)
   if (sentence === null) {
     throw new Error('design §5.2\'s views sentence is not where this test looks for it')
   }
@@ -219,7 +248,10 @@ function rosterFromReducer(source: string): ReducerRoster {
 }
 
 /** The rosters as the shipped tree states them. */
-const DESIGNED = viewsFromDesign(readFileSync(from(DESIGN), 'utf8'))
+/** Read once, because the uniqueness check is a statement about the same bytes the reader parsed. */
+const DESIGN_TEXT = readFileSync(from(DESIGN), 'utf8')
+
+const DESIGNED = viewsFromDesign(DESIGN_TEXT)
 const MARKED_UP = rosterFromMarkup(readFileSync(from(MARKUP), 'utf8'))
 const REDUCED = rosterFromReducer(readFileSync(from(REDUCER), 'utf8'))
 
@@ -281,6 +313,30 @@ describe('the views come from design §5.2, not from this file', () => {
   it('refuses to answer when it cannot read the count the sentence writes', () => {
     expect(() => viewsFromDesign('**Several views** (R11) as a registry: `a` · `b`.\n'))
       .toThrow(/not a numeral this test can read/)
+  })
+
+  it('states the sentence exactly once, so the match this file took is the only one there was', () => {
+    // Presence is asserted above and is the weaker half. `exec` returns the
+    // FIRST match from the top of the file, so a second views sentence placed
+    // anywhere ABOVE §5.2's quietly becomes this registry's upstream — and if
+    // the two read alike, `ids`, `written` and `marksDefault` are all
+    // unchanged and nothing else in this file can notice. Exactly-once is what
+    // turns first-match-wins from an unstated preference into a decision the
+    // suite enforces.
+    expect(
+      viewsSentenceCount(DESIGN_TEXT),
+      `${DESIGN} states a views registry sentence more than once; whichever copy is higher silently becomes this registry's upstream`,
+    ).toBe(1)
+  })
+
+  it('is a count that can see a second sentence, so the check above is not 1 === 1', () => {
+    // The vacuity control, aimed at the counter rather than at the parser: a
+    // counter hard-wired to 1 would agree with the document forever, which is
+    // the shape of the defect it exists to catch.
+    const twice = '**Three views** (R11) as a registry: `a` · `b` · `c`.\n\nprose\n\n'
+      + '**Three views** (R11) as a registry: `a` · `b` · `c`.\n'
+    expect(viewsSentenceCount(twice)).toBe(2)
+    expect(viewsSentenceCount('# a document with no such sentence\n')).toBe(0)
   })
 })
 
